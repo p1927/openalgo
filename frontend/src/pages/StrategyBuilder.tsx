@@ -19,7 +19,7 @@ import { type LegDraft, ManualLegBuilder } from '@/components/strategy-builder/M
 import MultiStrikeOITab from '@/components/strategy-builder/MultiStrikeOITab'
 import { PayoffChart } from '@/components/strategy-builder/PayoffChart'
 import { PnLTab } from '@/components/strategy-builder/PnLTab'
-import { PositionsPanel } from '@/components/strategy-builder/PositionsPanel'
+import { PositionsPanel, type PositionsPanelProps } from '@/components/strategy-builder/PositionsPanel'
 import { SaveStrategyDialog } from '@/components/strategy-builder/SaveStrategyDialog'
 import { Simulators } from '@/components/strategy-builder/Simulators'
 import StrategyChartTab from '@/components/strategy-builder/StrategyChartTab'
@@ -154,6 +154,8 @@ export default function StrategyBuilder() {
   const [saveDialogOpen, setSaveDialogOpen] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [loadedEntry, setLoadedEntry] = useState<PortfolioEntry | null>(null)
+  const [loadedPlanName, setLoadedPlanName] = useState<string | null>(null)
+  const [planCharges, setPlanCharges] = useState<PositionsPanelProps['planCharges']>(null)
 
   // Basket execution dialog
   const [executeDialogOpen, setExecuteDialogOpen] = useState(false)
@@ -993,6 +995,58 @@ export default function StrategyBuilder() {
     }
   }, [searchParams, setSearchParams])
 
+  // Load a trade-stack options plan when arriving with ?plan=SYMBOL
+  useEffect(() => {
+    const planSymbol = searchParams.get('plan')
+    if (!planSymbol) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await queuedFetch(() =>
+          apiClient.get<{ status: string; plan?: Record<string, unknown> }>(
+            `/trade-plan?symbol=${encodeURIComponent(planSymbol)}`
+          )
+        )
+        if (cancelled || res.status !== 'success' || !res.plan) return
+        const plan = res.plan
+        const underlying = String(plan.underlying || planSymbol).toUpperCase()
+        const meta = (plan.meta || {}) as Record<string, string>
+        const optionsExchange = meta.options_exchange || 'NFO'
+        setSelectedExchange(optionsExchange)
+        setSelectedUnderlying(underlying)
+        if (plan.expiry) setSelectedExpiry(String(plan.expiry))
+        const rec = (plan.recommended || {}) as Record<string, unknown>
+        const rawLegs = (rec.legs || []) as Array<Record<string, unknown>>
+        const restored: StrategyLeg[] = rawLegs.map((leg) => ({
+          id: uid(),
+          segment: 'OPTION',
+          side: (leg.side as 'BUY' | 'SELL') || 'BUY',
+          lots: Number(leg.lots) || 1,
+          lotSize: Number(leg.lot_size) || Number(leg.quantity) || 1,
+          expiry: String(plan.expiry || ''),
+          strike: Number(leg.strike) || 0,
+          optionType: (leg.option_type as 'CE' | 'PE') || 'CE',
+          price: Number(leg.price) || 0,
+          iv: 0,
+          active: true,
+          symbol: String(leg.symbol || ''),
+        }))
+        setLegs(restored)
+        setLoadedEntry(null)
+        setLoadedPlanName(String(rec.name || 'trade_plan'))
+        setPlanCharges((plan.charges as PositionsPanelProps['planCharges']) || null)
+        showToast.success(`Loaded trade plan for ${underlying}`)
+        searchParams.delete('plan')
+        setSearchParams(searchParams, { replace: true })
+      } catch (err) {
+        showToast.error(err instanceof Error ? err.message : 'Failed to load trade plan')
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [searchParams, setSearchParams])
+
   const saveOrUpdateStrategy = useCallback(
     async (name: string, watchlist: Watchlist) => {
       if (legs.length === 0) {
@@ -1054,6 +1108,12 @@ export default function StrategyBuilder() {
             <span className="inline-flex items-center gap-1.5 rounded-full border border-violet-500/30 bg-violet-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-violet-700 dark:text-violet-400">
               <span className="h-1.5 w-1.5 rounded-full bg-violet-500" />
               {loadedEntry.name}
+            </span>
+          )}
+          {loadedPlanName && !loadedEntry && (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              Plan: {loadedPlanName}
             </span>
           )}
         </div>
@@ -1167,6 +1227,7 @@ export default function StrategyBuilder() {
               marginRequired={marginRequired}
               isMarginLoading={isMarginLoading}
               marginSupported={marginSupported}
+              planCharges={planCharges}
               atmStrike={atmStrike}
               strikeStep={strikeStep}
               onSaveStrategy={() => setSaveDialogOpen(true)}

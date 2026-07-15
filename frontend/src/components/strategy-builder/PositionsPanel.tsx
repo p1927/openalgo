@@ -28,6 +28,18 @@ export interface PositionsPanelProps {
    * entirely so we don't show a dash for a feature the broker can't provide.
    */
   marginSupported?: boolean | null
+  /** Charges breakdown from a loaded trade-stack plan (hub JSON). */
+  planCharges?: {
+    total?: {
+      brokerage?: number
+      stt?: number
+      exchange?: number
+      gst?: number
+      stamp?: number
+      total_charges?: number
+    }
+    broker_preset?: string
+  } | null
   /** ATM strike from the live chain — used to compute per-leg moneyness. */
   atmStrike?: number | null
   /** Common strike increment (e.g. 50 for NIFTY) — drives moneyness step count. */
@@ -117,6 +129,7 @@ export function PositionsPanel({
   marginRequired,
   isMarginLoading,
   marginSupported,
+  planCharges,
   atmStrike = null,
   strikeStep = 0,
   onSaveStrategy,
@@ -441,6 +454,37 @@ export function PositionsPanel({
                 {b.toFixed(0)}
               </span>
             ))}
+          </div>
+        )}
+
+        {planCharges?.total && (
+          <div className="space-y-1 border-t bg-muted/10 px-3.5 py-2.5 text-[11px]">
+            <div className="font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+              Trade plan charges
+              {planCharges.broker_preset ? ` (${planCharges.broker_preset})` : ''}
+            </div>
+            <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 tabular-nums text-foreground">
+              {planCharges.total.brokerage !== undefined && (
+                <span>Brokerage: ₹{planCharges.total.brokerage}</span>
+              )}
+              {planCharges.total.stt !== undefined && (
+                <span>STT: ₹{planCharges.total.stt}</span>
+              )}
+              {planCharges.total.exchange !== undefined && (
+                <span>Exchange: ₹{planCharges.total.exchange}</span>
+              )}
+              {planCharges.total.gst !== undefined && (
+                <span>GST: ₹{planCharges.total.gst}</span>
+              )}
+              {planCharges.total.stamp !== undefined && (
+                <span>Stamp: ₹{planCharges.total.stamp}</span>
+              )}
+              {planCharges.total.total_charges !== undefined && (
+                <span className="col-span-2 font-semibold">
+                  Total: ₹{planCharges.total.total_charges}
+                </span>
+              )}
+            </div>
           </div>
         )}
       </div>

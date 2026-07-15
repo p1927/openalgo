@@ -790,6 +790,74 @@ def get_option_chain(
         return f"Error getting option chain: {str(e)}"
 
 
+def _import_payoff_charges():
+    """Load trade-stack payoff/charges helpers when the repo is co-located."""
+    from pathlib import Path
+
+    trade_root = Path(__file__).resolve().parents[2]
+    integrations = trade_root / "integrations"
+    if integrations.is_dir() and str(integrations) not in sys.path:
+        sys.path.insert(0, str(integrations))
+    from trade_integrations.dataflows.options_research.payoff_charges import (
+        calculate_charges,
+        compute_payoff,
+        estimate_strategy_metrics,
+    )
+
+    return compute_payoff, calculate_charges, estimate_strategy_metrics
+
+
+@mcp.tool()
+def get_strategy_payoff(
+    legs: list[dict[str, Any]],
+    spot: float,
+    range_pct: float = 0.12,
+    steps: int = 80,
+) -> str:
+    """
+    Compute expiry payoff curve for a multi-leg options strategy.
+
+    Args:
+        legs: Strategy legs with side (BUY/SELL), strike, option_type (CE/PE),
+              price, quantity (or lot_size * lots), symbol optional.
+        spot: Current underlying price for sampling range.
+        range_pct: Underlying range as fraction of spot (default 12%).
+        steps: Number of payoff samples.
+
+    Returns:
+        JSON with samples, breakevens, max_profit, max_loss, and pop estimate.
+    """
+    try:
+        _, _, estimate_strategy_metrics = _import_payoff_charges()
+        result = estimate_strategy_metrics(legs, spot=spot)
+        return json.dumps(result, indent=2, default=str)
+    except Exception as e:
+        return f"Error computing strategy payoff: {str(e)}"
+
+
+@mcp.tool()
+def get_trade_charges(
+    legs: list[dict[str, Any]],
+    broker_preset: str = "zerodha",
+) -> str:
+    """
+    Estimate India F&O charges per leg and portfolio total.
+
+    Args:
+        legs: Strategy legs with side, price, quantity (or lot_size * lots).
+        broker_preset: Charge model preset (default zerodha-style flat brokerage).
+
+    Returns:
+        JSON with per_leg breakdown and total (brokerage, STT, GST, stamp, exchange).
+    """
+    try:
+        _, calculate_charges, _ = _import_payoff_charges()
+        result = calculate_charges(legs, broker_preset=broker_preset)
+        return json.dumps(result, indent=2, default=str)
+    except Exception as e:
+        return f"Error calculating trade charges: {str(e)}"
+
+
 @mcp.tool()
 def get_market_depth(symbol: str, exchange: str = "NSE") -> str:
     """
