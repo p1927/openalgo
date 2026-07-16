@@ -1583,11 +1583,15 @@ def record_autonomous_decision(
     rationale: str,
     ticker: str | None = None,
     actions_taken: list[str] | None = None,
+    confidence: int | None = None,
+    direction: str | None = None,
+    strategy: str | None = None,
 ) -> str:
     """
     Log an autonomous agent decision (ENTER/REVISE/EXIT/HOLD/SKIP).
 
-    Wraps record_auto_paper_decision and updates the agent instance.
+    Wraps record_auto_paper_decision and updates the agent instance thesis
+    (direction, strategy, confidence, rationale).
     """
     try:
         actions = _import_autonomous_agents()
@@ -1597,6 +1601,9 @@ def record_autonomous_decision(
             rationale=rationale,
             ticker=ticker,
             actions_taken=actions_taken,
+            confidence=confidence,
+            direction=direction,
+            strategy=strategy,
         )
         return json.dumps(result, indent=2, default=str)
     except Exception as e:
