@@ -1242,7 +1242,10 @@ def run_tradingagents_analysis(
     """
     try:
         run_agent_debate, load_agent_debate_json, is_agent_debate_cache_fresh = _import_agent_debate()
+        from trade_integrations.bridge.hub_context import infer_debate_asset_type
+
         key = ticker.strip().upper()
+        resolved_asset = infer_debate_asset_type(key, asset_type if asset_type in ("options", "stock") else None)
         if not refresh:
             cached = load_agent_debate_json(key)
             if cached and is_agent_debate_cache_fresh(key):
@@ -1278,7 +1281,7 @@ def run_tradingagents_analysis(
 
         def _worker() -> None:
             try:
-                run_agent_debate(key, asset_type=asset_type)
+                run_agent_debate(key, asset_type=resolved_asset)
             except Exception:
                 pass
 
