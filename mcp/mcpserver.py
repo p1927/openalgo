@@ -1007,6 +1007,60 @@ def get_options_trade_plan(
         return f"Error loading options trade plan: {str(e)}"
 
 
+def _trade_widget_store_dir():
+    from pathlib import Path
+
+    root = Path.home() / ".vibe-trading" / "trade_widgets"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+@mcp.tool()
+def get_options_trade_widget(
+    ticker: str,
+    refresh: bool = False,
+    expiry_date: str | None = None,
+    lookahead_days: int | None = None,
+) -> str:
+    """
+    Build a structured trade-plan widget for Vibe chat (scenarios, payoff chart data,
+    charges, recommended legs, execute steps).
+
+    Returns JSON with type ``trade_plan.widget``. The Vibe UI renders this as an
+    interactive card with payoff graph and Execute button.
+
+    Args:
+        ticker: Underlying (NIFTY, RELIANCE, AAPL, …)
+        refresh: Regenerate hub plan before building widget
+        expiry_date: Optional expiry DDMMMYY
+        lookahead_days: Event lookahead window
+
+    Returns:
+        JSON widget payload (also persisted under ~/.vibe-trading/trade_widgets/).
+    """
+    try:
+        from trade_integrations.dataflows.options_research.widget_payload import (
+            build_options_trade_widget,
+        )
+
+        widget = build_options_trade_widget(
+            ticker,
+            expiry_date=expiry_date,
+            lookahead_days=lookahead_days,
+            refresh=refresh,
+        )
+        widget_id = widget.get("widget_id")
+        if widget_id:
+            store = _trade_widget_store_dir() / f"{widget_id}.json"
+            store.write_text(json.dumps(widget, indent=2, default=str), encoding="utf-8")
+        return json.dumps(widget, indent=2, default=str)
+    except Exception as e:
+        return json.dumps(
+            {"type": "trade_plan.widget", "error": str(e), "underlying": ticker},
+            indent=2,
+        )
+
+
 @mcp.tool()
 def get_stock_browse(ticker: str) -> str:
     """
