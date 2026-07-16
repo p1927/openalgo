@@ -46,6 +46,14 @@ type WizardStep = 'preview' | 'margin' | 'confirm' | 'execute'
 
 const STEP_ORDER: WizardStep[] = ['preview', 'margin', 'confirm', 'execute']
 
+/** Hub implementation_steps use margin_check / execute_basket; wizard uses margin / execute. */
+const HUB_ACTION_FOR_STEP: Record<WizardStep, string[]> = {
+  preview: ['preview'],
+  margin: ['margin', 'margin_check'],
+  confirm: ['confirm'],
+  execute: ['execute', 'execute_basket'],
+}
+
 export function ExecutePlanWizard({
   open,
   onOpenChange,
@@ -60,6 +68,7 @@ export function ExecutePlanWizard({
   const [idx, setIdx] = useState(0)
   const [marginRequired, setMarginRequired] = useState<number | null>(null)
   const [marginLoading, setMarginLoading] = useState(false)
+  const [marginChecked, setMarginChecked] = useState(false)
   const [confirmed, setConfirmed] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [results, setResults] = useState<BasketOrderResult[] | null>(null)
@@ -70,6 +79,7 @@ export function ExecutePlanWizard({
     if (!open) return
     setIdx(0)
     setMarginRequired(null)
+    setMarginChecked(false)
     setConfirmed(false)
     setResults(null)
   }, [open, planName])
@@ -77,7 +87,10 @@ export function ExecutePlanWizard({
   const activeLegs = useMemo(() => legs.filter((l) => l.active && l.symbol), [legs])
 
   const fetchMargin = useCallback(async () => {
-    if (!apiKey || activeLegs.length === 0) return
+    if (!apiKey || activeLegs.length === 0) {
+      setMarginChecked(true)
+      return
+    }
     setMarginLoading(true)
     try {
       const positions = activeLegs.map((l) => ({
@@ -93,13 +106,14 @@ export function ExecutePlanWizard({
         status: string
         data?: { total_margin_required?: number }
       }>('/margin', { positions })
-      const total = res.data?.total_margin_required
+      const total = res.data?.data?.total_margin_required
       setMarginRequired(typeof total === 'number' ? total : null)
     } catch {
       setMarginRequired(null)
-      showToast.error('Margin check failed')
+      showToast.error('Margin check failed — you may proceed after reviewing legs manually')
     } finally {
       setMarginLoading(false)
+      setMarginChecked(true)
     }
   }, [apiKey, activeLegs, exchange])
 
@@ -122,6 +136,10 @@ export function ExecutePlanWizard({
         product: 'NRML',
       }))
       const res = await tradingApi.placeBasketOrder(apiKey, planName, orders)
+      if (res.status !== 'success') {
+        showToast.error(res.message || 'Basket order failed')
+        return
+      }
       setResults(res.results ?? [])
       showToast.success('Basket order submitted')
       setIdx(STEP_ORDER.length - 1)
@@ -134,7 +152,7 @@ export function ExecutePlanWizard({
 
   const canNext =
     (current === 'preview') ||
-    (current === 'margin' && marginRequired !== null) ||
+    (current === 'margin' && marginChecked && !marginLoading) ||
     (current === 'confirm' && confirmed) ||
     current === 'execute'
 
@@ -150,7 +168,9 @@ export function ExecutePlanWizard({
     if (idx > 0) setIdx(idx - 1)
   }
 
-  const stepMeta = implementationSteps.find((s) => s.action === current)
+  const stepMeta = implementationSteps.find((s) =>
+    HUB_ACTION_FOR_STEP[current].includes(s.action)
+  )
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -201,9 +221,13 @@ export function ExecutePlanWizard({
                   <div className="flex items-center gap-2 text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin" /> Checking…
                   </div>
-                ) : (
+                ) : marginRequired !== null ? (
                   <div className="text-lg font-bold tabular-nums">
-                    {marginRequired !== null ? `₹${marginRequired.toLocaleString('en-IN')}` : '—'}
+                    ₹{marginRequired.toLocaleString('en-IN')}
+                  </div>
+                ) : (
+                  <div className="text-sm text-muted-foreground">
+                    Unavailable — verify margin in broker app before proceeding
                   </div>
                 )}
               </div>
