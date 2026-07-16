@@ -790,14 +790,22 @@ def get_option_chain(
         return f"Error getting option chain: {str(e)}"
 
 
-def _import_payoff_charges():
-    """Load trade-stack payoff/charges helpers when the repo is co-located."""
+def _ensure_trade_stack_import() -> None:
+    """Prepare sys.path and skip TradingAgents graph patches for MCP tools."""
     from pathlib import Path
 
+    os.environ.setdefault("TRADE_INTEGRATIONS_SKIP_APPLY", "1")
     trade_root = Path(__file__).resolve().parents[2]
     integrations = trade_root / "integrations"
-    if integrations.is_dir() and str(integrations) not in sys.path:
-        sys.path.insert(0, str(integrations))
+    tradingagents = trade_root / "tradingagents"
+    for path in (integrations, tradingagents):
+        if path.is_dir() and str(path) not in sys.path:
+            sys.path.insert(0, str(path))
+
+
+def _import_payoff_charges():
+    """Load trade-stack payoff/charges helpers when the repo is co-located."""
+    _ensure_trade_stack_import()
     from trade_integrations.dataflows.options_research.payoff_charges import (
         calculate_charges,
         compute_payoff,
@@ -809,12 +817,7 @@ def _import_payoff_charges():
 
 def _import_options_research():
     """Load trade-stack options browse + plan helpers when co-located."""
-    from pathlib import Path
-
-    trade_root = Path(__file__).resolve().parents[2]
-    integrations = trade_root / "integrations"
-    if integrations.is_dir() and str(integrations) not in sys.path:
-        sys.path.insert(0, str(integrations))
+    _ensure_trade_stack_import()
     from trade_integrations.dataflows.options_research.browse_summary import (
         build_browse_summary,
         format_browse_markdown,
@@ -922,12 +925,7 @@ def _fetch_expiries_via_client(underlying: str, options_exchange: str) -> list[s
 
 
 def _import_stock_research():
-    from pathlib import Path
-
-    trade_root = Path(__file__).resolve().parents[2]
-    integrations = trade_root / "integrations"
-    if integrations.is_dir() and str(integrations) not in sys.path:
-        sys.path.insert(0, str(integrations))
+    _ensure_trade_stack_import()
     from trade_integrations.dataflows.stock_research.browse_summary import (
         build_stock_browse_summary,
         format_stock_browse_markdown,
@@ -943,6 +941,22 @@ def _import_stock_research():
         format_stock_report,
         load_stock_research_json,
         save_stock_research,
+    )
+
+
+def _import_index_research():
+    _ensure_trade_stack_import()
+    from trade_integrations.context.hub import load_index_research_json, save_index_research
+    from trade_integrations.dataflows.index_research.aggregator import run_index_research
+    from trade_integrations.dataflows.index_research.format import format_index_report
+    from trade_integrations.tools.index_research_tools import fetch_index_research_report
+
+    return (
+        run_index_research,
+        format_index_report,
+        load_index_research_json,
+        save_index_research,
+        fetch_index_research_report,
     )
 
 
@@ -1129,6 +1143,7 @@ def get_options_trade_widget(
         JSON widget payload (also persisted under ~/.vibe-trading/trade_widgets/).
     """
     try:
+        _ensure_trade_stack_import()
         from trade_integrations.dataflows.options_research.widget_payload import (
             build_options_trade_widget,
         )
@@ -1194,14 +1209,7 @@ def get_stock_trade_widget(
 
 
 def _import_agent_debate():
-    from pathlib import Path
-
-    trade_root = Path(__file__).resolve().parents[2]
-    integrations = trade_root / "integrations"
-    tradingagents = trade_root / "tradingagents"
-    for path in (integrations, tradingagents):
-        if path.is_dir() and str(path) not in sys.path:
-            sys.path.insert(0, str(path))
+    _ensure_trade_stack_import()
     import trade_integrations  # noqa: F401
     from trade_integrations.bridge.agent_debate import run_agent_debate
     from trade_integrations.context.hub import (
@@ -1361,6 +1369,64 @@ def get_stock_trade_plan(ticker: str, refresh: bool = False, lookahead_days: int
         return format_stock_report(doc)
     except Exception as e:
         return f"Error loading stock trade plan: {str(e)}"
+
+
+@mcp.tool()
+def get_index_trade_plan(
+    ticker: str = "NIFTY",
+    refresh: bool = False,
+    horizon_days: int | None = None,
+) -> str:
+    """
+    Load or generate an index trade plan from the trade-stack hub.
+
+    Includes prediction range, constituent attribution, macro factors, regime,
+    scenarios, and model accuracy metrics. Set refresh=true to bypass cache.
+
+    Args:
+        ticker: Index symbol (NIFTY, BANKNIFTY, …)
+        refresh: Regenerate even if cache exists
+        horizon_days: Prediction horizon in days (default from env, usually 14)
+
+    Returns:
+        JSON with index_research payload and markdown summary.
+    """
+    try:
+        (
+            _,
+            format_index_report,
+            load_index_research_json,
+            _,
+            fetch_index_research_report,
+        ) = _import_index_research()
+        sym = ticker.strip().upper().replace(".NS", "").replace(".BO", "")
+        if refresh:
+            markdown = fetch_index_research_report(
+                sym,
+                horizon_days=horizon_days,
+                use_cache=False,
+            )
+            doc = load_index_research_json(sym)
+        else:
+            doc = load_index_research_json(sym)
+            if doc:
+                markdown = format_index_report(doc)
+            else:
+                markdown = fetch_index_research_report(sym, horizon_days=horizon_days)
+                doc = load_index_research_json(sym)
+        payload = doc.to_dict() if doc and hasattr(doc, "to_dict") else None
+        if payload is None and doc is not None:
+            from dataclasses import asdict
+
+            payload = asdict(doc)
+            payload["as_of"] = doc.as_of.isoformat()
+        return json.dumps(
+            {"index_research": payload, "markdown": markdown},
+            indent=2,
+            default=str,
+        )
+    except Exception as e:
+        return f"Error loading index trade plan: {str(e)}"
 
 
 @mcp.tool()
