@@ -1,5 +1,6 @@
 import { Radio, Wifi, WifiOff } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import type { PlanCharges } from '@/components/strategy-builder/ChargesBreakdown'
 import {
   Table,
   TableBody,
@@ -19,6 +20,8 @@ export interface PnLTabProps {
   fnoExchange: string
   /** Snapshot prices from the option chain — used only until the first WS tick. */
   fallbackPrices: Record<string, number>
+  /** Live brokerage/GST breakdown — shown below the P&L table. */
+  planCharges?: PlanCharges
 }
 
 function formatCurrency(v: number): string {
@@ -84,7 +87,7 @@ function PnlCell({ value }: { value: number }) {
   )
 }
 
-export function PnLTab({ legs, fnoExchange, fallbackPrices }: PnLTabProps) {
+export function PnLTab({ legs, fnoExchange, fallbackPrices, planCharges = null }: PnLTabProps) {
   // Only active (user-included) legs are considered "open" for this tab.
   // Excluded legs don't appear in the table, don't contribute to the total,
   // and don't consume a WebSocket subscription.
@@ -161,6 +164,8 @@ export function PnLTab({ legs, fnoExchange, fallbackPrices }: PnLTabProps) {
   }, [legs, marketData, fnoExchange, fallbackPrices])
 
   const total = useMemo(() => rows.reduce((acc, r) => acc + r.pnl, 0), [rows])
+  const entryCharges = planCharges?.total?.total_charges ?? 0
+  const netAfterCharges = total - entryCharges
   const openCount = rows.filter((r) => !r.isClosed).length
   const closedCount = rows.filter((r) => r.isClosed).length
   const excludedCount = legs.length - rows.length
@@ -321,12 +326,32 @@ export function PnLTab({ legs, fnoExchange, fallbackPrices }: PnLTabProps) {
           <TableFooter>
             <TableRow>
               <TableCell colSpan={6} className="text-[10px] font-semibold uppercase tracking-wider">
-                Total P&amp;L
+                Total P&amp;L (gross)
               </TableCell>
               <TableCell className="whitespace-nowrap text-right text-sm">
                 <PnlCell value={total} />
               </TableCell>
             </TableRow>
+            {entryCharges > 0 && (
+              <>
+                <TableRow>
+                  <TableCell colSpan={6} className="text-[10px] font-semibold uppercase tracking-wider">
+                    Entry charges
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap text-right text-sm tabular-nums text-amber-700 dark:text-amber-400">
+                    −₹{entryCharges.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                  </TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell colSpan={6} className="text-[10px] font-semibold uppercase tracking-wider">
+                    Net P&amp;L (after entry chg.)
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap text-right text-sm">
+                    <PnlCell value={netAfterCharges} />
+                  </TableCell>
+                </TableRow>
+              </>
+            )}
           </TableFooter>
         )}
       </Table>

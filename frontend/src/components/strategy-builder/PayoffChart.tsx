@@ -1,7 +1,10 @@
 import type * as PlotlyTypes from 'plotly.js'
+import { RotateCcw } from 'lucide-react'
 import { useMemo } from 'react'
 import Plot from '@/lib/Plot2D'
+import { Button } from '@/components/ui/button'
 import type { PayoffResult, StrategyLeg } from '@/lib/strategyMath'
+import { cn } from '@/lib/utils'
 import { useThemeStore } from '@/stores/themeStore'
 
 export interface PayoffChartProps {
@@ -15,6 +18,15 @@ export interface PayoffChartProps {
   legs?: StrategyLeg[]
   strikeStep?: number
   onStrikeChange?: (legId: string, strike: number) => void
+  onResetStrikes?: () => void
+  canResetStrikes?: boolean
+}
+
+function legLabel(leg: StrategyLeg): string {
+  const side = leg.side === 'SELL' ? 'S' : 'B'
+  const opt = leg.optionType ?? 'CE'
+  const strike = leg.strike ?? 0
+  return `${side} ${opt} ${strike}`
 }
 
 function snapStrike(value: number, step: number): number {
@@ -33,6 +45,8 @@ export function PayoffChart({
   legs = [],
   strikeStep = 50,
   onStrikeChange,
+  onResetStrikes,
+  canResetStrikes = false,
 }: PayoffChartProps) {
   const { mode, appMode } = useThemeStore()
   const isAnalyzer = appMode === 'analyzer'
@@ -163,18 +177,19 @@ export function PayoffChart({
     for (const leg of strikeLegs) {
       const strike = leg.strike ?? spot
       const isCe = leg.optionType === 'CE'
+      const isSell = leg.side === 'SELL'
       traces.push({
         x: [strike, strike],
         y: [yLo, yHi],
         type: 'scatter',
         mode: 'lines',
-        name: `${leg.optionType} ${strike}`,
+        name: legLabel(leg),
         line: {
           color: isCe ? colors.ceStrike : colors.peStrike,
-          width: 3,
-          dash: 'solid',
+          width: isSell ? 2 : 3,
+          dash: isSell ? 'dash' : 'solid',
         },
-        hovertemplate: `<b>${leg.optionType}</b> strike %{x:,.0f}<extra></extra>`,
+        hovertemplate: `<b>${leg.side} ${leg.optionType}</b> @ %{x:,.0f}<extra></extra>`,
         showlegend: true,
       })
     }
@@ -369,19 +384,45 @@ export function PayoffChart({
       />
       {onStrikeChange && strikeLegs.length > 0 && (
         <div className="space-y-2 rounded-lg border bg-muted/20 px-3 py-2.5">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-            Adjust strikes (drag sliders — updates legs &amp; charges)
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+              Adjust strikes (updates symbol, price &amp; charges)
+            </div>
+            {onResetStrikes && canResetStrikes && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1 text-[10px]"
+                onClick={onResetStrikes}
+              >
+                <RotateCcw className="h-3 w-3" />
+                Reset
+              </Button>
+            )}
           </div>
           {strikeLegs.map((leg) => {
             const strike = leg.strike ?? spot
             const isCe = leg.optionType === 'CE'
+            const isBuy = leg.side === 'BUY'
             return (
               <label key={leg.id} className="flex items-center gap-3 text-xs">
                 <span
-                  className="w-14 shrink-0 font-bold tabular-nums"
-                  style={{ color: isCe ? colors.ceStrike : colors.peStrike }}
+                  className={cn(
+                    'inline-flex w-[4.5rem] shrink-0 items-center gap-1 font-bold tabular-nums',
+                    isBuy ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400'
+                  )}
+                  title={`${leg.side} ${leg.optionType}`}
                 >
-                  {leg.optionType}
+                  <span
+                    className={cn(
+                      'inline-flex h-4 w-4 items-center justify-center rounded text-[9px]',
+                      isBuy ? 'bg-emerald-500/15' : 'bg-rose-500/15'
+                    )}
+                  >
+                    {isBuy ? 'B' : 'S'}
+                  </span>
+                  <span style={{ color: isCe ? colors.ceStrike : colors.peStrike }}>{leg.optionType}</span>
                 </span>
                 <input
                   type="range"
@@ -397,6 +438,9 @@ export function PayoffChart({
                   }}
                 />
                 <span className="w-16 shrink-0 text-right font-semibold tabular-nums">{strike}</span>
+                <span className="hidden w-24 shrink-0 truncate text-[10px] text-muted-foreground sm:inline">
+                  ₹{leg.price.toFixed(1)}
+                </span>
               </label>
             )
           })}

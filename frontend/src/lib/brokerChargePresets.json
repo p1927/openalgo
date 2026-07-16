@@ -1,0 +1,38 @@
+{
+  "version": "2026-07",
+  "notes": "Keep in sync with integrations/trade_integrations/dataflows/broker_charges/presets.json",
+  "statutory": {
+    "nse_options": {
+      "stt_sell_rate": 0.0015,
+      "exchange_rate": 0.0003503,
+      "stamp_buy_rate": 0.00003,
+      "sebi_per_crore": 10,
+      "gst_rate": 0.18
+    },
+    "nse_futures": {
+      "stt_sell_rate": 0.0005,
+      "exchange_rate": 0.0000173,
+      "stamp_buy_rate": 0.00002,
+      "sebi_per_crore": 10,
+      "gst_rate": 0.18
+    }
+  },
+  "brokers": {
+    "groww": {
+      "display_name": "Groww",
+      "fno_options_brokerage_inr": 20,
+      "fno_futures_brokerage_inr": 20
+    },
+    "indmoney": {
+      "display_name": "INDmoney",
+      "fno_options_brokerage_inr": 20,
+      "fno_futures_brokerage_inr": 20
+    },
+    "zerodha": {
+      "display_name": "Zerodha",
+      "fno_options_brokerage_inr": 20,
+      "fno_futures_brokerage_inr": 20
+    }
+  },
+  "default_broker": "indmoney"
+}

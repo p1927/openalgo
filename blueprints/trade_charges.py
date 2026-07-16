@@ -7,7 +7,7 @@ import os
 import sys
 from pathlib import Path
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, session
 
 from limiter import limiter
 from utils.logging import get_logger
@@ -43,7 +43,9 @@ def post_trade_charges():
     if not isinstance(legs, list) or not legs:
         return jsonify({"status": "error", "message": "legs array required"}), 400
 
-    broker_preset = str(payload.get("broker_preset") or "zerodha")
+    broker_preset = str(
+        payload.get("broker_preset") or session.get("broker") or "indmoney"
+    ).lower()
     include_exit = bool(payload.get("include_exit", True))
     spot = payload.get("spot")
     try:

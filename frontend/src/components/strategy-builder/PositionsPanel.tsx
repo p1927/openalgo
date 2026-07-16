@@ -1,8 +1,11 @@
 import { Layers, Pencil, RotateCw, Save, Send, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
+import { ChargesBreakdown, type PlanCharges } from '@/components/strategy-builder/ChargesBreakdown'
 import { type StrategyLeg, strikeMoneyness } from '@/lib/strategyMath'
 import { cn } from '@/lib/utils'
+
+export type { PlanCharges }
 
 export interface PositionsPanelProps {
   legs: StrategyLeg[]
@@ -29,34 +32,7 @@ export interface PositionsPanelProps {
    */
   marginSupported?: boolean | null
   /** Charges breakdown — live from /api/trade-charges or loaded plan. */
-  planCharges?: {
-    per_leg?: Array<{
-      symbol?: string
-      side?: string
-      brokerage?: number
-      stt?: number
-      exchange?: number
-      gst?: number
-      stamp?: number
-      sebi?: number
-      total_charges?: number
-    }>
-    total?: {
-      brokerage?: number
-      stt?: number
-      exchange?: number
-      gst?: number
-      stamp?: number
-      sebi?: number
-      total_charges?: number
-    }
-    exit?: { per_leg?: unknown[]; total?: Record<string, number> }
-    exit_charges?: number
-    round_trip_charges?: number
-    net_debit_credit?: number
-    broker_preset?: string
-    charge_source?: string
-  } | null
+  planCharges?: PlanCharges
   isChargesLoading?: boolean
   /** Net P&L bounds from loaded plan (after entry charges). */
   planNetPnl?: {
@@ -145,73 +121,7 @@ function ChargesPanel({
   planCharges: PositionsPanelProps['planCharges']
   isChargesLoading: boolean
 }) {
-  return (
-    <div className="space-y-2 border-t bg-muted/10 px-3.5 py-2.5 text-[11px]">
-      <div className="font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-        Transaction charges
-        {planCharges?.broker_preset ? ` (${planCharges.broker_preset})` : ''}
-        {isChargesLoading ? ' — updating…' : ''}
-      </div>
-      {planCharges?.total && (
-        <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 tabular-nums text-foreground">
-          {planCharges.total.brokerage !== undefined && (
-            <span>Brokerage: ₹{planCharges.total.brokerage}</span>
-          )}
-          {planCharges.total.stt !== undefined && <span>STT: ₹{planCharges.total.stt}</span>}
-          {planCharges.total.exchange !== undefined && (
-            <span>Exchange: ₹{planCharges.total.exchange}</span>
-          )}
-          {planCharges.total.gst !== undefined && <span>GST: ₹{planCharges.total.gst}</span>}
-          {planCharges.total.stamp !== undefined && <span>Stamp: ₹{planCharges.total.stamp}</span>}
-          {planCharges.total.sebi !== undefined && <span>SEBI: ₹{planCharges.total.sebi}</span>}
-          {planCharges.total.total_charges !== undefined && (
-            <span className="col-span-2 font-semibold">
-              Entry charges: ₹{planCharges.total.total_charges}
-            </span>
-          )}
-          {planCharges.round_trip_charges !== undefined && (
-            <span className="col-span-2 font-semibold text-amber-600 dark:text-amber-400">
-              Round-trip (est.): ₹{planCharges.round_trip_charges}
-            </span>
-          )}
-          {planCharges.net_debit_credit !== undefined && (
-            <span className="col-span-2 font-semibold">
-              Net debit/credit: ₹{planCharges.net_debit_credit}
-            </span>
-          )}
-        </div>
-      )}
-      {planCharges?.per_leg && planCharges.per_leg.length > 0 && (
-        <div className="space-y-2 border-t border-border/50 pt-2">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
-            Per leg / transaction
-          </div>
-          {planCharges.per_leg.map((leg, i) => (
-            <div
-              key={`${leg.symbol}-${i}`}
-              className="rounded-md border border-border/40 bg-background/60 px-2 py-1.5"
-            >
-              <div className="font-medium text-foreground">
-                {leg.side} {leg.symbol}
-              </div>
-              <div className="mt-0.5 grid grid-cols-2 gap-x-2 gap-y-0.5 tabular-nums text-muted-foreground">
-                {leg.brokerage !== undefined && <span>Brokerage ₹{leg.brokerage}</span>}
-                {leg.stt !== undefined && <span>STT ₹{leg.stt}</span>}
-                {leg.gst !== undefined && <span>GST ₹{leg.gst}</span>}
-                {leg.stamp !== undefined && <span>Stamp ₹{leg.stamp}</span>}
-                {leg.exchange !== undefined && <span>Exchange ₹{leg.exchange}</span>}
-                {leg.total_charges !== undefined && (
-                  <span className="col-span-2 font-semibold text-foreground">
-                    Total ₹{leg.total_charges}
-                  </span>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
+  return <ChargesBreakdown planCharges={planCharges ?? null} isChargesLoading={isChargesLoading} />
 }
 
 export function PositionsPanel({
@@ -465,8 +375,8 @@ export function PositionsPanel({
         )}
       </div>
 
-      {/* Charges — directly under legs so brokerage/GST are visible without scrolling */}
-      {(planCharges?.total || (planCharges?.per_leg && planCharges.per_leg.length > 0) || isChargesLoading) && (
+      {/* Charges — always visible when legs exist; refreshes on price/strike edits */}
+      {legs.length > 0 && (
         <ChargesPanel planCharges={planCharges} isChargesLoading={isChargesLoading} />
       )}
 
@@ -540,6 +450,19 @@ export function PositionsPanel({
             value={formatCurrency(totalPnl)}
             tone={totalPnl > 0 ? 'profit' : totalPnl < 0 ? 'loss' : 'neutral'}
           />
+          {planCharges?.total?.total_charges !== undefined && (
+            <MetricTile
+              label="Net P&L (after entry chg.)"
+              value={formatCurrency(totalPnl - planCharges.total.total_charges)}
+              tone={
+                totalPnl - planCharges.total.total_charges > 0
+                  ? 'profit'
+                  : totalPnl - planCharges.total.total_charges < 0
+                    ? 'loss'
+                    : 'neutral'
+              }
+            />
+          )}
           <MetricTile
             label="Net Credit"
             value={formatCurrency(netCredit)}
