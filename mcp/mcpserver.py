@@ -1174,7 +1174,8 @@ def get_plan_position_status(widget_id: str) -> str:
     """
     Return execution ledger entry and matched broker positions for a trade widget.
 
-    Gated by OPTIONS_REALTIME_MONITOR_ENABLED — returns empty JSON when monitor is off.
+    Gated by OPTIONS_REALTIME_MONITOR_ENABLED for legacy paths; always returns
+    ledger + thesis-break when a ledger entry exists (for auto paper trading).
 
     Args:
         widget_id: Persisted trade-plan widget id (tp_*)
@@ -1185,15 +1186,14 @@ def get_plan_position_status(widget_id: str) -> str:
     try:
         _ensure_trade_stack_import()
         from trade_integrations.monitor.config import is_monitor_enabled
+        from trade_integrations.context.hub import load_options_research_json
         from trade_integrations.monitor.execution_ledger import (
             fetch_position_book,
             get_ledger_entry,
             match_positions_for_entry,
         )
-        from trade_integrations.monitor.service import MonitorService
-
-        if not is_monitor_enabled():
-            return json.dumps({})
+        from trade_integrations.monitor.live_quotes import fetch_underlying_ltp
+        from trade_integrations.monitor.thesis_break import evaluate_thesis_break
 
         ledger_entry = get_ledger_entry(widget_id)
         if ledger_entry is None:
@@ -1204,25 +1204,203 @@ def get_plan_position_status(widget_id: str) -> str:
             ledger_entry,
             position_book or {},
         )
-        thesis_report = MonitorService().evaluate_position_thesis(widget_id)
+        underlying = str(ledger_entry.get("underlying") or "").strip().upper()
+        doc = load_options_research_json(underlying) if underlying else None
+        live_spot = fetch_underlying_ltp(underlying) if underlying else None
+        thesis_report = evaluate_thesis_break(
+            doc,
+            ledger_entry,
+            live_spot=live_spot,
+            position_pnl=position_pnl,
+        )
         payload: dict[str, Any] = {
             "widget_id": widget_id,
             "ledger": ledger_entry,
             "matched_positions": matched_positions,
             "position_pnl": position_pnl,
+            "monitor_enabled": is_monitor_enabled(),
         }
-        if thesis_report is not None:
-            payload["thesis_break"] = {
-                "broken": thesis_report.broken,
-                "reasons": thesis_report.reasons,
-                "severity": thesis_report.severity,
-                "live_spot": thesis_report.live_spot,
-                "plan_spot": thesis_report.plan_spot,
-                "position_pnl": thesis_report.position_pnl,
-            }
+        payload["thesis_break"] = {
+            "broken": thesis_report.broken,
+            "reasons": thesis_report.reasons,
+            "severity": thesis_report.severity,
+            "live_spot": thesis_report.live_spot,
+            "plan_spot": thesis_report.plan_spot,
+            "position_pnl": thesis_report.position_pnl,
+        }
         return json.dumps(payload, indent=2, default=str)
     except Exception as e:
         return json.dumps({"widget_id": widget_id, "error": str(e)}, indent=2)
+
+
+def _import_auto_paper():
+    _ensure_trade_stack_import()
+    from trade_integrations.auto_paper import mcp_actions
+
+    return mcp_actions
+
+
+@mcp.tool()
+def start_auto_paper_trading(
+    ticker: str,
+    budget_inr: float = 20000.0,
+    watchlist: list[str] | None = None,
+    max_daily_loss_inr: float = 2000.0,
+    goal: str | None = None,
+    mandate: str | None = None,
+) -> str:
+    """
+    Start **autonomous** intraday paper trading — no human confirmation per order.
+
+    Enables OpenAlgo analyzer mode, saves mandate, starts scheduler agent turns
+    (when VIBE_TRADING_ENABLE_SCHEDULER=1), and returns initial market feedback.
+    After starting, immediately research and act in the same turn without asking user.
+
+    Args:
+        ticker: Primary underlying (e.g. NIFTY, BANKNIFTY)
+        budget_inr: Max paper capital to deploy (default 20000)
+        watchlist: Optional list of symbols to rotate; defaults to [ticker]
+        max_daily_loss_inr: Halt new entries after this daily loss (default 2000)
+        goal: Profit objective in plain language
+        mandate: Full user mandate to persist for scheduler turns
+
+    Returns:
+        JSON with session status and recommended next MCP calls.
+    """
+    try:
+        actions = _import_auto_paper()
+        result = actions.start_auto_paper(
+            ticker=ticker,
+            budget_inr=budget_inr,
+            watchlist=watchlist,
+            max_daily_loss_inr=max_daily_loss_inr,
+            goal=goal,
+            mandate=mandate,
+            agent_mode=True,
+        )
+        return json.dumps(result, indent=2, default=str)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)}, indent=2)
+
+
+@mcp.tool()
+def stop_auto_paper_trading() -> str:
+    """
+    Stop the active intraday paper trading session and remove its scheduler cron job.
+
+    Use when the user asks to stop auto trading, square off for the day, or
+    end the paper session. Unregisters the auto-paper-agent-turn cron from
+    Vibe scheduler so no further background turns run. Does not close open
+    positions — call close_all_positions first if flat is desired.
+
+    Returns:
+        JSON confirmation.
+    """
+    try:
+        actions = _import_auto_paper()
+        return json.dumps(actions.stop_auto_paper(), indent=2, default=str)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)}, indent=2)
+
+
+@mcp.tool()
+def get_auto_paper_status() -> str:
+    """
+    Get active intraday paper trading session state.
+
+    Call at the **start of every trading turn** and when the user asks how the
+    session is going. Returns budget, open positions, sandbox funds, P&L,
+    market hours, last decisions, and halt state.
+
+    Returns:
+        JSON session summary for agent decisions.
+    """
+    try:
+        actions = _import_auto_paper()
+        return json.dumps(actions.get_status(), indent=2, default=str)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)}, indent=2)
+
+
+@mcp.tool()
+def get_auto_paper_market_feedback(ticker: str | None = None) -> str:
+    """
+    Live market feedback for the autonomous paper trader.
+
+    Returns spot vs plan drift, material news, open position P&L, thesis-break
+    alerts, and deltas since the last agent turn. Call at the start of every
+    autonomous turn and whenever the market may have changed.
+
+    Args:
+        ticker: Optional focus underlying; defaults to session primary ticker
+
+    Returns:
+        JSON with alerts, summary, tickers, open_positions, deltas_since_last_turn
+    """
+    try:
+        actions = _import_auto_paper()
+        result = actions.get_market_feedback(ticker=ticker)
+        return json.dumps(result, indent=2, default=str)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)}, indent=2)
+
+
+@mcp.tool()
+def execute_auto_paper_basket(widget_id: str) -> str:
+    """
+    Execute a researched trade-plan widget in **paper** mode (OpenAlgo sandbox).
+
+    Call after get_options_trade_widget + margin/charges validation when you
+    decide to ENTER. Forces analyzer mode, places basket orders from widget
+    implementation_steps, and records to the execution ledger.
+
+    Args:
+        widget_id: Trade plan widget id (tp_*)
+
+    Returns:
+        JSON with execution results.
+    """
+    try:
+        actions = _import_auto_paper()
+        result = actions.execute_basket(widget_id)
+        return json.dumps(result, indent=2, default=str)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)}, indent=2)
+
+
+@mcp.tool()
+def record_auto_paper_decision(
+    decision: str,
+    rationale: str,
+    ticker: str | None = None,
+    actions_taken: list[str] | None = None,
+) -> str:
+    """
+    Log the agent's trading decision for the current paper session turn.
+
+    Call at the end of every active trading turn with ENTER, EXIT, HOLD, or SKIP
+    plus clear rationale (why this maximizes profit or limits loss).
+
+    Args:
+        decision: ENTER | EXIT | HOLD | SKIP
+        rationale: Why this action (research, spot move, thesis, budget)
+        ticker: Underlying symbol
+        actions_taken: MCP tools called this turn (e.g. get_options_trade_plan)
+
+    Returns:
+        JSON confirmation.
+    """
+    try:
+        actions = _import_auto_paper()
+        result = actions.record_decision(
+            decision=decision,
+            rationale=rationale,
+            ticker=ticker,
+            actions_taken=actions_taken,
+        )
+        return json.dumps(result, indent=2, default=str)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
 @mcp.tool()
