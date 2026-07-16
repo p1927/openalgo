@@ -68,6 +68,7 @@ TOOL_SCOPES: dict[str, str] = {
     "analyzer_toggle": SCOPE_WRITE_ORDERS,
     # ---- Active intraday paper trading (agent-driven) ----
     "start_auto_paper_trading": SCOPE_WRITE_ORDERS,
+    "resume_auto_paper_trading": SCOPE_WRITE_ORDERS,
     "stop_auto_paper_trading": SCOPE_WRITE_ORDERS,
     "execute_auto_paper_basket": SCOPE_WRITE_ORDERS,
     "get_auto_paper_status": SCOPE_READ_ACCOUNT,

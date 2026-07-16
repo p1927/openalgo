@@ -418,6 +418,7 @@ def place_options_multi_order(
         legs: List of leg dictionaries (1-20 legs). Each leg must contain:
             Required:
             - offset: Strike offset ('ATM', 'ITM1'-'ITM50', 'OTM1'-'OTM50')
+            - symbol: Explicit NFO option symbol (e.g. NIFTY24JUL2524500CE) — use instead of offset when closing legs
             - option_type: 'CE' for Call or 'PE' for Put
             - action: 'BUY' or 'SELL'
             - quantity: Absolute quantity — must be a multiple of the contract lot size.
@@ -735,6 +736,64 @@ def get_multi_quotes(symbols: list[dict[str, str]]) -> str:
         return json.dumps(response, indent=2)
     except Exception as e:
         return f"Error getting multi quotes: {str(e)}"
+
+
+@mcp.tool()
+def get_us_quote(symbol: str) -> str:
+    """
+    Get a near-real-time US equity quote via Alpaca paper/live data API.
+
+    Requires ALPACA_API_KEY and ALPACA_API_SECRET in the trade stack .env.
+    Uses IEX feed by default (ALPACA_DATA_FEED=iex).
+
+    Args:
+        symbol: US ticker (e.g. AAPL, MSFT, BRK-B)
+
+    Returns:
+        JSON with ltp, bid, ask, feed, and profile (paper/live).
+    """
+    try:
+        from trade_integrations.dataflows.alpaca import (
+            alpaca_configured,
+            fetch_alpaca_quote,
+            fetch_alpaca_trade_snapshot,
+        )
+
+        if not alpaca_configured():
+            return (
+                "Error: Alpaca is not configured. Set ALPACA_API_KEY and "
+                "ALPACA_API_SECRET in the trade stack .env file."
+            )
+        clean = symbol.strip().upper()
+        quote = fetch_alpaca_quote(clean)
+        if quote and quote.get("ltp") is not None:
+            return json.dumps(quote, indent=2, default=str)
+        snap = fetch_alpaca_trade_snapshot(clean)
+        if snap:
+            return json.dumps(snap, indent=2, default=str)
+        return f"Error: no Alpaca quote available for {clean}"
+    except Exception as e:
+        return f"Error getting US quote: {str(e)}"
+
+
+@mcp.tool()
+def get_us_paper_account() -> str:
+    """
+    Fetch Alpaca paper trading account summary (cash, equity, buying power).
+
+    Requires ALPACA_API_KEY / ALPACA_API_SECRET with ALPACA_PROFILE=paper.
+    """
+    try:
+        from trade_integrations.dataflows.alpaca import alpaca_configured, fetch_alpaca_account
+
+        if not alpaca_configured():
+            return (
+                "Error: Alpaca is not configured. Set ALPACA_API_KEY and "
+                "ALPACA_API_SECRET in the trade stack .env file."
+            )
+        return json.dumps(fetch_alpaca_account(), indent=2, default=str)
+    except Exception as e:
+        return f"Error getting Alpaca account: {str(e)}"
 
 
 @mcp.tool()
@@ -1248,6 +1307,7 @@ def start_auto_paper_trading(
     max_daily_loss_inr: float = 2000.0,
     goal: str | None = None,
     mandate: str | None = None,
+    vibe_session_id: str | None = None,
 ) -> str:
     """
     Start **autonomous** intraday paper trading — no human confirmation per order.
@@ -1263,6 +1323,7 @@ def start_auto_paper_trading(
         max_daily_loss_inr: Halt new entries after this daily loss (default 2000)
         goal: Profit objective in plain language
         mandate: Full user mandate to persist for scheduler turns
+        vibe_session_id: Vibe chat session id for scheduler continuity (auto-injected when called from Vibe)
 
     Returns:
         JSON with session status and recommended next MCP calls.
@@ -1277,6 +1338,7 @@ def start_auto_paper_trading(
             goal=goal,
             mandate=mandate,
             agent_mode=True,
+            vibe_session_id=vibe_session_id,
         )
         return json.dumps(result, indent=2, default=str)
     except Exception as e:
@@ -1299,6 +1361,30 @@ def stop_auto_paper_trading() -> str:
     try:
         actions = _import_auto_paper()
         return json.dumps(actions.stop_auto_paper(), indent=2, default=str)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)}, indent=2)
+
+
+@mcp.tool()
+def resume_auto_paper_trading(
+    vibe_session_id: str | None = None,
+) -> str:
+    """
+    Resume an interrupted autonomous paper trading session after crash or API restart.
+
+    Returns session state, market feedback, and a resume_prompt to send to the Vibe
+    agent (or rely on POST /trade/auto-paper/resume?dispatch=true).
+
+    Args:
+        vibe_session_id: Optional Vibe chat session to bind for continuity
+
+    Returns:
+        JSON with resume_prompt and session status.
+    """
+    try:
+        actions = _import_auto_paper()
+        result = actions.resume_auto_paper(vibe_session_id=vibe_session_id)
+        return json.dumps(result, indent=2, default=str)
     except Exception as e:
         return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
@@ -1397,6 +1483,156 @@ def record_auto_paper_decision(
             rationale=rationale,
             ticker=ticker,
             actions_taken=actions_taken,
+        )
+        return json.dumps(result, indent=2, default=str)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)}, indent=2)
+
+
+def _import_autonomous_agents():
+    _ensure_trade_stack_import()
+    from trade_integrations.autonomous_agents import mcp_actions
+
+    return mcp_actions
+
+
+@mcp.tool()
+def propose_autonomous_agent(
+    symbols: list[str],
+    name: str | None = None,
+    mandate: str | None = None,
+    budget_inr: float | None = None,
+    max_daily_loss_inr: float | None = None,
+    confidence_threshold: int | None = None,
+    watch_interval_min: int | None = None,
+    research_interval_min: int | None = None,
+    mode: str = "paper",
+    vibe_session_id: str | None = None,
+) -> str:
+    """
+    Propose a persistent autonomous trading agent (read-only — user confirms in UI).
+
+    Creates a proposal card; does NOT start the agent until the user clicks Confirm.
+
+    Args:
+        symbols: Symbols to watch/trade (e.g. ["NIFTY"])
+        name: Display name
+        mandate: Trading goal / constraints in plain language
+        budget_inr: Paper budget (default 20000)
+        max_daily_loss_inr: Daily loss halt (default 2000)
+        confidence_threshold: Act when confidence >= this (default 75)
+        watch_interval_min: News/market watch cadence (default 7 min)
+        research_interval_min: Full reasoning cadence (default 90 min)
+        mode: paper only in v1
+        vibe_session_id: Orchestrator chat session id
+
+    Returns:
+        JSON with status, proposal_id, missing_fields, and proposal when ready.
+    """
+    try:
+        actions = _import_autonomous_agents()
+        result = actions.mcp_propose(
+            symbols=symbols,
+            name=name,
+            mandate=mandate,
+            budget_inr=budget_inr,
+            max_daily_loss_inr=max_daily_loss_inr,
+            confidence_threshold=confidence_threshold,
+            watch_interval_min=watch_interval_min,
+            research_interval_min=research_interval_min,
+            mode=mode,
+            orchestrator_session_id=vibe_session_id,
+        )
+        return json.dumps(result, indent=2, default=str)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)}, indent=2)
+
+
+@mcp.tool()
+def get_autonomous_agent_status(agent_id: str | None = None) -> str:
+    """
+    Get status of one autonomous agent or list all agents.
+
+    Args:
+        agent_id: Optional aa_* id; omit to list all
+
+    Returns:
+        JSON agent state or agent list.
+    """
+    try:
+        actions = _import_autonomous_agents()
+        result = actions.mcp_get_status(agent_id=agent_id)
+        return json.dumps(result, indent=2, default=str)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)}, indent=2)
+
+
+@mcp.tool()
+def record_autonomous_decision(
+    agent_id: str,
+    decision: str,
+    rationale: str,
+    ticker: str | None = None,
+    actions_taken: list[str] | None = None,
+) -> str:
+    """
+    Log an autonomous agent decision (ENTER/REVISE/EXIT/HOLD/SKIP).
+
+    Wraps record_auto_paper_decision and updates the agent instance.
+    """
+    try:
+        actions = _import_autonomous_agents()
+        result = actions.mcp_record_decision(
+            agent_id=agent_id,
+            decision=decision,
+            rationale=rationale,
+            ticker=ticker,
+            actions_taken=actions_taken,
+        )
+        return json.dumps(result, indent=2, default=str)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)}, indent=2)
+
+
+@mcp.tool()
+def set_agent_watch_spec(agent_id: str, watch_spec: dict) -> str:
+    """
+    Persist Nautilus-compatible watch rules on an autonomous agent instance.
+
+    Args:
+        agent_id: aa_* agent id
+        watch_spec: {rules: [...], gate: {...}, cooldown_sec: 300}
+    """
+    try:
+        actions = _import_autonomous_agents()
+        result = actions.mcp_set_watch_spec(agent_id=agent_id, watch_spec=watch_spec)
+        return json.dumps(result, indent=2, default=str)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)}, indent=2)
+
+
+@mcp.tool()
+def submit_bridge_execution_intent(
+    agent_id: str,
+    action: str,
+    rationale: str,
+    widget_id: str | None = None,
+    underlying: str | None = None,
+) -> str:
+    """
+    Submit an execution intent for India autonomous agents (bridge → OpenAlgo).
+
+    Use for EXIT/ADJUST when not using execute_auto_paper_basket.
+    ENTER with legs typically goes through execute_auto_paper_basket instead.
+    """
+    try:
+        actions = _import_autonomous_agents()
+        result = actions.mcp_submit_bridge_execution_intent(
+            agent_id=agent_id,
+            action=action,
+            rationale=rationale,
+            widget_id=widget_id,
+            underlying=underlying,
         )
         return json.dumps(result, indent=2, default=str)
     except Exception as e:
@@ -1549,7 +1785,7 @@ def get_stock_browse(ticker: str) -> str:
             _,
         ) = _import_stock_research()
         from trade_integrations.context.hub import load_company_research_json
-        from trade_integrations.dataflows.openalgo import fetch_openalgo_quote
+        from trade_integrations.dataflows.market_quotes import fetch_live_quote
 
         sym = ticker.strip().upper().replace(".NS", "").replace(".BO", "")
         doc = load_stock_research_json(sym)
@@ -1558,7 +1794,7 @@ def get_stock_browse(ticker: str) -> str:
         else:
             company = load_company_research_json(sym)
             identity = company.identity if company else {}
-            quote = fetch_openalgo_quote(sym)
+            quote = fetch_live_quote(sym)
             peers = company.peers if company else []
             summary = build_stock_browse_summary(
                 ticker=sym,
@@ -1698,7 +1934,12 @@ def get_index_trade_widget(
             ticker,
             horizon_days=horizon_days,
             refresh=refresh,
+            widget_intent="index_outlook",
         )
+        widget_id = widget.get("widget_id")
+        if widget_id:
+            store = _trade_widget_store_dir() / f"{widget_id}.json"
+            store.write_text(json.dumps(widget, indent=2, default=str), encoding="utf-8")
         return json.dumps(widget, indent=2, default=str)
     except Exception as e:
         return f"Error building index trade widget: {str(e)}"
