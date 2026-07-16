@@ -16,6 +16,7 @@ import { scalpingApi } from '@/api/scalping'
 import { type PortfolioEntry, strategyPortfolioApi, type Watchlist } from '@/api/strategy-portfolio'
 import { tradingApi } from '@/api/trading'
 import { EditLegDialog } from '@/components/strategy-builder/EditLegDialog'
+import { ExecutePlanWizard, type PlanImplementationStep } from '@/components/strategy-builder/ExecutePlanWizard'
 import { GreeksTab, type LegGreeks } from '@/components/strategy-builder/GreeksTab'
 import {
   type LegDraft,
@@ -200,6 +201,9 @@ export default function StrategyBuilder() {
   const [loadedPlanName, setLoadedPlanName] = useState<string | null>(null)
   const [planCharges, setPlanCharges] = useState<PositionsPanelProps['planCharges']>(null)
   const [planNetPnl, setPlanNetPnl] = useState<PositionsPanelProps['planNetPnl']>(null)
+  const [planImplementationSteps, setPlanImplementationSteps] = useState<PlanImplementationStep[]>([])
+  const [executePlanOpen, setExecutePlanOpen] = useState(false)
+  const [activeTab, setActiveTab] = useState('payoff')
 
   // Basket execution dialog
   const [executeDialogOpen, setExecuteDialogOpen] = useState(false)
@@ -1720,6 +1724,9 @@ export default function StrategyBuilder() {
         setLoadedEntry(null)
         setLoadedPlanName(String(rec.name || 'trade_plan'))
         setPlanCharges((plan.charges as PositionsPanelProps['planCharges']) || null)
+        setPlanImplementationSteps(
+          (plan.implementation_steps as PlanImplementationStep[]) || []
+        )
         const payoff = (plan.payoff || {}) as Record<string, unknown>
         setPlanNetPnl({
           gross_max_profit: (payoff.gross_max_profit as number) ?? (payoff.max_profit as number),
@@ -1728,7 +1735,16 @@ export default function StrategyBuilder() {
           net_max_loss: payoff.net_max_loss as number | null,
         })
         showToast.success(`Loaded trade plan for ${underlying}`)
+        const tab = searchParams.get('tab')
+        if (tab === 'pnl' || tab === 'payoff' || tab === 'greeks') {
+          setActiveTab(tab)
+        }
+        if (searchParams.get('execute') === '1') {
+          setExecutePlanOpen(true)
+        }
         searchParams.delete('plan')
+        searchParams.delete('tab')
+        searchParams.delete('execute')
         setSearchParams(searchParams, { replace: true })
       } catch (err) {
         showToast.error(err instanceof Error ? err.message : 'Failed to load trade plan')
@@ -1933,6 +1949,11 @@ export default function StrategyBuilder() {
               strikeStep={strikeStep}
               onSaveStrategy={() => setSaveDialogOpen(true)}
               onExecute={() => setExecuteDialogOpen(true)}
+              onExecutePlan={
+                loadedPlanName && planImplementationSteps.length > 0
+                  ? () => setExecutePlanOpen(true)
+                  : undefined
+              }
               isUpdating={loadedEntry !== null}
               executeDisabled={!apiKey}
               formatCurrency={formatCurrency}
@@ -1941,7 +1962,11 @@ export default function StrategyBuilder() {
 
           {/* Right column: tabs + simulators */}
           <div className="min-w-0 space-y-5">
-            <Tabs defaultValue="payoff" className="w-full min-w-0 max-w-full">
+            <Tabs
+              value={activeTab}
+              onValueChange={setActiveTab}
+              className="w-full min-w-0 max-w-full"
+            >
               {/* Tabs on the left, Save/Portfolio actions aligned to the right
                   so they're always visible directly above the Payoff graph —
                   no scrolling back to the page header. */}
@@ -2154,6 +2179,18 @@ export default function StrategyBuilder() {
         legs={legs}
         exchange={optionExchangeFor(selectedExchange)}
         strategyName={computedStrategyName}
+        apiKey={apiKey ?? ''}
+      />
+
+      <ExecutePlanWizard
+        open={executePlanOpen}
+        onOpenChange={setExecutePlanOpen}
+        legs={legs}
+        exchange={optionExchangeFor(selectedExchange)}
+        planName={loadedPlanName ?? 'trade_plan'}
+        implementationSteps={planImplementationSteps}
+        charges={planCharges}
+        netPnl={planNetPnl}
         apiKey={apiKey ?? ''}
       />
     </div>
