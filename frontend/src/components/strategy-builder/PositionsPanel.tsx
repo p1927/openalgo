@@ -38,7 +38,15 @@ export interface PositionsPanelProps {
       stamp?: number
       total_charges?: number
     }
+    net_debit_credit?: number
     broker_preset?: string
+  } | null
+  /** Net P&L bounds from loaded plan (after entry charges). */
+  planNetPnl?: {
+    gross_max_profit?: number | null
+    gross_max_loss?: number | null
+    net_max_profit?: number | null
+    net_max_loss?: number | null
   } | null
   /** ATM strike from the live chain — used to compute per-leg moneyness. */
   atmStrike?: number | null
@@ -130,6 +138,7 @@ export function PositionsPanel({
   isMarginLoading,
   marginSupported,
   planCharges,
+  planNetPnl,
   atmStrike = null,
   strikeStep = 0,
   onSaveStrategy,
@@ -481,7 +490,32 @@ export function PositionsPanel({
               )}
               {planCharges.total.total_charges !== undefined && (
                 <span className="col-span-2 font-semibold">
-                  Total: ₹{planCharges.total.total_charges}
+                  Entry charges: ₹{planCharges.total.total_charges}
+                </span>
+              )}
+              {planCharges.net_debit_credit !== undefined && (
+                <span className="col-span-2 font-semibold">
+                  Net debit/credit: ₹{planCharges.net_debit_credit}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {planNetPnl && (
+          <div className="space-y-1 border-t bg-emerald-500/5 px-3.5 py-2.5 text-[11px]">
+            <div className="font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+              Plan net P&amp;L (after entry charges)
+            </div>
+            <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 tabular-nums">
+              {planNetPnl.net_max_profit !== undefined && planNetPnl.net_max_profit !== null && (
+                <span className="text-emerald-600 dark:text-emerald-400">
+                  Net max profit: ₹{planNetPnl.net_max_profit}
+                </span>
+              )}
+              {planNetPnl.net_max_loss !== undefined && planNetPnl.net_max_loss !== null && (
+                <span className="text-rose-600 dark:text-rose-400">
+                  Net max loss: ₹{planNetPnl.net_max_loss}
                 </span>
               )}
             </div>

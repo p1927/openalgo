@@ -156,6 +156,7 @@ export default function StrategyBuilder() {
   const [loadedEntry, setLoadedEntry] = useState<PortfolioEntry | null>(null)
   const [loadedPlanName, setLoadedPlanName] = useState<string | null>(null)
   const [planCharges, setPlanCharges] = useState<PositionsPanelProps['planCharges']>(null)
+  const [planNetPnl, setPlanNetPnl] = useState<PositionsPanelProps['planNetPnl']>(null)
 
   // Basket execution dialog
   const [executeDialogOpen, setExecuteDialogOpen] = useState(false)
@@ -1035,6 +1036,13 @@ export default function StrategyBuilder() {
         setLoadedEntry(null)
         setLoadedPlanName(String(rec.name || 'trade_plan'))
         setPlanCharges((plan.charges as PositionsPanelProps['planCharges']) || null)
+        const payoff = (plan.payoff || {}) as Record<string, unknown>
+        setPlanNetPnl({
+          gross_max_profit: (payoff.gross_max_profit as number) ?? (payoff.max_profit as number),
+          gross_max_loss: (payoff.gross_max_loss as number) ?? (payoff.max_loss as number),
+          net_max_profit: payoff.net_max_profit as number | null,
+          net_max_loss: payoff.net_max_loss as number | null,
+        })
         showToast.success(`Loaded trade plan for ${underlying}`)
         searchParams.delete('plan')
         setSearchParams(searchParams, { replace: true })
@@ -1228,6 +1236,7 @@ export default function StrategyBuilder() {
               isMarginLoading={isMarginLoading}
               marginSupported={marginSupported}
               planCharges={planCharges}
+              planNetPnl={planNetPnl}
               atmStrike={atmStrike}
               strikeStep={strikeStep}
               onSaveStrategy={() => setSaveDialogOpen(true)}

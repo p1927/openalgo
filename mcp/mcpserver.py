@@ -813,6 +813,8 @@ def get_strategy_payoff(
     spot: float,
     range_pct: float = 0.12,
     steps: int = 80,
+    expiry_date: str | None = None,
+    iv: float | None = None,
 ) -> str:
     """
     Compute expiry payoff curve for a multi-leg options strategy.
@@ -824,12 +826,20 @@ def get_strategy_payoff(
         range_pct: Underlying range as fraction of spot (default 12%).
         steps: Number of payoff samples.
 
+        expiry_date: Optional expiry DDMMMYY for OptionLab PoP.
+        iv: Optional ATM IV (percent) for OptionLab PoP.
+
     Returns:
-        JSON with samples, breakevens, max_profit, max_loss, and pop estimate.
+        JSON with samples, breakevens, max_profit, max_loss, pop, and net P&L fields.
     """
     try:
         _, _, estimate_strategy_metrics = _import_payoff_charges()
-        result = estimate_strategy_metrics(legs, spot=spot)
+        result = estimate_strategy_metrics(
+            legs,
+            spot=spot,
+            expiry=expiry_date,
+            iv=iv,
+        )
         return json.dumps(result, indent=2, default=str)
     except Exception as e:
         return f"Error computing strategy payoff: {str(e)}"
