@@ -1060,21 +1060,24 @@ def get_strategy_payoff(
 @mcp.tool()
 def get_trade_charges(
     legs: list[dict[str, Any]],
-    broker_preset: str = "zerodha",
+    broker_preset: str | None = None,
 ) -> str:
     """
     Estimate India F&O charges per leg and portfolio total.
 
     Args:
         legs: Strategy legs with side, price, quantity (or lot_size * lots).
-        broker_preset: Charge model preset (default zerodha-style flat brokerage).
+        broker_preset: Charge model preset (default: OpenAlgo session / indmoney).
 
     Returns:
         JSON with per_leg breakdown and total (brokerage, STT, GST, stamp, exchange).
     """
     try:
+        from trade_integrations.research.broker_context import resolve_broker_preset
+
         _, calculate_charges, _ = _import_payoff_charges()
-        result = calculate_charges(legs, broker_preset=broker_preset)
+        broker = broker_preset or resolve_broker_preset()
+        result = calculate_charges(legs, broker_preset=broker)
         return json.dumps(result, indent=2, default=str)
     except Exception as e:
         return f"Error calculating trade charges: {str(e)}"
@@ -1507,6 +1510,8 @@ def propose_autonomous_agent(
     watch_interval_min: int | None = None,
     research_interval_min: int | None = None,
     mode: str = "paper",
+    execution_market: str | None = None,
+    user_text: str | None = None,
     vibe_session_id: str | None = None,
 ) -> str:
     """
@@ -1524,6 +1529,8 @@ def propose_autonomous_agent(
         watch_interval_min: News/market watch cadence (default 7 min)
         research_interval_min: Full reasoning cadence (default 90 min)
         mode: paper only in v1
+        execution_market: Optional IN or US override when user explicitly chose market
+        user_text: Original user message for market hint resolution
         vibe_session_id: Orchestrator chat session id
 
     Returns:
@@ -1541,6 +1548,8 @@ def propose_autonomous_agent(
             watch_interval_min=watch_interval_min,
             research_interval_min=research_interval_min,
             mode=mode,
+            execution_market=execution_market,
+            user_text=user_text,
             orchestrator_session_id=vibe_session_id,
         )
         return json.dumps(result, indent=2, default=str)
@@ -1635,6 +1644,36 @@ def submit_bridge_execution_intent(
             underlying=underlying,
         )
         return json.dumps(result, indent=2, default=str)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)}, indent=2)
+
+
+@mcp.tool()
+def get_research_status(
+    ticker: str,
+    asset_type: str = "stock",
+) -> str:
+    """
+    Check unified research pipeline stage completion for a ticker.
+
+    Args:
+        ticker: Symbol (RELIANCE, NIFTY, …)
+        asset_type: stock, options, or index
+
+    Returns:
+        JSON with status, stages checklist, missing fields, debate_pending.
+    """
+    try:
+        from trade_integrations.research.orchestrator import get_research_status as _status
+        from trade_integrations.research.registry import ResearchKind
+
+        kind_map = {
+            "stock": ResearchKind.STOCK,
+            "options": ResearchKind.OPTIONS,
+            "index": ResearchKind.INDEX,
+        }
+        kind = kind_map.get(asset_type.strip().lower(), ResearchKind.STOCK)
+        return json.dumps(_status(ticker, kind=kind), indent=2, default=str)
     except Exception as e:
         return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
