@@ -51,7 +51,7 @@ export const useThemeStore = create<ThemeStore>()(
     (set, get) => ({
       mode: 'light',
       color: 'zinc',
-      appMode: 'live',
+      appMode: 'analyzer',
       isTogglingMode: false,
 
       setMode: (mode) => {
