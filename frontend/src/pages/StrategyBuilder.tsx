@@ -9,7 +9,7 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
-import { apiClient } from '@/api/client'
+import { apiClient, webClient } from '@/api/client'
 import { oiProfileApi } from '@/api/oi-profile'
 import { optionChainApi } from '@/api/option-chain'
 import { scalpingApi } from '@/api/scalping'
@@ -26,7 +26,17 @@ import {
 } from '@/components/strategy-builder/ManualLegBuilder'
 import MultiStrikeOITab from '@/components/strategy-builder/MultiStrikeOITab'
 import { PayoffChart } from '@/components/strategy-builder/PayoffChart'
+import {
+  PayoffOverTimeChart,
+  type PayoffOverTimeSample,
+} from '@/components/strategy-builder/PayoffOverTimeChart'
 import { PnLTab } from '@/components/strategy-builder/PnLTab'
+import {
+  ResearchContextPanel,
+  type PlanPrediction,
+  type PlanScenario,
+  type RankedStrategy,
+} from '@/components/strategy-builder/ResearchContextPanel'
 import { PositionsPanel, type PositionsPanelProps } from '@/components/strategy-builder/PositionsPanel'
 import { SaveStrategyDialog } from '@/components/strategy-builder/SaveStrategyDialog'
 import { Simulators } from '@/components/strategy-builder/Simulators'
@@ -201,7 +211,15 @@ export default function StrategyBuilder() {
   const [loadedPlanName, setLoadedPlanName] = useState<string | null>(null)
   const [planCharges, setPlanCharges] = useState<PositionsPanelProps['planCharges']>(null)
   const [planNetPnl, setPlanNetPnl] = useState<PositionsPanelProps['planNetPnl']>(null)
+  const [isChargesLoading, setIsChargesLoading] = useState(false)
   const [planImplementationSteps, setPlanImplementationSteps] = useState<PlanImplementationStep[]>([])
+  const [planPrediction, setPlanPrediction] = useState<PlanPrediction | null>(null)
+  const [planRecommendedRationale, setPlanRecommendedRationale] = useState<string | null>(null)
+  const [planRecommendedTier, setPlanRecommendedTier] = useState<string | null>(null)
+  const [planRecommendedScore, setPlanRecommendedScore] = useState<number | null>(null)
+  const [planRankedStrategies, setPlanRankedStrategies] = useState<RankedStrategy[]>([])
+  const [planScenarios, setPlanScenarios] = useState<PlanScenario[]>([])
+  const [planPayoffOverTime, setPlanPayoffOverTime] = useState<PayoffOverTimeSample[]>([])
   const [executePlanOpen, setExecutePlanOpen] = useState(false)
   const [activeTab, setActiveTab] = useState('payoff')
 
@@ -1283,6 +1301,49 @@ export default function StrategyBuilder() {
     }
   }, [apiKey, marginRequestKey])
 
+  // Live per-leg charges (brokerage, STT, GST, stamp) whenever legs change.
+  useEffect(() => {
+    const active = legs.filter(
+      (l) => l.active && l.price > 0 && !(l.exitPrice !== undefined && l.exitPrice > 0)
+    )
+    if (active.length === 0) {
+      setPlanCharges(null)
+      return
+    }
+    const handle = setTimeout(async () => {
+      setIsChargesLoading(true)
+      try {
+        const chargeLegs = active.map((l) => ({
+          symbol: l.symbol,
+          side: l.side,
+          strike: l.strike,
+          option_type: l.optionType,
+          price: l.price,
+          quantity: l.lots * l.lotSize,
+        }))
+        const res = await queuedFetch(() =>
+          webClient.post<{ status: string; charges?: PositionsPanelProps['planCharges'] }>(
+            '/api/trade-charges',
+            {
+              legs: chargeLegs,
+              spot: spotPrice ?? 0,
+              include_exit: true,
+            },
+            { validateStatus: () => true }
+          )
+        )
+        if (res.status === 200 && res.data.status === 'success' && res.data.charges) {
+          setPlanCharges(res.data.charges)
+        }
+      } catch {
+        /* non-fatal */
+      } finally {
+        setIsChargesLoading(false)
+      }
+    }, 450)
+    return () => clearTimeout(handle)
+  }, [legs, spotPrice])
+
   // Backfill price for legs that were added without one (typically the far-
   // expiry leg of a calendar/diagonal — the loaded chain only covers the
   // near expiry, so those legs start at price=0 and we need /multiquotes
@@ -1601,15 +1662,51 @@ export default function StrategyBuilder() {
     )
     setEditLegId(null)
   }, [])
+  const handleStrikeFromChart = useCallback(
+    (legId: string, strike: number) => {
+      setLegs((prev) =>
+        prev.map((l) => {
+          if (l.id !== legId || l.segment !== 'OPTION' || !l.optionType) return l
+          const row = chainData?.chain.find((s) => s.strike === strike)
+          const side = l.optionType === 'CE' ? row?.ce : row?.pe
+          // No listed contract at this strike yet (chain not loaded / off-grid
+          // drag) — skip rather than fabricate a symbol the backend can't fill.
+          if (!side?.symbol) return l
+          return {
+            ...l,
+            strike,
+            expiry: normalizeExpiryCode(l.expiry),
+            symbol: side.symbol,
+            price: side.ltp ?? l.price,
+          }
+        })
+      )
+    },
+    [chainData]
+  )
   const toggleAll = useCallback((active: boolean) => {
     setLegs((prev) => prev.map((l) => ({ ...l, active })))
+  }, [])
+  const clearPlanContext = useCallback(() => {
+    setPlanPrediction(null)
+    setPlanRecommendedRationale(null)
+    setPlanRecommendedTier(null)
+    setPlanRecommendedScore(null)
+    setPlanRankedStrategies([])
+    setPlanScenarios([])
+    setPlanPayoffOverTime([])
+    setPlanCharges(null)
+    setPlanNetPnl(null)
+    setPlanImplementationSteps([])
+    setLoadedPlanName(null)
   }, [])
   const resetLegs = useCallback(() => {
     setLegs([])
     setSpotShiftPct(0)
     setIvShiftPct(0)
     setDaysElapsed(0)
-  }, [])
+    clearPlanContext()
+  }, [clearPlanContext])
   const resetSimulators = useCallback(() => {
     setSpotShiftPct(0)
     setIvShiftPct(0)
@@ -1684,23 +1781,28 @@ export default function StrategyBuilder() {
     }
   }, [searchParams, setSearchParams])
 
-  // Load a trade-stack options plan when arriving with ?plan=SYMBOL
+  // Load a trade-stack plan when arriving with ?plan=SYMBOL (&asset=options|stock)
   useEffect(() => {
     const planSymbol = searchParams.get('plan')
     if (!planSymbol) return
+    const planAsset = (searchParams.get('asset') || 'options').toLowerCase()
     let cancelled = false
     ;(async () => {
       try {
         const res = await queuedFetch(() =>
-          apiClient.get<{ status: string; plan?: Record<string, unknown> }>(
-            `/trade-plan?symbol=${encodeURIComponent(planSymbol)}`
+          webClient.get<{ status: string; plan?: Record<string, unknown> }>(
+            `/api/trade-plan?symbol=${encodeURIComponent(planSymbol)}&asset=${encodeURIComponent(planAsset)}`,
+            { validateStatus: () => true }
           )
         )
-        if (cancelled || res.status !== 'success' || !res.plan) return
-        const plan = res.plan
-        const underlying = String(plan.underlying || planSymbol).toUpperCase()
+        if (cancelled || res.status !== 200 || res.data.status !== 'success' || !res.data.plan) return
+        const plan = res.data.plan
+        const underlying = String(
+          plan.underlying || plan.ticker || planSymbol
+        ).toUpperCase()
         const meta = (plan.meta || {}) as Record<string, string>
-        const optionsExchange = meta.options_exchange || 'NFO'
+        const isStockPlan = planAsset === 'stock'
+        const optionsExchange = meta.options_exchange || (isStockPlan ? 'NSE' : 'NFO')
         setSelectedExchange(optionsExchange)
         setSelectedUnderlying(underlying)
         if (plan.expiry) setSelectedExpiry(String(plan.expiry))
@@ -1708,14 +1810,14 @@ export default function StrategyBuilder() {
         const rawLegs = (rec.legs || []) as Array<Record<string, unknown>>
         const restored: StrategyLeg[] = rawLegs.map((leg) => ({
           id: uid(),
-          segment: 'OPTION',
+          segment: (leg.segment as StrategyLeg['segment']) || 'OPTION',
           side: (leg.side as 'BUY' | 'SELL') || 'BUY',
           lots: Number(leg.lots) || 1,
           lotSize: Number(leg.lot_size) || Number(leg.quantity) || 1,
-          expiry: String(plan.expiry || ''),
+          expiry: String(plan.expiry || leg.expiry || ''),
           strike: Number(leg.strike) || 0,
           optionType: (leg.option_type as 'CE' | 'PE') || 'CE',
-          price: Number(leg.price) || 0,
+          price: Number(leg.price) || Number(rec.entry) || 0,
           iv: 0,
           active: true,
           symbol: String(leg.symbol || ''),
@@ -1727,6 +1829,24 @@ export default function StrategyBuilder() {
         setPlanImplementationSteps(
           (plan.implementation_steps as PlanImplementationStep[]) || []
         )
+        setPlanPrediction((plan.prediction as PlanPrediction) || null)
+        setPlanRecommendedRationale((rec.rationale as string) || null)
+        setPlanRecommendedTier((rec.tier as string) || null)
+        setPlanRecommendedScore(
+          rec.score !== undefined && rec.score !== null ? Number(rec.score) : null
+        )
+        setPlanRankedStrategies(
+          ((plan.ranked_strategies || []) as RankedStrategy[]).map((s) => ({
+            name: s.name,
+            tier: s.tier,
+            score: s.score,
+            pop: s.pop,
+            rationale: s.rationale,
+          }))
+        )
+        setPlanScenarios(((plan.scenarios || []) as PlanScenario[]).slice(0, 6))
+        const pot = (plan.payoff_over_time || {}) as Record<string, unknown>
+        setPlanPayoffOverTime(((pot.samples || []) as PayoffOverTimeSample[]) || [])
         const payoff = (plan.payoff || {}) as Record<string, unknown>
         setPlanNetPnl({
           gross_max_profit: (payoff.gross_max_profit as number) ?? (payoff.max_profit as number),
@@ -1734,7 +1854,11 @@ export default function StrategyBuilder() {
           net_max_profit: payoff.net_max_profit as number | null,
           net_max_loss: payoff.net_max_loss as number | null,
         })
-        showToast.success(`Loaded trade plan for ${underlying}`)
+        showToast.success(
+          isStockPlan && restored.length === 0
+            ? `Loaded stock plan for ${underlying} — use Execute Plan for equity orders`
+            : `Loaded trade plan for ${underlying}`
+        )
         const tab = searchParams.get('tab')
         if (tab === 'pnl' || tab === 'payoff' || tab === 'greeks') {
           setActiveTab(tab)
@@ -1743,6 +1867,7 @@ export default function StrategyBuilder() {
           setExecutePlanOpen(true)
         }
         searchParams.delete('plan')
+        searchParams.delete('asset')
         searchParams.delete('tab')
         searchParams.delete('execute')
         setSearchParams(searchParams, { replace: true })
@@ -1856,6 +1981,19 @@ export default function StrategyBuilder() {
         connectionStatus={connectionStatus}
       />
 
+      {loadedPlanName && (
+        <ResearchContextPanel
+          underlying={selectedUnderlying}
+          prediction={planPrediction}
+          recommendedName={loadedPlanName}
+          recommendedRationale={planRecommendedRationale}
+          recommendedTier={planRecommendedTier}
+          recommendedScore={planRecommendedScore}
+          rankedStrategies={planRankedStrategies}
+          scenarios={planScenarios}
+        />
+      )}
+
       {/* Template grid */}
       <h2 className="sr-only">Build a strategy</h2>
       <div className="overflow-hidden rounded-xl border bg-card p-5 shadow-sm">
@@ -1945,6 +2083,7 @@ export default function StrategyBuilder() {
               marginSupported={marginSupported}
               planCharges={planCharges}
               planNetPnl={planNetPnl}
+              isChargesLoading={isChargesLoading}
               atmStrike={atmStrike}
               strikeStep={strikeStep}
               onSaveStrategy={() => setSaveDialogOpen(true)}
@@ -2040,6 +2179,9 @@ export default function StrategyBuilder() {
                       terminalLabel={terminalCurveLabel}
                       payoff={payoff}
                       formatCurrency={formatCurrency}
+                      legs={legs}
+                      strikeStep={strikeStep}
+                      onStrikeChange={handleStrikeFromChart}
                     />
                   ) : (
                     <div className="flex h-[440px] items-center justify-center text-sm text-muted-foreground">
@@ -2051,7 +2193,13 @@ export default function StrategyBuilder() {
               <TabsContent value="greeks" className="pt-4">
                 <GreeksTab legs={legs} greeksByLeg={greeksByLeg} formatCurrency={formatCurrency} />
               </TabsContent>
-              <TabsContent value="pnl" className="pt-4">
+              <TabsContent value="pnl" className="space-y-4 pt-4">
+                {planPayoffOverTime.length > 0 && (
+                  <PayoffOverTimeChart
+                    title={`${selectedUnderlying} — theta decay (hub plan)`}
+                    samples={planPayoffOverTime}
+                  />
+                )}
                 <PnLTab
                   legs={legs}
                   fnoExchange={fnoExchange}
