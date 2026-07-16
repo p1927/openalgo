@@ -960,14 +960,13 @@ def get_options_browse(
         chain_snapshot["expiries"] = [normalize_openalgo_expiry(e) for e in expiries]
 
         summary = build_browse_summary(chain_snapshot)
-        return json.dumps(
-            {
-                "browse_summary": summary,
-                "markdown": format_browse_markdown(summary),
-            },
-            indent=2,
-            default=str,
-        )
+        from trade_integrations.dataflows.json_safe import json_safe
+
+        payload = {
+            "browse_summary": json_safe(summary),
+            "markdown": format_browse_markdown(summary),
+        }
+        return json.dumps(payload, indent=2, default=str)
     except Exception as e:
         return f"Error browsing options chain: {str(e)}"
 
