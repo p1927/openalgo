@@ -28,19 +28,36 @@ export interface PositionsPanelProps {
    * entirely so we don't show a dash for a feature the broker can't provide.
    */
   marginSupported?: boolean | null
-  /** Charges breakdown from a loaded trade-stack plan (hub JSON). */
+  /** Charges breakdown — live from /api/trade-charges or loaded plan. */
   planCharges?: {
+    per_leg?: Array<{
+      symbol?: string
+      side?: string
+      brokerage?: number
+      stt?: number
+      exchange?: number
+      gst?: number
+      stamp?: number
+      sebi?: number
+      total_charges?: number
+    }>
     total?: {
       brokerage?: number
       stt?: number
       exchange?: number
       gst?: number
       stamp?: number
+      sebi?: number
       total_charges?: number
     }
+    exit?: { per_leg?: unknown[]; total?: Record<string, number> }
+    exit_charges?: number
+    round_trip_charges?: number
     net_debit_credit?: number
     broker_preset?: string
+    charge_source?: string
   } | null
+  isChargesLoading?: boolean
   /** Net P&L bounds from loaded plan (after entry charges). */
   planNetPnl?: {
     gross_max_profit?: number | null
@@ -121,6 +138,82 @@ function MetricTile({
   )
 }
 
+function ChargesPanel({
+  planCharges,
+  isChargesLoading,
+}: {
+  planCharges: PositionsPanelProps['planCharges']
+  isChargesLoading: boolean
+}) {
+  return (
+    <div className="space-y-2 border-t bg-muted/10 px-3.5 py-2.5 text-[11px]">
+      <div className="font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+        Transaction charges
+        {planCharges?.broker_preset ? ` (${planCharges.broker_preset})` : ''}
+        {isChargesLoading ? ' — updating…' : ''}
+      </div>
+      {planCharges?.total && (
+        <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 tabular-nums text-foreground">
+          {planCharges.total.brokerage !== undefined && (
+            <span>Brokerage: ₹{planCharges.total.brokerage}</span>
+          )}
+          {planCharges.total.stt !== undefined && <span>STT: ₹{planCharges.total.stt}</span>}
+          {planCharges.total.exchange !== undefined && (
+            <span>Exchange: ₹{planCharges.total.exchange}</span>
+          )}
+          {planCharges.total.gst !== undefined && <span>GST: ₹{planCharges.total.gst}</span>}
+          {planCharges.total.stamp !== undefined && <span>Stamp: ₹{planCharges.total.stamp}</span>}
+          {planCharges.total.sebi !== undefined && <span>SEBI: ₹{planCharges.total.sebi}</span>}
+          {planCharges.total.total_charges !== undefined && (
+            <span className="col-span-2 font-semibold">
+              Entry charges: ₹{planCharges.total.total_charges}
+            </span>
+          )}
+          {planCharges.round_trip_charges !== undefined && (
+            <span className="col-span-2 font-semibold text-amber-600 dark:text-amber-400">
+              Round-trip (est.): ₹{planCharges.round_trip_charges}
+            </span>
+          )}
+          {planCharges.net_debit_credit !== undefined && (
+            <span className="col-span-2 font-semibold">
+              Net debit/credit: ₹{planCharges.net_debit_credit}
+            </span>
+          )}
+        </div>
+      )}
+      {planCharges?.per_leg && planCharges.per_leg.length > 0 && (
+        <div className="space-y-2 border-t border-border/50 pt-2">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+            Per leg / transaction
+          </div>
+          {planCharges.per_leg.map((leg, i) => (
+            <div
+              key={`${leg.symbol}-${i}`}
+              className="rounded-md border border-border/40 bg-background/60 px-2 py-1.5"
+            >
+              <div className="font-medium text-foreground">
+                {leg.side} {leg.symbol}
+              </div>
+              <div className="mt-0.5 grid grid-cols-2 gap-x-2 gap-y-0.5 tabular-nums text-muted-foreground">
+                {leg.brokerage !== undefined && <span>Brokerage ₹{leg.brokerage}</span>}
+                {leg.stt !== undefined && <span>STT ₹{leg.stt}</span>}
+                {leg.gst !== undefined && <span>GST ₹{leg.gst}</span>}
+                {leg.stamp !== undefined && <span>Stamp ₹{leg.stamp}</span>}
+                {leg.exchange !== undefined && <span>Exchange ₹{leg.exchange}</span>}
+                {leg.total_charges !== undefined && (
+                  <span className="col-span-2 font-semibold text-foreground">
+                    Total ₹{leg.total_charges}
+                  </span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function PositionsPanel({
   legs,
   onToggleLeg,
@@ -141,6 +234,7 @@ export function PositionsPanel({
   marginSupported,
   planCharges,
   planNetPnl,
+  isChargesLoading = false,
   atmStrike = null,
   strikeStep = 0,
   onSaveStrategy,
@@ -371,6 +465,11 @@ export function PositionsPanel({
         )}
       </div>
 
+      {/* Charges — directly under legs so brokerage/GST are visible without scrolling */}
+      {(planCharges?.total || (planCharges?.per_leg && planCharges.per_leg.length > 0) || isChargesLoading) && (
+        <ChargesPanel planCharges={planCharges} isChargesLoading={isChargesLoading} />
+      )}
+
       {/* Action row — sits directly above the metrics table so it's within
           thumb-reach of the leg list. */}
       {(onSaveStrategy || onExecute || onExecutePlan) && (
@@ -481,48 +580,22 @@ export function PositionsPanel({
           </div>
         )}
 
-        {planCharges?.total && (
-          <div className="space-y-1 border-t bg-muted/10 px-3.5 py-2.5 text-[11px]">
-            <div className="font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-              Trade plan charges
-              {planCharges.broker_preset ? ` (${planCharges.broker_preset})` : ''}
-            </div>
-            <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 tabular-nums text-foreground">
-              {planCharges.total.brokerage !== undefined && (
-                <span>Brokerage: ₹{planCharges.total.brokerage}</span>
-              )}
-              {planCharges.total.stt !== undefined && (
-                <span>STT: ₹{planCharges.total.stt}</span>
-              )}
-              {planCharges.total.exchange !== undefined && (
-                <span>Exchange: ₹{planCharges.total.exchange}</span>
-              )}
-              {planCharges.total.gst !== undefined && (
-                <span>GST: ₹{planCharges.total.gst}</span>
-              )}
-              {planCharges.total.stamp !== undefined && (
-                <span>Stamp: ₹{planCharges.total.stamp}</span>
-              )}
-              {planCharges.total.total_charges !== undefined && (
-                <span className="col-span-2 font-semibold">
-                  Entry charges: ₹{planCharges.total.total_charges}
-                </span>
-              )}
-              {planCharges.net_debit_credit !== undefined && (
-                <span className="col-span-2 font-semibold">
-                  Net debit/credit: ₹{planCharges.net_debit_credit}
-                </span>
-              )}
-            </div>
-          </div>
-        )}
-
         {planNetPnl && (
           <div className="space-y-1 border-t bg-emerald-500/5 px-3.5 py-2.5 text-[11px]">
             <div className="font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-              Plan net P&amp;L (after entry charges)
+              Plan P&amp;L (from hub)
             </div>
             <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 tabular-nums">
+              {planNetPnl.gross_max_profit !== undefined && planNetPnl.gross_max_profit !== null && (
+                <span className="text-emerald-600 dark:text-emerald-400">
+                  Gross max profit: ₹{planNetPnl.gross_max_profit}
+                </span>
+              )}
+              {planNetPnl.gross_max_loss !== undefined && planNetPnl.gross_max_loss !== null && (
+                <span className="text-rose-600 dark:text-rose-400">
+                  Gross max loss: ₹{planNetPnl.gross_max_loss}
+                </span>
+              )}
               {planNetPnl.net_max_profit !== undefined && planNetPnl.net_max_profit !== null && (
                 <span className="text-emerald-600 dark:text-emerald-400">
                   Net max profit: ₹{planNetPnl.net_max_profit}

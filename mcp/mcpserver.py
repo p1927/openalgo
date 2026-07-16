@@ -807,6 +807,48 @@ def _import_payoff_charges():
     return compute_payoff, calculate_charges, estimate_strategy_metrics
 
 
+def _import_options_research():
+    """Load trade-stack options browse + plan helpers when co-located."""
+    from pathlib import Path
+
+    trade_root = Path(__file__).resolve().parents[2]
+    integrations = trade_root / "integrations"
+    if integrations.is_dir() and str(integrations) not in sys.path:
+        sys.path.insert(0, str(integrations))
+    from trade_integrations.dataflows.options_research.browse_summary import (
+        build_browse_summary,
+        format_browse_markdown,
+    )
+    from trade_integrations.tools.options_research_tools import fetch_options_research_report
+
+    return build_browse_summary, format_browse_markdown, fetch_options_research_report
+
+
+def _import_stock_research():
+    from pathlib import Path
+
+    trade_root = Path(__file__).resolve().parents[2]
+    integrations = trade_root / "integrations"
+    if integrations.is_dir() and str(integrations) not in sys.path:
+        sys.path.insert(0, str(integrations))
+    from trade_integrations.dataflows.stock_research.browse_summary import (
+        build_stock_browse_summary,
+        format_stock_browse_markdown,
+    )
+    from trade_integrations.dataflows.stock_research.aggregator import run_stock_research
+    from trade_integrations.dataflows.stock_research.format import format_stock_report
+    from trade_integrations.context.hub import load_stock_research_json, save_stock_research
+
+    return (
+        build_stock_browse_summary,
+        format_stock_browse_markdown,
+        run_stock_research,
+        format_stock_report,
+        load_stock_research_json,
+        save_stock_research,
+    )
+
+
 @mcp.tool()
 def get_strategy_payoff(
     legs: list[dict[str, Any]],
@@ -866,6 +908,186 @@ def get_trade_charges(
         return json.dumps(result, indent=2, default=str)
     except Exception as e:
         return f"Error calculating trade charges: {str(e)}"
+
+
+@mcp.tool()
+def get_options_browse(
+    underlying: str,
+    exchange: str,
+    expiry_date: str | None = None,
+    strike_count: int = 10,
+) -> str:
+    """
+    Compact in-chat browse of a live India options chain (expiries, ATM, top strikes).
+
+    Use this first when the user asks what options are available before loading a full trade plan.
+
+    Args:
+        underlying: Index or stock symbol (e.g. NIFTY, RELIANCE)
+        exchange: NSE_INDEX, BSE_INDEX, NSE, or BSE
+        expiry_date: Optional expiry DDMMMYY
+        strike_count: Strikes above/below ATM (default 10)
+
+    Returns:
+        JSON with browse_summary and markdown (table for chat).
+    """
+    try:
+        build_browse_summary, format_browse_markdown, _ = _import_options_research()
+        from trade_integrations.dataflows.openalgo import (
+            fetch_option_chain,
+            fetch_option_expiry_dates,
+            normalize_openalgo_expiry,
+        )
+
+        chain_snapshot = fetch_option_chain(
+            underlying.upper(),
+            exchange.upper(),
+            expiry_date=expiry_date,
+            strike_count=strike_count,
+        )
+        if not chain_snapshot.get("expiry_date"):
+            options_exchange = "NFO" if exchange.upper() in ("NSE", "NSE_INDEX") else "BFO"
+            expiries = fetch_option_expiry_dates(underlying.upper(), options_exchange)
+            if expiries and not expiry_date:
+                chain_snapshot = fetch_option_chain(
+                    underlying.upper(),
+                    exchange.upper(),
+                    expiry_date=normalize_openalgo_expiry(expiries[0]),
+                    strike_count=strike_count,
+                )
+        options_exchange = "NFO" if exchange.upper() in ("NSE", "NSE_INDEX") else "BFO"
+        expiries = fetch_option_expiry_dates(underlying.upper(), options_exchange)
+        chain_snapshot["expiries"] = [normalize_openalgo_expiry(e) for e in expiries]
+
+        summary = build_browse_summary(chain_snapshot)
+        return json.dumps(
+            {
+                "browse_summary": summary,
+                "markdown": format_browse_markdown(summary),
+            },
+            indent=2,
+            default=str,
+        )
+    except Exception as e:
+        return f"Error browsing options chain: {str(e)}"
+
+
+@mcp.tool()
+def get_options_trade_plan(
+    ticker: str,
+    refresh: bool = False,
+    expiry_date: str | None = None,
+    lookahead_days: int | None = None,
+) -> str:
+    """
+    Load or generate the full options trade plan from the trade-stack hub.
+
+    Includes prediction, events, ranked strategies, recommended legs, payoff,
+    charges, and implementation steps. Set refresh=true to bypass cache.
+
+    Args:
+        ticker: Underlying (NIFTY, BANKNIFTY, RELIANCE, …)
+        refresh: When true, regenerate even if hub cache is fresh
+        expiry_date: Optional expiry DDMMMYY
+        lookahead_days: Event lookahead window (default from env)
+
+    Returns:
+        Markdown trade plan ready for agent explanation.
+    """
+    try:
+        _, _, fetch_options_research_report = _import_options_research()
+        report = fetch_options_research_report(
+            ticker,
+            expiry_date=expiry_date,
+            lookahead_days=lookahead_days,
+            use_cache=not refresh,
+        )
+        return report
+    except Exception as e:
+        return f"Error loading options trade plan: {str(e)}"
+
+
+@mcp.tool()
+def get_stock_browse(ticker: str) -> str:
+    """
+    Compact in-chat browse for an equity (price, sector, 52w range, peers).
+
+    Args:
+        ticker: NSE equity symbol (e.g. RELIANCE, TCS)
+
+    Returns:
+        JSON with browse_summary and markdown table for chat.
+    """
+    try:
+        (
+            build_stock_browse_summary,
+            format_stock_browse_markdown,
+            _,
+            _,
+            load_stock_research_json,
+            _,
+        ) = _import_stock_research()
+        from trade_integrations.context.hub import load_company_research_json
+        from trade_integrations.dataflows.openalgo import fetch_openalgo_quote
+
+        sym = ticker.strip().upper().replace(".NS", "").replace(".BO", "")
+        doc = load_stock_research_json(sym)
+        if doc and doc.browse_summary:
+            summary = doc.browse_summary
+        else:
+            company = load_company_research_json(sym)
+            identity = company.identity if company else {}
+            quote = fetch_openalgo_quote(sym)
+            peers = company.peers if company else []
+            summary = build_stock_browse_summary(
+                ticker=sym,
+                identity=identity,
+                quote=quote,
+                peers=peers,
+            )
+        return json.dumps(
+            {"browse_summary": summary, "markdown": format_stock_browse_markdown(summary)},
+            indent=2,
+            default=str,
+        )
+    except Exception as e:
+        return f"Error browsing stock: {str(e)}"
+
+
+@mcp.tool()
+def get_stock_trade_plan(ticker: str, refresh: bool = False, lookahead_days: int = 14) -> str:
+    """
+    Load or generate a stock trade plan from the trade-stack hub.
+
+    Includes prediction, ranked approaches, recommended action, charges, and steps.
+
+    Args:
+        ticker: Equity symbol (RELIANCE, TCS, …)
+        refresh: Regenerate even if cache exists
+        lookahead_days: Event lookahead window
+
+    Returns:
+        Markdown stock trade plan.
+    """
+    try:
+        (
+            _,
+            _,
+            run_stock_research,
+            format_stock_report,
+            load_stock_research_json,
+            save_stock_research,
+        ) = _import_stock_research()
+        sym = ticker.strip().upper().replace(".NS", "").replace(".BO", "")
+        if not refresh:
+            cached = load_stock_research_json(sym)
+            if cached:
+                return format_stock_report(cached)
+        doc = run_stock_research(sym, lookahead_days=lookahead_days)
+        save_stock_research(doc)
+        return format_stock_report(doc)
+    except Exception as e:
+        return f"Error loading stock trade plan: {str(e)}"
 
 
 @mcp.tool()
