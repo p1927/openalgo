@@ -1062,6 +1062,48 @@ def get_options_trade_widget(
 
 
 @mcp.tool()
+def get_stock_trade_widget(
+    ticker: str,
+    refresh: bool = False,
+    lookahead_days: int = 14,
+) -> str:
+    """
+    Build a structured stock trade-plan widget for Vibe chat.
+
+    Returns JSON with type ``trade_plan.widget`` (asset_type stock) including
+    scenarios, charges, ranked approaches, and execute steps.
+
+    Args:
+        ticker: NSE equity symbol (RELIANCE, TCS, …)
+        refresh: Regenerate hub plan before building widget
+        lookahead_days: Event lookahead window
+
+    Returns:
+        JSON widget payload (persisted under ~/.vibe-trading/trade_widgets/).
+    """
+    try:
+        from trade_integrations.dataflows.stock_research.widget_payload import (
+            build_stock_trade_widget,
+        )
+
+        widget = build_stock_trade_widget(
+            ticker,
+            lookahead_days=lookahead_days,
+            refresh=refresh,
+        )
+        widget_id = widget.get("widget_id")
+        if widget_id:
+            store = _trade_widget_store_dir() / f"{widget_id}.json"
+            store.write_text(json.dumps(widget, indent=2, default=str), encoding="utf-8")
+        return json.dumps(widget, indent=2, default=str)
+    except Exception as e:
+        return json.dumps(
+            {"type": "trade_plan.widget", "error": str(e), "underlying": ticker, "asset_type": "stock"},
+            indent=2,
+        )
+
+
+@mcp.tool()
 def get_stock_browse(ticker: str) -> str:
     """
     Compact in-chat browse for an equity (price, sector, 52w range, peers).
