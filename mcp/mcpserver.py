@@ -1193,6 +1193,93 @@ def get_stock_trade_widget(
         )
 
 
+def _import_agent_debate():
+    from pathlib import Path
+
+    trade_root = Path(__file__).resolve().parents[2]
+    integrations = trade_root / "integrations"
+    tradingagents = trade_root / "tradingagents"
+    for path in (integrations, tradingagents):
+        if path.is_dir() and str(path) not in sys.path:
+            sys.path.insert(0, str(path))
+    import trade_integrations  # noqa: F401
+    from trade_integrations.bridge.agent_debate import run_agent_debate
+    from trade_integrations.context.hub import (
+        is_agent_debate_cache_fresh,
+        load_agent_debate_json,
+    )
+
+    return run_agent_debate, load_agent_debate_json, is_agent_debate_cache_fresh
+
+
+@mcp.tool()
+def run_tradingagents_analysis(
+    ticker: str,
+    asset_type: str = "stock",
+    refresh: bool = False,
+) -> str:
+    """
+    Run the TradingAgents multi-agent debate (bull/bear/risk) and save to hub.
+
+    Use when the user finalizes a plan or asks for a second opinion from agents.
+    Returns markdown summary; full JSON lives at reports/hub/{TICKER}/agent_debate/.
+
+    Args:
+        ticker: Symbol (NIFTY, RELIANCE, …)
+        asset_type: stock or options context for prefetch
+        refresh: Bypass cached debate when true
+
+    Returns:
+        Markdown debate summary with rating and key perspectives.
+    """
+    try:
+        run_agent_debate, load_agent_debate_json, is_agent_debate_cache_fresh = _import_agent_debate()
+        key = ticker.strip().upper()
+        if not refresh:
+            cached = load_agent_debate_json(key)
+            if cached and is_agent_debate_cache_fresh(key):
+                from trade_integrations.dataflows.agent_debate.format import format_agent_debate_report
+
+                return format_agent_debate_report(cached)
+
+        import threading
+
+        if not refresh:
+            stale = load_agent_debate_json(key)
+            if stale:
+                from trade_integrations.dataflows.agent_debate.format import format_agent_debate_report
+
+                body = format_agent_debate_report(stale)
+                body += (
+                    f"\n\n---\n*Note: debate cache is stale; a fresh run was started in the "
+                    f"background for {key}. Check the Vibe Research panel → Agent debate tab.*"
+                )
+            else:
+                body = (
+                    f"TradingAgents debate started for **{key}** in the background "
+                    f"(typically 2–5 minutes).\n\n"
+                    f"Results will be saved to `reports/hub/{key}/agent_debate/` and appear in "
+                    f"the Vibe **Research → Agent debate** side panel.\n\n"
+                    f"Call this tool again with `refresh=false` once complete to read the summary."
+                )
+        else:
+            body = (
+                f"Refreshing TradingAgents debate for **{key}** in the background.\n"
+                f"Call again with `refresh=false` when the Research panel shows ready."
+            )
+
+        def _worker() -> None:
+            try:
+                run_agent_debate(key, asset_type=asset_type)
+            except Exception:
+                pass
+
+        threading.Thread(target=_worker, daemon=True, name=f"mcp-debate-{key}").start()
+        return body
+    except Exception as e:
+        return f"Error running TradingAgents analysis: {str(e)}"
+
+
 @mcp.tool()
 def get_stock_browse(ticker: str) -> str:
     """
