@@ -1709,15 +1709,84 @@ def get_research_status(
 @mcp.tool()
 def get_nse_browser_status() -> str:
     """
-    Read hub status for NSE/NSDL browser fetch missions (nodriver module).
+    Read hub status for NSE/NSDL browser datasets (nodriver module).
 
-    Returns JSON with fii_dii_daily / fpi_daily row counts and last mission runs.
-    Does not refresh data — use run_nse_browser_mission to fetch.
+    Returns JSON with per-dataset row counts, freshness, last mission status, and agent config.
+    Does not refresh data — use get_nse_browser_data to fetch and return rows.
     """
     try:
-        from trade_integrations.tools.nse_browser_tools import get_nse_browser_status as _status
+        from trade_integrations.tools.nse_browser_tools import query_nse_browser_status as _status
 
         return _status()
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)}, indent=2)
+
+
+@mcp.tool()
+def get_nse_browser_data(
+    dataset: str = "fii_dii",
+    start_date: str | None = None,
+    end_date: str | None = None,
+    refresh: bool = False,
+    refresh_cookies: bool = False,
+    agent_fallback: bool = True,
+    backfill_historical: bool = False,
+    limit: int = 500,
+) -> str:
+    """
+    Fetch NSE/NSDL data not available via simple APIs (primary agent tool).
+
+    Reads hub cache first; browses NSE/NSDL via nodriver only when stale or refresh=True.
+    Returns parsed rows in JSON and persists to hub parquet under reports/hub/_data/nse_browser/.
+
+    Agent routing:
+    - FII/DII / institutional / fiidii flows → dataset=\"fii_dii\"
+    - FPI / NSDL foreign portfolio → dataset=\"fpi\"
+    - Bulk or block deals → dataset=\"bulk_deals\"
+    - Delivery position → dataset=\"delivery\"
+    - Index PE/PB → dataset=\"pe_pb\"
+
+    Args:
+        dataset: fii_dii | fpi | bulk_deals | delivery | pe_pb (aliases accepted: fii, dii, nsdl)
+        start_date: YYYY-MM-DD (default ~30 days ago)
+        end_date: YYYY-MM-DD (default today)
+        refresh: Force live browser fetch even if cache is fresh
+        refresh_cookies: Bootstrap nodriver session before fetch
+        agent_fallback: MiniMax browser operator when navigation fails
+        backfill_historical: Full historical CSV/archives backfill (~120s, headed browser)
+        limit: Max rows returned
+
+    Returns:
+        JSON with status, records[], summary, freshness, hub_paths, mission_result.
+    """
+    try:
+        from trade_integrations.tools.nse_browser_tools import query_nse_browser_data as _get
+
+        return _get(
+            dataset,
+            start_date=start_date,
+            end_date=end_date,
+            refresh=refresh,
+            refresh_cookies=refresh_cookies,
+            agent_fallback=agent_fallback,
+            backfill_historical=backfill_historical,
+            limit=limit,
+        )
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)}, indent=2)
+
+
+@mcp.tool()
+def ingest_nse_repository() -> str:
+    """
+    Sync git-tracked data/nse parquet into hub without browser fetch.
+
+    Use after cloning the repo or when data/nse/*.parquet was updated locally.
+    """
+    try:
+        from trade_integrations.tools.nse_browser_tools import query_ingest_nse_repository as _ingest
+
+        return _ingest()
     except Exception as e:
         return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
@@ -1727,14 +1796,17 @@ def run_nse_browser_mission(
     mission: str = "fii_dii_history",
     refresh_cookies: bool = False,
     agent_fallback: bool = False,
+    backfill_historical: bool = False,
 ) -> str:
     """
-    Run an NSE/NSDL browser fetch mission and persist results to hub _data/nse_browser/.
+    Low-level: run one NSE/NSDL browser mission by id (ops/debug).
+
+    Prefer get_nse_browser_data for agent use — it returns parsed rows and handles cache freshness.
 
     Args:
         mission: fii_dii_history | fpi_nsdl | market_archives
         refresh_cookies: Bootstrap nodriver session cookies before fetch
-        agent_fallback: Use browser-use when deterministic navigation fails
+        agent_fallback: MiniMax operator when deterministic navigation fails
 
     Returns:
         JSON mission result with status, rows, artifacts, and date_range.
@@ -1747,7 +1819,50 @@ def run_nse_browser_mission(
             refresh=True,
             refresh_cookies=refresh_cookies,
             agent_fallback=agent_fallback,
+            backfill_historical=backfill_historical,
         )
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)}, indent=2)
+
+
+@mcp.tool()
+def run_browser_task(
+    goal: str,
+    start_urls: str | None = None,
+    output_schema: str | None = None,
+    max_steps: int = 50,
+    persist: bool = True,
+) -> str:
+    """
+    Agentic web browse/extract via Skyvern (ad-hoc research).
+
+    Use for events, filings, macro pages, or any public URL. For preset NSE/NSDL
+    datasets (FII/DII, FPI, archives) prefer get_nse_browser_data.
+
+    Args:
+        goal: Natural-language objective (required)
+        start_urls: JSON array of entry URLs, e.g. ["https://www.rbi.org.in/"]
+        output_schema: JSON schema string for structured extraction
+        max_steps: Step budget (maps to Skyvern poll timeout)
+        persist: Save artifacts under reports/hub/_data/nse_browser/tasks/
+
+    Returns:
+        JSON with status, structured_output, task_id, hub_path, run_id.
+    """
+    try:
+        from trade_integrations.tools.nse_browser_tools import query_run_browser_task as _run
+
+        urls: list[str] | None = None
+        if start_urls:
+            parsed = json.loads(start_urls)
+            if isinstance(parsed, list):
+                urls = [str(u) for u in parsed]
+            elif isinstance(parsed, str):
+                urls = [parsed]
+        schema: dict | None = None
+        if output_schema:
+            schema = json.loads(output_schema)
+        return _run(goal, start_urls=urls, output_schema=schema, max_steps=max_steps, persist=persist)
     except Exception as e:
         return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
@@ -1875,6 +1990,53 @@ def run_tradingagents_analysis(
         return body
     except Exception as e:
         return f"Error running TradingAgents analysis: {str(e)}"
+
+
+def _import_quant_review():
+    _ensure_trade_stack_import()
+    import trade_integrations  # noqa: F401
+    from trade_integrations.bridge.quant_review import run_quant_review
+    from trade_integrations.context.hub import (
+        is_quant_review_cache_fresh,
+        load_quant_review_json,
+    )
+
+    return run_quant_review, load_quant_review_json, is_quant_review_cache_fresh
+
+
+@mcp.tool()
+def run_quant_review(
+    ticker: str = "NIFTY",
+    horizon_days: int = 14,
+    refresh: bool = False,
+) -> str:
+    """
+    Run India Quant Reviewer — second opinion vs Ridge forecast (TA + flows + surprises).
+
+    Saves to reports/hub/{TICKER}/quant_review/latest.json. Label as reviewer opinion,
+    not the headline model forecast.
+
+    Args:
+        ticker: Index symbol (NIFTY, BANKNIFTY)
+        horizon_days: Prediction horizon for profile selection
+        refresh: Recompute even when cache is fresh
+
+    Returns:
+        JSON summary with surprises, disagreements, and TA consensus.
+    """
+    import json
+
+    try:
+        run_review, load_review, is_fresh = _import_quant_review()
+        key = ticker.strip().upper()
+        if not refresh:
+            cached = load_review(key)
+            if cached and is_fresh(key):
+                return json.dumps(cached, indent=2, default=str)
+        payload = run_review(key, horizon_days=horizon_days, save=True)
+        return json.dumps(payload, indent=2, default=str)
+    except Exception as e:
+        return json.dumps({"error": str(e), "ticker": ticker}, indent=2)
 
 
 @mcp.tool()
