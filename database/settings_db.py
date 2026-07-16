@@ -41,7 +41,7 @@ Base.query = db_session.query_property()
 class Settings(Base):
     __tablename__ = "settings"
     id = Column(Integer, primary_key=True)
-    analyze_mode = Column(Boolean, default=False)  # Default to Live Mode
+    analyze_mode = Column(Boolean, default=True)  # Default to Analyze (paper) Mode
 
     # SMTP Configuration
     smtp_server = Column(String(255), nullable=True)
@@ -70,8 +70,8 @@ def init_db():
     # Create default settings only if no settings exist (with race condition protection)
     try:
         if not Settings.query.first():
-            logger.debug("Settings DB: Creating default configuration (Live Mode)")
-            default_settings = Settings(analyze_mode=False)
+            logger.debug("Settings DB: Creating default configuration (Analyze Mode)")
+            default_settings = Settings(analyze_mode=True)
             db_session.add(default_settings)
             db_session.commit()
     except Exception as e:
@@ -90,7 +90,7 @@ def get_analyze_mode():
     # Cache miss - query database
     settings = Settings.query.first()
     if not settings:
-        settings = Settings(analyze_mode=False)  # Default to Live Mode
+        settings = Settings(analyze_mode=True)  # Default to Analyze (paper) Mode
         db_session.add(settings)
         db_session.commit()
 
@@ -199,7 +199,7 @@ def set_smtp_settings(
     """Set SMTP configuration"""
     settings = Settings.query.first()
     if not settings:
-        settings = Settings(analyze_mode=False)
+        settings = Settings(analyze_mode=True)
         db_session.add(settings)
 
     if smtp_server is not None:
@@ -234,7 +234,7 @@ def get_security_settings():
     if not settings:
         # Create with defaults
         settings = Settings(
-            analyze_mode=False,
+            analyze_mode=True,
             security_auto_ban_enabled=False,
             security_404_threshold=100,
             security_404_ban_duration=0,
@@ -270,7 +270,7 @@ def set_security_settings(
     """Set security configuration"""
     settings = Settings.query.first()
     if not settings:
-        settings = Settings(analyze_mode=False)
+        settings = Settings(analyze_mode=True)
         db_session.add(settings)
 
     if auto_ban_enabled is not None:
