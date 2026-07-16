@@ -1866,22 +1866,14 @@ def get_stock_trade_plan(ticker: str, refresh: bool = False, lookahead_days: int
         Markdown stock trade plan.
     """
     try:
-        (
-            _,
-            _,
-            run_stock_research,
-            format_stock_report,
-            load_stock_research_json,
-            save_stock_research,
-        ) = _import_stock_research()
-        sym = ticker.strip().upper().replace(".NS", "").replace(".BO", "")
-        if not refresh:
-            cached = load_stock_research_json(sym)
-            if cached:
-                return format_stock_report(cached)
-        doc = run_stock_research(sym, lookahead_days=lookahead_days)
-        save_stock_research(doc)
-        return format_stock_report(doc)
+        _ensure_trade_stack_import()
+        from trade_integrations.tools.stock_research_tools import fetch_stock_research_report
+
+        return fetch_stock_research_report(
+            ticker,
+            lookahead_days=lookahead_days,
+            use_cache=not refresh,
+        )
     except Exception as e:
         return f"Error loading stock trade plan: {str(e)}"
 
