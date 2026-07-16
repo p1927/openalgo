@@ -934,6 +934,27 @@ def _unwrap_optionchain_response(response: dict[str, Any]) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
+def _chain_snapshot_via_hub_channel(
+    underlying: str,
+    exchange: str,
+    *,
+    expiry_date: str | None = None,
+    strike_count: int | None = None,
+) -> dict[str, Any]:
+    """Build chain snapshot through hub channel (read-first + write-through)."""
+    _ensure_trade_stack_import()
+    from trade_integrations.dataflows.openalgo import _fetch_option_chain_raw
+    from trade_integrations.hub_capture.channel import get_chain
+
+    return get_chain(
+        underlying,
+        exchange,
+        _fetch_option_chain_raw,
+        expiry_date=expiry_date,
+        strike_count=strike_count,
+    )
+
+
 def _chain_snapshot_from_optionchain(
     underlying: str,
     exchange: str,
@@ -1108,7 +1129,7 @@ def get_options_browse(
         build_browse_summary, format_browse_markdown = _import_browse_summary_lightweight()
         json_safe = _import_json_safe_lightweight()
 
-        chain_snapshot = _chain_snapshot_from_optionchain(
+        chain_snapshot = _chain_snapshot_via_hub_channel(
             underlying,
             exchange,
             expiry_date=expiry_date,
@@ -1118,7 +1139,7 @@ def get_options_browse(
             options_exchange = "NFO" if exchange.upper() in ("NSE", "NSE_INDEX") else "BFO"
             expiries = _fetch_expiries_via_client(underlying, options_exchange)
             if expiries and not expiry_date:
-                chain_snapshot = _chain_snapshot_from_optionchain(
+                chain_snapshot = _chain_snapshot_via_hub_channel(
                     underlying,
                     exchange,
                     expiry_date=_normalize_openalgo_expiry(expiries[0]),
@@ -1681,6 +1702,52 @@ def get_research_status(
         }
         kind = kind_map.get(asset_type.strip().lower(), ResearchKind.STOCK)
         return json.dumps(_status(ticker, kind=kind), indent=2, default=str)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)}, indent=2)
+
+
+@mcp.tool()
+def get_nse_browser_status() -> str:
+    """
+    Read hub status for NSE/NSDL browser fetch missions (nodriver module).
+
+    Returns JSON with fii_dii_daily / fpi_daily row counts and last mission runs.
+    Does not refresh data — use run_nse_browser_mission to fetch.
+    """
+    try:
+        from trade_integrations.tools.nse_browser_tools import get_nse_browser_status as _status
+
+        return _status()
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)}, indent=2)
+
+
+@mcp.tool()
+def run_nse_browser_mission(
+    mission: str = "fii_dii_history",
+    refresh_cookies: bool = False,
+    agent_fallback: bool = False,
+) -> str:
+    """
+    Run an NSE/NSDL browser fetch mission and persist results to hub _data/nse_browser/.
+
+    Args:
+        mission: fii_dii_history | fpi_nsdl | market_archives
+        refresh_cookies: Bootstrap nodriver session cookies before fetch
+        agent_fallback: Use browser-use when deterministic navigation fails
+
+    Returns:
+        JSON mission result with status, rows, artifacts, and date_range.
+    """
+    try:
+        from trade_integrations.tools.nse_browser_tools import fetch_nse_browser_data
+
+        return fetch_nse_browser_data(
+            mission,
+            refresh=True,
+            refresh_cookies=refresh_cookies,
+            agent_fallback=agent_fallback,
+        )
     except Exception as e:
         return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
