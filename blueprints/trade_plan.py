@@ -27,11 +27,12 @@ def _hub_root() -> Path:
     return Path(__file__).resolve().parents[2] / "reports" / "hub"
 
 
-def _safe_plan_path(symbol: str) -> Path | None:
+def _safe_plan_path(symbol: str, asset: str = "options") -> Path | None:
     key = symbol.strip().upper().replace("/", "_")
     if not key or ".." in key:
         return None
-    return _hub_root() / key / "options_research" / "latest.json"
+    sub = "stock_research" if asset == "stock" else "options_research"
+    return _hub_root() / key / sub / "latest.json"
 
 
 @trade_plan_bp.route("/api/trade-plan", methods=["GET"])
@@ -40,7 +41,9 @@ def _safe_plan_path(symbol: str) -> Path | None:
 def get_trade_plan():
     """Load options_research/latest.json for Strategy Builder ?plan=SYMBOL."""
     symbol = request.args.get("symbol") or request.args.get("underlying") or ""
-    path = _safe_plan_path(symbol)
+    asset = (request.args.get("asset") or "options").strip().lower()
+    view = (request.args.get("view") or "full").strip().lower()
+    path = _safe_plan_path(symbol, asset=asset)
     if path is None:
         return jsonify({"status": "error", "message": "invalid symbol"}), 400
     if not path.is_file():
@@ -50,4 +53,18 @@ def get_trade_plan():
     except (OSError, json.JSONDecodeError) as exc:
         logger.warning("trade plan read failed: %s", exc)
         return jsonify({"status": "error", "message": "failed to read plan"}), 500
+    if view == "browse":
+        browse = payload.get("browse_summary") or {}
+        return jsonify({"status": "success", "symbol": symbol.upper(), "browse_summary": browse})
+    if view == "recommended":
+        return jsonify(
+            {
+                "status": "success",
+                "symbol": symbol.upper(),
+                "recommended": payload.get("recommended") or {},
+                "charges": payload.get("charges") or {},
+                "payoff_over_time": payload.get("payoff_over_time") or {},
+                "meta": payload.get("meta") or {},
+            }
+        )
     return jsonify({"status": "success", "plan": payload})
