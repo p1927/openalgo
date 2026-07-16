@@ -57,6 +57,8 @@ export interface PositionsPanelProps {
   onSaveStrategy?: () => void
   /** Opens the Execute Basket dialog. Button hidden if omitted. */
   onExecute?: () => void
+  /** Opens the trade-plan wizard (preview → margin → confirm → basket). */
+  onExecutePlan?: () => void
   /** True when editing an existing saved strategy (changes Save label to Update). */
   isUpdating?: boolean
   /** True when no broker session — disables Execute. */
@@ -143,6 +145,7 @@ export function PositionsPanel({
   strikeStep = 0,
   onSaveStrategy,
   onExecute,
+  onExecutePlan,
   isUpdating = false,
   executeDisabled = false,
 }: PositionsPanelProps) {
@@ -370,7 +373,7 @@ export function PositionsPanel({
 
       {/* Action row — sits directly above the metrics table so it's within
           thumb-reach of the leg list. */}
-      {(onSaveStrategy || onExecute) && (
+      {(onSaveStrategy || onExecute || onExecutePlan) && (
         <div className="flex items-center justify-end gap-2 border-t bg-muted/10 px-3.5 py-2.5">
           {onSaveStrategy && (
             <Button
@@ -383,6 +386,18 @@ export function PositionsPanel({
             >
               <Save className="h-3.5 w-3.5" />
               {isUpdating ? 'Update Strategy' : 'Save Strategy'}
+            </Button>
+          )}
+          {onExecutePlan && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={onExecutePlan}
+              disabled={activeCount === 0 || executeDisabled}
+              className="h-9 gap-1.5 text-xs font-semibold"
+            >
+              <Send className="h-3.5 w-3.5" />
+              Execute Plan
             </Button>
           )}
           {onExecute && (
