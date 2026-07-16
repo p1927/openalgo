@@ -16,7 +16,7 @@ import { scalpingApi } from '@/api/scalping'
 import { type PortfolioEntry, strategyPortfolioApi, type Watchlist } from '@/api/strategy-portfolio'
 import { tradingApi } from '@/api/trading'
 import { EditLegDialog } from '@/components/strategy-builder/EditLegDialog'
-import { ExecutePlanWizard, type PlanImplementationStep } from '@/components/strategy-builder/ExecutePlanWizard'
+import { ExecutePlanWizard, type PlanImplementationStep, type StockPlanOrder } from '@/components/strategy-builder/ExecutePlanWizard'
 import { GreeksTab, type LegGreeks } from '@/components/strategy-builder/GreeksTab'
 import {
   type LegDraft,
@@ -92,6 +92,11 @@ import {
   totalPnlAt,
   totalPremium,
 } from '@/lib/strategyMath'
+import {
+  chargeMarketForExchange,
+  estimateCharges,
+  legsToChargeInput,
+} from '@/lib/tradeCharges'
 import type { Direction, StrategyTemplate } from '@/lib/strategyTemplates'
 import { normalizeExpiryCode } from '@/lib/templateResolution'
 import { makeFormatCurrency } from '@/lib/utils'
@@ -126,6 +131,18 @@ interface LiveOptionContract {
   contract: NonNullable<ListedOptionChainResponse['chain'][number]['ce']>
 }
 
+function cloneLegs(legs: StrategyLeg[]): StrategyLeg[] {
+  return legs.map((l) => ({ ...l }))
+}
+
+function findChainRow(
+  chain: ListedOptionChainResponse['chain'] | null | undefined,
+  strike: number
+) {
+  if (!chain) return undefined
+  return chain.find((s) => Math.abs(s.strike - strike) < 0.01)
+}
+
 /**
  * Serialize every broker-backed API call this page issues.
  *
@@ -155,6 +172,7 @@ function queuedFetch<T>(fn: () => Promise<T>): Promise<T> {
 export default function StrategyBuilder() {
   const { apiKey, user } = useAuthStore()
   const formatCurrency = useMemo(() => makeFormatCurrency(user?.broker), [user?.broker])
+  const connectedBroker = user?.broker
   const {
     strategyBuilderExchanges: fnoExchanges,
     defaultStrategyBuilderExchange: defaultFnoExchange,
@@ -220,6 +238,9 @@ export default function StrategyBuilder() {
   const [planRankedStrategies, setPlanRankedStrategies] = useState<RankedStrategy[]>([])
   const [planScenarios, setPlanScenarios] = useState<PlanScenario[]>([])
   const [planPayoffOverTime, setPlanPayoffOverTime] = useState<PayoffOverTimeSample[]>([])
+  const [planKind, setPlanKind] = useState<'options' | 'stock'>('options')
+  const [stockOrder, setStockOrder] = useState<StockPlanOrder | null>(null)
+  const [strikeAdjustBaseline, setStrikeAdjustBaseline] = useState<StrategyLeg[] | null>(null)
   const [executePlanOpen, setExecutePlanOpen] = useState(false)
   const [activeTab, setActiveTab] = useState('payoff')
 
@@ -1301,26 +1322,22 @@ export default function StrategyBuilder() {
     }
   }, [apiKey, marginRequestKey])
 
-  // Live per-leg charges (brokerage, STT, GST, stamp) whenever legs change.
+  // Live per-leg charges — client estimate immediately; server refresh when session OK.
   useEffect(() => {
     const active = legs.filter(
       (l) => l.active && l.price > 0 && !(l.exitPrice !== undefined && l.exitPrice > 0)
     )
     if (active.length === 0) {
-      setPlanCharges(null)
+      if (legs.length === 0) setPlanCharges(null)
       return
     }
+    const chargeLegs = legsToChargeInput(active)
+    const market = chargeMarketForExchange(selectedExchange)
+    setPlanCharges(estimateCharges(chargeLegs, market, connectedBroker))
+
     const handle = setTimeout(async () => {
       setIsChargesLoading(true)
       try {
-        const chargeLegs = active.map((l) => ({
-          symbol: l.symbol,
-          side: l.side,
-          strike: l.strike,
-          option_type: l.optionType,
-          price: l.price,
-          quantity: l.lots * l.lotSize,
-        }))
         const res = await queuedFetch(() =>
           webClient.post<{ status: string; charges?: PositionsPanelProps['planCharges'] }>(
             '/api/trade-charges',
@@ -1328,21 +1345,27 @@ export default function StrategyBuilder() {
               legs: chargeLegs,
               spot: spotPrice ?? 0,
               include_exit: true,
+              market,
+              broker_preset: connectedBroker ?? undefined,
             },
             { validateStatus: () => true }
           )
         )
-        if (res.status === 200 && res.data.status === 'success' && res.data.charges) {
+        if (
+          res.status === 200 &&
+          res.data?.status === 'success' &&
+          res.data.charges?.total?.total_charges !== undefined
+        ) {
           setPlanCharges(res.data.charges)
         }
       } catch {
-        /* non-fatal */
+        /* client estimate already shown */
       } finally {
         setIsChargesLoading(false)
       }
-    }, 450)
+    }, 400)
     return () => clearTimeout(handle)
-  }, [legs, spotPrice])
+  }, [legs, spotPrice, selectedExchange, connectedBroker])
 
   // Backfill price for legs that were added without one (typically the far-
   // expiry leg of a calendar/diagonal — the loaded chain only covers the
@@ -1542,7 +1565,11 @@ export default function StrategyBuilder() {
           marketGreeks: market.greeks,
         }
       })
-      setLegs((prev) => [...prev, ...newLegs])
+      setLegs((prev) => {
+        const merged = [...prev, ...newLegs]
+        setStrikeAdjustBaseline(cloneLegs(merged))
+        return merged
+      })
       setTemplateDialogOpen(false)
       setActiveTemplate(null)
     },
@@ -1667,7 +1694,7 @@ export default function StrategyBuilder() {
       setLegs((prev) =>
         prev.map((l) => {
           if (l.id !== legId || l.segment !== 'OPTION' || !l.optionType) return l
-          const row = chainData?.chain.find((s) => s.strike === strike)
+          const row = findChainRow(chainData?.chain, strike)
           const side = l.optionType === 'CE' ? row?.ce : row?.pe
           // No listed contract at this strike yet (chain not loaded / off-grid
           // drag) — skip rather than fabricate a symbol the backend can't fill.
@@ -1677,13 +1704,34 @@ export default function StrategyBuilder() {
             strike,
             expiry: normalizeExpiryCode(l.expiry),
             symbol: side.symbol,
-            price: side.ltp ?? l.price,
+            price: side.ltp && side.ltp > 0 ? side.ltp : l.price,
+            lotSize: side.lotsize ?? l.lotSize,
           }
         })
       )
     },
     [chainData]
   )
+
+  const resetStrikesToBaseline = useCallback(() => {
+    if (!strikeAdjustBaseline?.length) return
+    setLegs(cloneLegs(strikeAdjustBaseline))
+    showToast.success('Strikes reset to loaded plan')
+  }, [strikeAdjustBaseline])
+
+  const canResetStrikes = useMemo(() => {
+    if (!strikeAdjustBaseline?.length) return false
+    return strikeAdjustBaseline.some((b) => {
+      const cur = legs.find((l) => l.id === b.id)
+      return (
+        !cur ||
+        cur.strike !== b.strike ||
+        cur.price !== b.price ||
+        cur.symbol !== b.symbol ||
+        cur.optionType !== b.optionType
+      )
+    })
+  }, [legs, strikeAdjustBaseline])
   const toggleAll = useCallback((active: boolean) => {
     setLegs((prev) => prev.map((l) => ({ ...l, active })))
   }, [])
@@ -1695,6 +1743,9 @@ export default function StrategyBuilder() {
     setPlanRankedStrategies([])
     setPlanScenarios([])
     setPlanPayoffOverTime([])
+    setPlanKind('options')
+    setStockOrder(null)
+    setStrikeAdjustBaseline(null)
     setPlanCharges(null)
     setPlanNetPnl(null)
     setPlanImplementationSteps([])
@@ -1802,27 +1853,34 @@ export default function StrategyBuilder() {
         ).toUpperCase()
         const meta = (plan.meta || {}) as Record<string, string>
         const isStockPlan = planAsset === 'stock'
+        setPlanKind(isStockPlan ? 'stock' : 'options')
         const optionsExchange = meta.options_exchange || (isStockPlan ? 'NSE' : 'NFO')
         setSelectedExchange(optionsExchange)
         setSelectedUnderlying(underlying)
-        if (plan.expiry) setSelectedExpiry(String(plan.expiry))
+        if (plan.expiry) setSelectedExpiry(normalizeExpiryCode(String(plan.expiry)))
+        const planExpiry = plan.expiry ? normalizeExpiryCode(String(plan.expiry)) : ''
         const rec = (plan.recommended || {}) as Record<string, unknown>
         const rawLegs = (rec.legs || []) as Array<Record<string, unknown>>
-        const restored: StrategyLeg[] = rawLegs.map((leg) => ({
-          id: uid(),
-          segment: (leg.segment as StrategyLeg['segment']) || 'OPTION',
-          side: (leg.side as 'BUY' | 'SELL') || 'BUY',
-          lots: Number(leg.lots) || 1,
-          lotSize: Number(leg.lot_size) || Number(leg.quantity) || 1,
-          expiry: String(plan.expiry || leg.expiry || ''),
-          strike: Number(leg.strike) || 0,
-          optionType: (leg.option_type as 'CE' | 'PE') || 'CE',
-          price: Number(leg.price) || Number(rec.entry) || 0,
-          iv: 0,
-          active: true,
-          symbol: String(leg.symbol || ''),
-        }))
+        const restored: StrategyLeg[] = rawLegs.map((leg) => {
+          const optRaw = String(leg.option_type || 'CE').toUpperCase()
+          const optionType: 'CE' | 'PE' = optRaw === 'PE' ? 'PE' : 'CE'
+          return {
+            id: uid(),
+            segment: (leg.segment as StrategyLeg['segment']) || 'OPTION',
+            side: (leg.side as 'BUY' | 'SELL') || 'BUY',
+            lots: Number(leg.lots) || 1,
+            lotSize: Number(leg.lot_size) || Number(leg.quantity) || 1,
+            expiry: planExpiry || normalizeExpiryCode(String(leg.expiry || '')),
+            strike: Number(leg.strike) || 0,
+            optionType,
+            price: Number(leg.price) || Number(rec.entry) || 0,
+            iv: 0,
+            active: true,
+            symbol: String(leg.symbol || ''),
+          }
+        })
         setLegs(restored)
+        setStrikeAdjustBaseline(cloneLegs(restored))
         setLoadedEntry(null)
         setLoadedPlanName(String(rec.name || 'trade_plan'))
         setPlanCharges((plan.charges as PositionsPanelProps['planCharges']) || null)
@@ -1847,6 +1905,20 @@ export default function StrategyBuilder() {
         setPlanScenarios(((plan.scenarios || []) as PlanScenario[]).slice(0, 6))
         const pot = (plan.payoff_over_time || {}) as Record<string, unknown>
         setPlanPayoffOverTime(((pot.samples || []) as PayoffOverTimeSample[]) || [])
+        if (isStockPlan) {
+          setStockOrder({
+            symbol: underlying,
+            exchange: String(rec.exchange || meta.exchange || 'NSE'),
+            action: (rec.action as StockPlanOrder['action']) || 'BUY',
+            quantity: Number(rec.quantity) || 1,
+            product: String(rec.product || 'CNC'),
+            entry: rec.entry != null ? Number(rec.entry) : Number(plan.spot) || null,
+            target: rec.target != null ? Number(rec.target) : null,
+            stop: rec.stop != null ? Number(rec.stop) : null,
+          })
+        } else {
+          setStockOrder(null)
+        }
         const payoff = (plan.payoff || {}) as Record<string, unknown>
         setPlanNetPnl({
           gross_max_profit: (payoff.gross_max_profit as number) ?? (payoff.max_profit as number),
@@ -2039,11 +2111,37 @@ export default function StrategyBuilder() {
             </div>
 
             <div className="space-y-1.5">
-              <h3 className="text-base font-semibold">Your canvas awaits</h3>
-              <p className="mx-auto max-w-md text-[13px] text-muted-foreground">
-                Pick a pre-built strategy above, or add a position manually. Payoff chart, Greeks
-                and live P&amp;L will materialize here.
-              </p>
+              {planKind === 'stock' && loadedPlanName && stockOrder ? (
+                <>
+                  <h3 className="text-base font-semibold">Equity plan loaded</h3>
+                  <p className="mx-auto max-w-md text-[13px] text-muted-foreground">
+                    {stockOrder.action} {stockOrder.quantity}× {stockOrder.symbol} @ ₹
+                    {stockOrder.entry ?? '—'}
+                    {stockOrder.target != null ? ` · target ₹${stockOrder.target}` : ''}
+                    {stockOrder.stop != null ? ` · stop ₹${stockOrder.stop}` : ''}
+                  </p>
+                  {planImplementationSteps.length > 0 && (
+                    <div className="pt-3">
+                      <Button
+                        size="sm"
+                        onClick={() => setExecutePlanOpen(true)}
+                        disabled={!apiKey || stockOrder.action === 'HOLD'}
+                        className="gap-1.5"
+                      >
+                        Execute Plan
+                      </Button>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <h3 className="text-base font-semibold">Your canvas awaits</h3>
+                  <p className="mx-auto max-w-md text-[13px] text-muted-foreground">
+                    Pick a pre-built strategy above, or add a position manually. Payoff chart, Greeks
+                    and live P&amp;L will materialize here.
+                  </p>
+                </>
+              )}
             </div>
 
             <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
@@ -2164,7 +2262,7 @@ export default function StrategyBuilder() {
                   </Button>
                 </div>
               </div>
-              <TabsContent value="payoff" className="pt-4">
+              <TabsContent value="payoff" className="space-y-3 pt-4">
                 <div className="overflow-hidden rounded-xl border bg-card p-2 shadow-sm">
                   {spotPrice ? (
                     <PayoffChart
@@ -2182,6 +2280,8 @@ export default function StrategyBuilder() {
                       legs={legs}
                       strikeStep={strikeStep}
                       onStrikeChange={handleStrikeFromChart}
+                      onResetStrikes={resetStrikesToBaseline}
+                      canResetStrikes={canResetStrikes}
                     />
                   ) : (
                     <div className="flex h-[440px] items-center justify-center text-sm text-muted-foreground">
@@ -2205,6 +2305,7 @@ export default function StrategyBuilder() {
                   fnoExchange={fnoExchange}
                   fallbackPrices={fallbackPricesByLeg}
                   formatCurrency={formatCurrency}
+                  planCharges={planCharges}
                 />
               </TabsContent>
               <TabsContent value="strategychart" className="pt-4">
@@ -2334,9 +2435,11 @@ export default function StrategyBuilder() {
         open={executePlanOpen}
         onOpenChange={setExecutePlanOpen}
         legs={legs}
-        exchange={optionExchangeFor(selectedExchange)}
+        exchange={planKind === 'stock' ? stockOrder?.exchange ?? 'NSE' : optionExchangeFor(selectedExchange)}
         planName={loadedPlanName ?? 'trade_plan'}
         implementationSteps={planImplementationSteps}
+        planKind={planKind}
+        stockOrder={stockOrder}
         charges={planCharges}
         netPnl={planNetPnl}
         apiKey={apiKey ?? ''}
