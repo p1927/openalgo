@@ -1,7 +1,7 @@
 import type * as PlotlyTypes from 'plotly.js'
 import { useMemo } from 'react'
 import Plot from '@/lib/Plot2D'
-import type { PayoffResult } from '@/lib/strategyMath'
+import type { PayoffResult, StrategyLeg } from '@/lib/strategyMath'
 import { useThemeStore } from '@/stores/themeStore'
 
 export interface PayoffChartProps {
@@ -10,9 +10,16 @@ export interface PayoffChartProps {
   atmIv: number
   tYears: number
   payoff: PayoffResult
-  /** If true, show a dashed "T+0" curve in addition to expiry. */
   showTplus0?: boolean
   height?: number
+  legs?: StrategyLeg[]
+  strikeStep?: number
+  onStrikeChange?: (legId: string, strike: number) => void
+}
+
+function snapStrike(value: number, step: number): number {
+  if (!step || step <= 0) return Math.round(value)
+  return Math.round(value / step) * step
 }
 
 export function PayoffChart({
@@ -23,10 +30,25 @@ export function PayoffChart({
   payoff,
   showTplus0 = true,
   height = 440,
+  legs = [],
+  strikeStep = 50,
+  onStrikeChange,
 }: PayoffChartProps) {
   const { mode, appMode } = useThemeStore()
   const isAnalyzer = appMode === 'analyzer'
   const isDark = mode === 'dark' || isAnalyzer
+
+  const strikeLegs = useMemo(
+    () =>
+      legs.filter(
+        (l) =>
+          l.active &&
+          l.segment === 'OPTION' &&
+          l.strike !== undefined &&
+          !(l.exitPrice && l.exitPrice > 0)
+      ),
+    [legs]
+  )
 
   const colors = useMemo(
     () => ({
@@ -41,13 +63,20 @@ export function PayoffChart({
       tplus0Line: isDark ? '#60a5fa' : '#2563eb',
       zeroLine: isDark ? 'rgba(226,232,240,0.5)' : 'rgba(15,23,42,0.5)',
       spotLine: isDark ? '#f472b6' : '#db2777',
-      // Stepped σ bands: inner ±1σ darker, outer ±2σ lighter.
+      ceStrike: isDark ? '#4ade80' : '#16a34a',
+      peStrike: isDark ? '#f87171' : '#dc2626',
       sigma1Band: isDark ? 'rgba(148,163,184,0.22)' : 'rgba(100,116,139,0.16)',
       sigma2Band: isDark ? 'rgba(148,163,184,0.10)' : 'rgba(100,116,139,0.07)',
       sigmaTick: isDark ? 'rgba(226,232,240,0.35)' : 'rgba(15,23,42,0.3)',
     }),
     [isDark, isAnalyzer]
   )
+
+  const xBounds = useMemo(() => {
+    const xs = payoff.samples.map((s) => s.underlying)
+    if (!xs.length) return { min: spot * 0.9, max: spot * 1.1 }
+    return { min: Math.min(...xs), max: Math.max(...xs) }
+  }, [payoff.samples, spot])
 
   const { data, layout, config } = useMemo(() => {
     const { samples } = payoff
@@ -62,18 +91,15 @@ export function PayoffChart({
     const xs = samples.map((s) => s.underlying)
     const ysExpiry = samples.map((s) => s.expiry)
     const ysT0 = samples.map((s) => s.tplus0)
+    const yLo = Math.min(...ysExpiry, ...ysT0, 0) * 1.05
+    const yHi = Math.max(...ysExpiry, ...ysT0, 0) * 1.05
 
-    // Per-sample "% change from spot" — pre-formatted as a signed 2-decimal
-    // string so the hover template can emit it verbatim. Plotly's format
-    // spec is silently dropped when customdata is accessed via bracket
-    // notation (`%{customdata[0]:+.2f}`), so we format in JS instead.
     const pctFromSpot = samples.map((s) => {
       const pct = ((s.underlying - spot) / spot) * 100
       const sign = pct >= 0 ? '+' : ''
       return `${sign}${pct.toFixed(2)}%`
     })
 
-    // Split expiry into profit/loss fills via trace thresholding.
     const profitFill = samples.map((s) => (s.expiry >= 0 ? s.expiry : 0))
     const lossFill = samples.map((s) => (s.expiry < 0 ? s.expiry : 0))
 
@@ -113,7 +139,6 @@ export function PayoffChart({
         mode: 'lines',
         name: 'At Expiry',
         line: { color: colors.expiryLine, width: 2.2 },
-        // customdata carries a pre-formatted percent string per point.
         customdata: pctFromSpot as unknown as PlotlyTypes.Datum[],
         hovertemplate:
           '<b>At Expiry P&L</b> ₹%{y:,.0f}' +
@@ -134,8 +159,27 @@ export function PayoffChart({
       })
     }
 
+    // Bold vertical strike lines (always visible on chart)
+    for (const leg of strikeLegs) {
+      const strike = leg.strike ?? spot
+      const isCe = leg.optionType === 'CE'
+      traces.push({
+        x: [strike, strike],
+        y: [yLo, yHi],
+        type: 'scatter',
+        mode: 'lines',
+        name: `${leg.optionType} ${strike}`,
+        line: {
+          color: isCe ? colors.ceStrike : colors.peStrike,
+          width: 3,
+          dash: 'solid',
+        },
+        hovertemplate: `<b>${leg.optionType}</b> strike %{x:,.0f}<extra></extra>`,
+        showlegend: true,
+      })
+    }
+
     const shapes: Partial<PlotlyTypes.Shape>[] = [
-      // zero line
       {
         type: 'line',
         xref: 'paper',
@@ -148,11 +192,7 @@ export function PayoffChart({
       },
     ]
 
-    // Stepped σ bands: the wider 2σ band is drawn first so the 1σ band
-    // overlays on top of it, producing a visually distinct inner (darker)
-    // and outer (lighter) zone rather than one uniform wash.
     if (sigmaMove > 0) {
-      // Left outer band: from -2σ to -1σ
       shapes.push({
         type: 'rect',
         xref: 'x',
@@ -165,7 +205,6 @@ export function PayoffChart({
         line: { width: 0 },
         layer: 'below',
       })
-      // Right outer band: from +1σ to +2σ
       shapes.push({
         type: 'rect',
         xref: 'x',
@@ -178,7 +217,6 @@ export function PayoffChart({
         line: { width: 0 },
         layer: 'below',
       })
-      // Inner 1σ band
       shapes.push({
         type: 'rect',
         xref: 'x',
@@ -191,7 +229,6 @@ export function PayoffChart({
         line: { width: 0 },
         layer: 'below',
       })
-      // Thin vertical ticks at each σ boundary
       for (const x of [b2.lo, b1.lo, b1.hi, b2.hi]) {
         shapes.push({
           type: 'line',
@@ -207,7 +244,6 @@ export function PayoffChart({
       }
     }
 
-    // Spot line (drawn on top of bands)
     shapes.push({
       type: 'line',
       xref: 'x',
@@ -219,28 +255,26 @@ export function PayoffChart({
       line: { color: colors.spotLine, width: 1.5, dash: 'dot' },
     })
 
-    const annotations: Partial<PlotlyTypes.Annotations>[] = []
-
-    // Spot label sits prominently above the chart at y=1.04 (above plot area)
-    annotations.push({
-      x: spot,
-      y: 1.06,
-      xref: 'x',
-      yref: 'paper',
-      text: `<b>${spot.toFixed(2)}</b>`,
-      showarrow: false,
-      yanchor: 'bottom',
-      font: { size: 12, color: colors.spotLine },
-    })
+    const annotations: Partial<PlotlyTypes.Annotations>[] = [
+      {
+        x: spot,
+        y: 1.06,
+        xref: 'x',
+        yref: 'paper',
+        text: `<b>${spot.toFixed(2)}</b>`,
+        showarrow: false,
+        yanchor: 'bottom',
+        font: { size: 12, color: colors.spotLine },
+      },
+    ]
 
     if (sigmaMove > 0) {
-      const sigmaLabels: Array<{ x: number; text: string }> = [
+      for (const s of [
         { x: b2.lo, text: '-2σ' },
         { x: b1.lo, text: '-1σ' },
         { x: b1.hi, text: '+1σ' },
         { x: b2.hi, text: '+2σ' },
-      ]
-      for (const s of sigmaLabels) {
+      ]) {
         annotations.push({
           x: s.x,
           y: 1.06,
@@ -254,11 +288,6 @@ export function PayoffChart({
       }
     }
 
-    // Breakeven lines/labels removed by design — the values are already
-    // surfaced in the Strategy Positions metrics panel, and the lines added
-    // visual clutter across the plot area.
-
-    // Watermark: bottom-right corner, plain text only (no symbols).
     annotations.push({
       x: 1,
       y: 0,
@@ -268,7 +297,6 @@ export function PayoffChart({
       showarrow: false,
       xanchor: 'right',
       yanchor: 'top',
-      // Nudge below the plot area so it sits just under the x-axis labels.
       yshift: -36,
       xshift: -6,
       font: { size: 10, color: colors.mutedText },
@@ -279,7 +307,6 @@ export function PayoffChart({
       title: {
         text: title,
         font: { color: colors.text, size: 14 },
-        // Push title up slightly so the σ / spot label row sits below it.
         y: 0.98,
         yanchor: 'top',
       },
@@ -329,15 +356,52 @@ export function PayoffChart({
         responsive: true,
       } as Partial<PlotlyTypes.Config>,
     }
-  }, [payoff, spot, atmIv, tYears, showTplus0, title, colors, isDark])
+  }, [payoff, spot, atmIv, tYears, showTplus0, title, colors, isDark, strikeLegs])
 
   return (
-    <Plot
-      data={data}
-      layout={layout}
-      config={config}
-      useResizeHandler
-      style={{ width: '100%', height }}
-    />
+    <div className="space-y-3">
+      <Plot
+        data={data}
+        layout={layout}
+        config={config}
+        useResizeHandler
+        style={{ width: '100%', height }}
+      />
+      {onStrikeChange && strikeLegs.length > 0 && (
+        <div className="space-y-2 rounded-lg border bg-muted/20 px-3 py-2.5">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+            Adjust strikes (drag sliders — updates legs &amp; charges)
+          </div>
+          {strikeLegs.map((leg) => {
+            const strike = leg.strike ?? spot
+            const isCe = leg.optionType === 'CE'
+            return (
+              <label key={leg.id} className="flex items-center gap-3 text-xs">
+                <span
+                  className="w-14 shrink-0 font-bold tabular-nums"
+                  style={{ color: isCe ? colors.ceStrike : colors.peStrike }}
+                >
+                  {leg.optionType}
+                </span>
+                <input
+                  type="range"
+                  className="h-2 flex-1 cursor-pointer accent-current"
+                  style={{ accentColor: isCe ? colors.ceStrike : colors.peStrike }}
+                  min={xBounds.min}
+                  max={xBounds.max}
+                  step={strikeStep > 0 ? strikeStep : 1}
+                  value={strike}
+                  onChange={(e) => {
+                    const next = snapStrike(Number(e.target.value), strikeStep)
+                    if (next !== strike) onStrikeChange(leg.id, next)
+                  }}
+                />
+                <span className="w-16 shrink-0 text-right font-semibold tabular-nums">{strike}</span>
+              </label>
+            )
+          })}
+        </div>
+      )}
+    </div>
   )
 }
