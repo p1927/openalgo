@@ -1130,6 +1130,8 @@ def get_options_trade_widget(
     Build a structured trade-plan widget for Vibe chat (scenarios, payoff chart data,
     charges, recommended legs, execute steps).
 
+    Required for any strategy recommendation shown to the user.
+
     Returns JSON with type ``trade_plan.widget``. The Vibe UI renders this as an
     interactive card with payoff graph and Execute button.
 
