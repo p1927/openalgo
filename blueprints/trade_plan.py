@@ -19,12 +19,22 @@ trade_plan_bp = Blueprint("trade_plan_bp", __name__, url_prefix="/")
 READ_LIMIT = os.getenv("TRADE_PLAN_READ_LIMIT", "60 per minute")
 
 
-def _hub_root() -> Path:
-    raw = os.getenv("TRADE_STACK_HUB_DIR", "").strip()
+def _trade_stack_root() -> Path:
+    raw = os.getenv("TRADE_STACK_ROOT", "").strip()
     if raw:
         return Path(raw).expanduser().resolve()
     # openalgo/blueprints -> parents[2] = trade repo root
-    return Path(__file__).resolve().parents[2] / "reports" / "hub"
+    return Path(__file__).resolve().parents[2]
+
+
+def _hub_root() -> Path:
+    raw = os.getenv("TRADE_STACK_HUB_DIR", "").strip()
+    if raw:
+        path = Path(raw).expanduser()
+        if not path.is_absolute():
+            path = _trade_stack_root() / path
+        return path.resolve()
+    return _trade_stack_root() / "reports" / "hub"
 
 
 def _safe_plan_path(symbol: str, asset: str = "options") -> Path | None:
