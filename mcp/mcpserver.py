@@ -1169,6 +1169,62 @@ def get_options_trade_widget(
 
 
 @mcp.tool()
+def get_plan_position_status(widget_id: str) -> str:
+    """
+    Return execution ledger entry and matched broker positions for a trade widget.
+
+    Gated by OPTIONS_REALTIME_MONITOR_ENABLED — returns empty JSON when monitor is off.
+
+    Args:
+        widget_id: Persisted trade-plan widget id (tp_*)
+
+    Returns:
+        JSON with ledger entry, matched positions, thesis-break report, and position P&L.
+    """
+    try:
+        _ensure_trade_stack_import()
+        from trade_integrations.monitor.config import is_monitor_enabled
+        from trade_integrations.monitor.execution_ledger import (
+            fetch_position_book,
+            get_ledger_entry,
+            match_positions_for_entry,
+        )
+        from trade_integrations.monitor.service import MonitorService
+
+        if not is_monitor_enabled():
+            return json.dumps({})
+
+        ledger_entry = get_ledger_entry(widget_id)
+        if ledger_entry is None:
+            return json.dumps({"widget_id": widget_id, "ledger": None})
+
+        position_book = fetch_position_book()
+        matched_positions, position_pnl = match_positions_for_entry(
+            ledger_entry,
+            position_book or {},
+        )
+        thesis_report = MonitorService().evaluate_position_thesis(widget_id)
+        payload: dict[str, Any] = {
+            "widget_id": widget_id,
+            "ledger": ledger_entry,
+            "matched_positions": matched_positions,
+            "position_pnl": position_pnl,
+        }
+        if thesis_report is not None:
+            payload["thesis_break"] = {
+                "broken": thesis_report.broken,
+                "reasons": thesis_report.reasons,
+                "severity": thesis_report.severity,
+                "live_spot": thesis_report.live_spot,
+                "plan_spot": thesis_report.plan_spot,
+                "position_pnl": thesis_report.position_pnl,
+            }
+        return json.dumps(payload, indent=2, default=str)
+    except Exception as e:
+        return json.dumps({"widget_id": widget_id, "error": str(e)}, indent=2)
+
+
+@mcp.tool()
 def get_stock_trade_widget(
     ticker: str,
     refresh: bool = False,
