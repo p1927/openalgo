@@ -1433,6 +1433,41 @@ def get_index_trade_plan(
 
 
 @mcp.tool()
+def get_index_trade_widget(
+    ticker: str = "NIFTY",
+    refresh: bool = False,
+    horizon_days: int | None = None,
+) -> str:
+    """
+    Build a structured index trade-plan widget for Vibe chat.
+
+    Includes prediction range, SHAP/marginal factor contributions, sensitivity
+    curves (index vs factor shocks), and event-impact paths.
+
+    Args:
+        ticker: Index symbol (NIFTY, BANKNIFTY, …)
+        refresh: Regenerate hub research before building widget
+        horizon_days: Prediction horizon in days (default 14)
+
+    Returns:
+        JSON widget payload (type trade_plan.widget, asset_type index).
+    """
+    try:
+        from trade_integrations.dataflows.index_research.widget_payload import (
+            build_index_trade_widget,
+        )
+
+        widget = build_index_trade_widget(
+            ticker,
+            horizon_days=horizon_days,
+            refresh=refresh,
+        )
+        return json.dumps(widget, indent=2, default=str)
+    except Exception as e:
+        return f"Error building index trade widget: {str(e)}"
+
+
+@mcp.tool()
 def get_market_depth(symbol: str, exchange: str = "NSE") -> str:
     """
     Get market depth (order book) for a symbol.
