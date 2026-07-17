@@ -44,7 +44,9 @@ else:
     api_key = sys.argv[1]
     host = sys.argv[2]
 
-    # Initialize OpenAlgo client with provided arguments
+    # Initialize OpenAlgo pip SDK client — execution tools only (orders, margin,
+    # positionbook, funds). India market-data MCP tools route through
+    # trade_integrations.hub_capture.channel instead of this client.
     client = api(api_key=api_key, host=host)
 
 
@@ -118,7 +120,7 @@ def _to_json(payload: Any) -> str:
         )
     return json.dumps(payload, indent=2, default=str)
 
-# ORDER MANAGEMENT TOOLS
+# ORDER MANAGEMENT TOOLS — pip SDK `client` (execution authority)
 
 
 @mcp.tool()
@@ -696,7 +698,7 @@ def calculate_margin(positions: list[dict[str, Any]]) -> str:
         return f"Error calculating margin: {str(e)}"
 
 
-# MARKET DATA TOOLS
+# MARKET DATA TOOLS — hub channel (read-first + write-through), not pip SDK `client`
 
 
 @mcp.tool()
@@ -709,8 +711,17 @@ def get_quote(symbol: str, exchange: str = "NSE") -> str:
         exchange: Exchange name
     """
     try:
-        response = client.quotes(symbol=symbol.upper(), exchange=exchange.upper())
-        return json.dumps(response, indent=2)
+        _ensure_trade_stack_import()
+        from trade_integrations.hub_capture.channel import get_quote as channel_get_quote
+        from trade_integrations.openalgo.freshness import FreshnessPolicy
+        from trade_integrations.openalgo.market_data import fetch_quote_raw
+
+        quote = channel_get_quote(
+            symbol,
+            fetch_quote_raw,
+            policy=FreshnessPolicy.NORMAL,
+        )
+        return json.dumps(quote, indent=2, default=str)
     except Exception as e:
         return f"Error getting quote: {str(e)}"
 
@@ -728,12 +739,20 @@ def get_multi_quotes(symbols: list[dict[str, str]]) -> str:
         JSON with quotes for all requested symbols including ltp, bid, ask, open, high, low, volume, oi
     """
     try:
-        # Normalize symbols to uppercase
+        _ensure_trade_stack_import()
+        from trade_integrations.hub_capture.channel import get_multi_quotes as channel_get_multi_quotes
+        from trade_integrations.openalgo.freshness import FreshnessPolicy
+        from trade_integrations.openalgo.market_data import fetch_multi_quotes_raw
+
         normalized_symbols = [
             {"symbol": s["symbol"].upper(), "exchange": s["exchange"].upper()} for s in symbols
         ]
-        response = client.multiquotes(symbols=normalized_symbols)
-        return json.dumps(response, indent=2)
+        quotes = channel_get_multi_quotes(
+            normalized_symbols,
+            fetch_multi_quotes_raw,
+            policy=FreshnessPolicy.NORMAL,
+        )
+        return json.dumps(quotes, indent=2, default=str)
     except Exception as e:
         return f"Error getting multi quotes: {str(e)}"
 
@@ -832,19 +851,17 @@ def get_option_chain(
 
     Example for full chain:
         get_option_chain("NIFTY", "NSE_INDEX", "30DEC25")
+
+    Uses hub cache when entity registered; pass refresh via env LIVE if needed later.
     """
     try:
-        params: dict[str, Any] = {
-            "underlying": underlying.upper(),
-            "exchange": exchange.upper(),
-        }
-        if expiry_date is not None:
-            params["expiry_date"] = expiry_date.upper()
-        if strike_count is not None:
-            params["strike_count"] = strike_count
-
-        response = client.optionchain(**params)
-        return json.dumps(response, indent=2)
+        chain_snapshot = _chain_snapshot_via_hub_channel(
+            underlying,
+            exchange,
+            expiry_date=_normalize_openalgo_expiry(expiry_date) if expiry_date else None,
+            strike_count=strike_count,
+        )
+        return json.dumps(chain_snapshot, indent=2, default=str)
     except Exception as e:
         return f"Error getting option chain: {str(e)}"
 
@@ -2352,6 +2369,7 @@ def simulate_pipeline_scenario(
     primary_factor: str | None = None,
     primary_shock_pct: float | None = None,
     horizon_days: int | None = None,
+    factor_overrides_json: str = "{}",
 ) -> str:
     """Single-factor what-if on the bound pipeline snapshot."""
     try:
@@ -2359,9 +2377,13 @@ def simulate_pipeline_scenario(
             tool_simulate_pipeline_scenario,
         )
 
+        factor_overrides = None
+        if factor_overrides_json and factor_overrides_json.strip() not in ("", "{}"):
+            factor_overrides = json.loads(factor_overrides_json)
         return tool_simulate_pipeline_scenario(
             ticker,
             pipeline_as_of,
+            factor_overrides=factor_overrides,
             primary_factor=primary_factor,
             primary_shock_pct=primary_shock_pct,
             horizon_days=horizon_days,
