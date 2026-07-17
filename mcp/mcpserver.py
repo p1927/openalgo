@@ -1853,7 +1853,7 @@ def run_browser_task(
     persist: bool = True,
 ) -> str:
     """
-    Agentic web browse/extract via Skyvern (ad-hoc research).
+    Agentic web browse/extract via local nodriver + MiniMax (ad-hoc research).
 
     Use for events, filings, macro pages, or any public URL. For preset NSE/NSDL
     datasets (FII/DII, FPI, archives) prefer get_nse_browser_data.
@@ -1862,11 +1862,11 @@ def run_browser_task(
         goal: Natural-language objective (required)
         start_urls: JSON array of entry URLs, e.g. ["https://www.rbi.org.in/"]
         output_schema: JSON schema string for structured extraction
-        max_steps: Step budget (maps to Skyvern poll timeout)
+        max_steps: MiniMax operator step budget (1–20)
         persist: Save artifacts under reports/hub/_data/nse_browser/tasks/
 
     Returns:
-        JSON with status, structured_output, task_id, hub_path, run_id.
+        JSON with status, structured_output, task_id, hub_path, action_log.
     """
     try:
         from trade_integrations.tools.nse_browser_tools import query_run_browser_task as _run
