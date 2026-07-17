@@ -1,0 +1,111 @@
+{
+  "type": "autonomous_agent.proposal",
+  "proposal_id": "aap_e46676b6fb414961bf016531ad019d7e",
+  "status": "ready",
+  "missing_fields": [],
+  "symbols": [
+    "NIFTY"
+  ],
+  "execution_market": "IN",
+  "execution_backend": "openalgo",
+  "stack_health": {
+    "nautilus_watch_enabled": true,
+    "nautilus_process_alive": false,
+    "scheduler_health": "disabled",
+    "market_open": false,
+    "paper_session_enabled": false
+  },
+  "name": "NIFTYBEES Intraday MA Predict",
+  "mandate": "On every research cycle (and at minimum once before market open the next session):\n1. Pull prior session's open/high/low/close, volume, ATR(14), and today's overnight gap context for NIFTYBEES (NSE).\n2. Compute a predicted session range = [predicted_open, predicted_close] using 9/21 EMA crossover, VWAP, and prior-session structure on NIFTY 50 spot as the benchmark.\n3. Translate the range into a concrete paper order plan on NIFTYBEES: long bias = buy near predicted low, sell near predicted high; short bias = inverse, allowed when confidence >= threshold.\n4. Stop = 1x ATR, target = 2x ATR or the opposite predicted band, whichever is closer.\n5. Hold intraday only (MIS), flatten by 15:15 IST. Max 1 open position, max 2 trades/day, hard daily loss stop = max_daily_loss_inr.\n6. Every paper order plan must surface for user confirmation in the UI before any order is submitted.\n7. Instrument = equity ETF only (NIFTYBEES). NO options unless explicitly re-mandated.",
+  "constraints": {
+    "mode": "paper",
+    "budget_inr": 20000.0,
+    "max_daily_loss_inr": 2000.0,
+    "confidence_threshold": 75,
+    "market_hours_only": false,
+    "max_open_positions": 1
+  },
+  "mandate_config": {
+    "holding_period": "intraday",
+    "flatten_policy": "session_close",
+    "product_type": "MIS",
+    "market_hours_only": false,
+    "allowed_instruments": [
+      "options",
+      "equity"
+    ],
+    "strategy_style": "user_defined",
+    "max_open_positions": 1,
+    "confidence_threshold": 75,
+    "alert_rules": {
+      "spot_move_pct": 0.5,
+      "vix_above": null,
+      "vix_below": null,
+      "thesis_break": true,
+      "news_enabled": true,
+      "pnl_loss_inr": 1500.0
+    },
+    "revision_policy": "re_rank_on_alert",
+    "watch_spec": {
+      "rules": [
+        {
+          "symbol": "NIFTY",
+          "metric": "spot_move_pct",
+          "threshold": 0.5,
+          "direction": "either",
+          "exchange": "NSE"
+        }
+      ],
+      "gate": {
+        "skip_if_unchanged_minutes": 5
+      },
+      "cooldown_sec": 300,
+      "review_triggers": [
+        "watch_rule_fired",
+        "thesis_break",
+        "news_material"
+      ]
+    }
+  },
+  "watch_spec": {
+    "rules": [
+      {
+        "symbol": "NIFTY",
+        "metric": "spot_move_pct",
+        "threshold": 0.5,
+        "direction": "either",
+        "exchange": "NSE"
+      }
+    ],
+    "gate": {
+      "skip_if_unchanged_minutes": 5
+    },
+    "cooldown_sec": 300,
+    "review_triggers": [
+      "watch_rule_fired",
+      "thesis_break",
+      "news_material"
+    ]
+  },
+  "schedules": {
+    "watch_ms": 300000,
+    "research_ms": 1800000
+  },
+  "alert_rules": {
+    "spot_move_pct": 0.5,
+    "vix_above": null,
+    "vix_below": null,
+    "thesis_break": true,
+    "news_enabled": true,
+    "pnl_loss_inr": 1500.0
+  },
+  "vibe_session_id": null,
+  "orchestrator_session_id": null,
+  "created_at": "2026-07-16T18:31:15.235102+00:00",
+  "expires_at_ms": 1784228475235,
+  "routing_warnings": [
+    "Replaced ETF proxy NIFTYBEES with index NIFTY from user message."
+  ],
+  "routing_errors": [],
+  "updated_at": "2026-07-16T18:31:15.235138+00:00"
+}
