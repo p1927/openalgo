@@ -718,7 +718,7 @@ def get_quote(symbol: str, exchange: str = "NSE") -> str:
 
         quote = channel_get_quote(
             symbol,
-            fetch_quote_raw,
+            lambda sym: fetch_quote_raw(sym, exchange=exchange),
             policy=FreshnessPolicy.NORMAL,
         )
         return json.dumps(quote, indent=2, default=str)
