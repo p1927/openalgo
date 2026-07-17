@@ -5,6 +5,7 @@ import {
   Database,
   Download,
   FileStack,
+  KeyRound,
   Loader2,
   RefreshCw,
   Server,
@@ -14,8 +15,11 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Textarea } from '@/components/ui/textarea'
 import { showToast } from '@/utils/toast'
 
 async function fetchCSRFToken(): Promise<string> {
@@ -70,6 +74,17 @@ interface CacheHealth {
   }
 }
 
+interface IndMoneyTokenStatus {
+  broker: string
+  is_env_token_broker: boolean
+  api_key: string
+  api_secret: string
+  db_username: string | null
+  db_token_set: boolean
+  env_matches_db: boolean
+  env_secret_set: boolean
+}
+
 function formatDateTime(isoString: string | null): string {
   if (!isoString) return 'Never'
   const date = new Date(isoString)
@@ -121,12 +136,39 @@ function getStatusIcon(status: string) {
 export default function MasterContract() {
   const [status, setStatus] = useState<MasterContractStatus | null>(null)
   const [cacheHealth, setCacheHealth] = useState<CacheHealth | null>(null)
+  const [indMoneyToken, setIndMoneyToken] = useState<IndMoneyTokenStatus | null>(null)
+  const [indMoneyApiKey, setIndMoneyApiKey] = useState('')
+  const [indMoneyApiSecret, setIndMoneyApiSecret] = useState('')
+  const [isLoadingIndMoney, setIsLoadingIndMoney] = useState(false)
+  const [isSavingIndMoney, setIsSavingIndMoney] = useState(false)
+  const [isSyncingIndMoney, setIsSyncingIndMoney] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [isDownloading, setIsDownloading] = useState(false)
   const [isReloadingCache, setIsReloadingCache] = useState(false)
   const [pollingInterval, setPollingInterval] = useState<ReturnType<typeof setInterval> | null>(
     null
   )
+
+  const isIndMoneyBroker = status?.broker?.toLowerCase() === 'indmoney'
+
+  const fetchIndMoneyToken = useCallback(async () => {
+    setIsLoadingIndMoney(true)
+    try {
+      const response = await fetch('/api/broker/indmoney-token', {
+        credentials: 'include',
+      })
+      if (response.ok) {
+        const payload = await response.json()
+        const data = payload.data as IndMoneyTokenStatus
+        setIndMoneyToken(data)
+        setIndMoneyApiKey(data.api_key || '')
+        setIndMoneyApiSecret(data.api_secret || '')
+      }
+    } catch (_error) {
+    } finally {
+      setIsLoadingIndMoney(false)
+    }
+  }, [])
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -170,6 +212,12 @@ export default function MasterContract() {
     fetchCacheHealth()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(() => {
+    if (isIndMoneyBroker) {
+      fetchIndMoneyToken()
+    }
+  }, [isIndMoneyBroker, fetchIndMoneyToken])
 
   useEffect(() => {
     return () => {
@@ -240,6 +288,68 @@ export default function MasterContract() {
     }
   }
 
+  const handleSaveIndMoneyToken = async () => {
+    setIsSavingIndMoney(true)
+    try {
+      const csrfToken = await fetchCSRFToken()
+      const response = await fetch('/api/broker/indmoney-token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': csrfToken,
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          api_key: indMoneyApiKey,
+          api_secret: indMoneyApiSecret,
+        }),
+      })
+      const data = await response.json()
+      if (data.status === 'success') {
+        showToast.success('IndMoney credentials saved to .env and synced to database')
+        setIndMoneyToken(data.data)
+        setIndMoneyApiKey(data.data.api_key || '')
+        setIndMoneyApiSecret(data.data.api_secret || '')
+      } else {
+        showToast.error(data.message || 'Failed to save IndMoney credentials')
+      }
+    } catch (_error) {
+      showToast.error('Failed to save IndMoney credentials')
+    } finally {
+      setIsSavingIndMoney(false)
+    }
+  }
+
+  const handleSyncIndMoneyFromEnv = async () => {
+    setIsSyncingIndMoney(true)
+    try {
+      const csrfToken = await fetchCSRFToken()
+      const response = await fetch('/api/broker/indmoney-token/sync', {
+        method: 'POST',
+        headers: {
+          'X-CSRFToken': csrfToken,
+        },
+        credentials: 'include',
+      })
+      const data = await response.json()
+      if (data.status === 'success') {
+        const synced = data.db_sync?.synced
+        showToast.success(
+          synced ? 'Token synced from .env to database' : 'Token already in sync with .env'
+        )
+        setIndMoneyToken(data.data)
+        setIndMoneyApiKey(data.data.api_key || '')
+        setIndMoneyApiSecret(data.data.api_secret || '')
+      } else {
+        showToast.error(data.message || 'Failed to sync token')
+      }
+    } catch (_error) {
+      showToast.error('Failed to sync token')
+    } finally {
+      setIsSyncingIndMoney(false)
+    }
+  }
+
   if (isLoading) {
     return (
       <div className="container mx-auto py-6 px-4">
@@ -301,6 +411,82 @@ export default function MasterContract() {
             <strong>Smart Download:</strong> {status.smart_download.reason}
           </AlertDescription>
         </Alert>
+      )}
+
+      {isIndMoneyBroker && (
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <KeyRound className="h-5 w-5" />
+              IndMoney API Credentials
+            </CardTitle>
+            <CardDescription>
+              Values are read from and saved to <code className="text-xs">openalgo/.env</code>.
+              The access token is synced to the database automatically (tokens expire daily).
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {isLoadingIndMoney ? (
+              <Skeleton className="h-32 w-full" />
+            ) : (
+              <>
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-sm text-muted-foreground">DB sync status</span>
+                  <Badge variant={indMoneyToken?.env_matches_db ? 'default' : 'destructive'}>
+                    {indMoneyToken?.env_matches_db ? 'In sync' : 'Out of sync'}
+                  </Badge>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="indmoney-api-key">API Key (BROKER_API_KEY)</Label>
+                  <Input
+                    id="indmoney-api-key"
+                    value={indMoneyApiKey}
+                    onChange={(e) => setIndMoneyApiKey(e.target.value)}
+                    placeholder="openalgo-indmoney"
+                    autoComplete="off"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="indmoney-api-secret">Access Token (BROKER_API_SECRET)</Label>
+                  <Textarea
+                    id="indmoney-api-secret"
+                    value={indMoneyApiSecret}
+                    onChange={(e) => setIndMoneyApiSecret(e.target.value)}
+                    placeholder="Paste today's IndMoney JWT access token"
+                    rows={4}
+                    className="font-mono text-xs"
+                    autoComplete="off"
+                  />
+                </div>
+
+                <div className="flex flex-wrap gap-3 pt-2">
+                  <Button onClick={handleSaveIndMoneyToken} disabled={isSavingIndMoney}>
+                    {isSavingIndMoney ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <KeyRound className="h-4 w-4 mr-2" />
+                    )}
+                    Save to .env &amp; Sync DB
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={handleSyncIndMoneyFromEnv}
+                    disabled={isSyncingIndMoney}
+                  >
+                    {isSyncingIndMoney ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-4 w-4 mr-2" />
+                    )}
+                    Sync from .env
+                  </Button>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
       )}
 
       <div className="grid gap-6 md:grid-cols-2">

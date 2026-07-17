@@ -1533,6 +1533,7 @@ def propose_autonomous_agent(
     mode: str = "paper",
     execution_market: str | None = None,
     user_text: str | None = None,
+    allowed_instruments: list[str] | None = None,
     vibe_session_id: str | None = None,
 ) -> str:
     """
@@ -1552,6 +1553,7 @@ def propose_autonomous_agent(
         mode: paper only in v1
         execution_market: Optional IN or US override when user explicitly chose market
         user_text: Original user message for market hint resolution
+        allowed_instruments: equity and/or options — omit to auto-infer (RELIANCE defaults equity)
         vibe_session_id: Orchestrator chat session id
 
     Returns:
@@ -1571,6 +1573,7 @@ def propose_autonomous_agent(
             mode=mode,
             execution_market=execution_market,
             user_text=user_text,
+            allowed_instruments=allowed_instruments,
             orchestrator_session_id=vibe_session_id,
         )
         return json.dumps(result, indent=2, default=str)
@@ -1632,17 +1635,29 @@ def record_autonomous_decision(
 
 
 @mcp.tool()
-def set_agent_watch_spec(agent_id: str, watch_spec: dict) -> str:
+def set_agent_watch_spec(
+    agent_id: str,
+    watch_spec: dict | None = None,
+    strategy: str | None = None,
+) -> str:
     """
     Persist Nautilus-compatible watch rules on an autonomous agent instance.
 
+    Prefer `strategy` — backend derives rules from the chosen strategy (hold_cash,
+    buy_dip, momentum_breakout, etc.). Or pass explicit `watch_spec`.
+
     Args:
         agent_id: aa_* agent id
-        watch_spec: {rules: [...], gate: {...}, cooldown_sec: 300}
+        watch_spec: optional explicit {rules: [...], gate: {...}, cooldown_sec: 300}
+        strategy: recommended strategy name — rules derived automatically
     """
     try:
         actions = _import_autonomous_agents()
-        result = actions.mcp_set_watch_spec(agent_id=agent_id, watch_spec=watch_spec)
+        result = actions.mcp_set_watch_spec(
+            agent_id=agent_id,
+            watch_spec=watch_spec,
+            strategy=strategy,
+        )
         return json.dumps(result, indent=2, default=str)
     except Exception as e:
         return json.dumps({"status": "error", "error": str(e)}, indent=2)
@@ -2229,6 +2244,187 @@ def get_index_trade_widget(
         return json.dumps(widget, indent=2, default=str)
     except Exception as e:
         return f"Error building index trade widget: {str(e)}"
+
+
+@mcp.tool()
+def get_pipeline_snapshot(ticker: str = "NIFTY", pipeline_as_of: str = "") -> str:
+    """Summarize the bound Analysis pipeline snapshot (spot, prediction, contributors)."""
+    try:
+        from trade_integrations.dataflows.index_research.news_scenario_tools import (
+            tool_get_pipeline_snapshot,
+        )
+
+        return tool_get_pipeline_snapshot(ticker, pipeline_as_of)
+    except Exception as e:
+        return f"Error: {e}"
+
+
+@mcp.tool()
+def query_factor_explanation(ticker: str = "NIFTY", pipeline_as_of: str = "", limit: int = 8) -> str:
+    """Top macro factor contributors from the bound pipeline snapshot."""
+    try:
+        from trade_integrations.dataflows.index_research.news_scenario_tools import (
+            tool_query_factor_explanation,
+        )
+
+        return tool_query_factor_explanation(ticker, pipeline_as_of, limit=limit)
+    except Exception as e:
+        return f"Error: {e}"
+
+
+@mcp.tool()
+def query_factor_sensitivity(ticker: str = "NIFTY", pipeline_as_of: str = "", limit: int = 8) -> str:
+    """Factor sensitivity curves from the bound pipeline snapshot."""
+    try:
+        from trade_integrations.dataflows.index_research.news_scenario_tools import (
+            tool_query_factor_sensitivity,
+        )
+
+        return tool_query_factor_sensitivity(ticker, pipeline_as_of, limit=limit)
+    except Exception as e:
+        return f"Error: {e}"
+
+
+@mcp.tool()
+def query_equation_coefficients(ticker: str = "NIFTY", pipeline_as_of: str = "") -> str:
+    """Ridge equation coefficients from the bound pipeline snapshot."""
+    try:
+        from trade_integrations.dataflows.index_research.news_scenario_tools import (
+            tool_query_equation_coefficients,
+        )
+
+        return tool_query_equation_coefficients(ticker, pipeline_as_of)
+    except Exception as e:
+        return f"Error: {e}"
+
+
+@mcp.tool()
+def query_constituent_drivers(ticker: str = "NIFTY", pipeline_as_of: str = "", limit: int = 10) -> str:
+    """Constituent drivers from the bound pipeline snapshot."""
+    try:
+        from trade_integrations.dataflows.index_research.news_scenario_tools import (
+            tool_query_constituent_drivers,
+        )
+
+        return tool_query_constituent_drivers(ticker, pipeline_as_of, limit=limit)
+    except Exception as e:
+        return f"Error: {e}"
+
+
+@mcp.tool()
+def get_pipeline_news_items(
+    ticker: str = "NIFTY",
+    pipeline_as_of: str = "",
+    start_date: str | None = None,
+    end_date: str | None = None,
+    limit: int = 20,
+) -> str:
+    """Verified headlines embedded in the pipeline snapshot (optional date filter)."""
+    try:
+        from trade_integrations.dataflows.index_research.news_scenario_tools import (
+            tool_get_pipeline_news_items,
+        )
+
+        return tool_get_pipeline_news_items(
+            ticker, pipeline_as_of, start_date=start_date, end_date=end_date, limit=limit
+        )
+    except Exception as e:
+        return f"Error: {e}"
+
+
+@mcp.tool()
+def get_playground_context(ticker: str = "NIFTY", pipeline_as_of: str = "") -> str:
+    """Playground factor/headline bundle from the bound pipeline snapshot."""
+    try:
+        from trade_integrations.dataflows.index_research.news_scenario_tools import (
+            tool_get_playground_context,
+        )
+
+        return tool_get_playground_context(ticker, pipeline_as_of)
+    except Exception as e:
+        return f"Error: {e}"
+
+
+@mcp.tool()
+def simulate_pipeline_scenario(
+    ticker: str = "NIFTY",
+    pipeline_as_of: str = "",
+    primary_factor: str | None = None,
+    primary_shock_pct: float | None = None,
+    horizon_days: int | None = None,
+) -> str:
+    """Single-factor what-if on the bound pipeline snapshot."""
+    try:
+        from trade_integrations.dataflows.index_research.news_scenario_tools import (
+            tool_simulate_pipeline_scenario,
+        )
+
+        return tool_simulate_pipeline_scenario(
+            ticker,
+            pipeline_as_of,
+            primary_factor=primary_factor,
+            primary_shock_pct=primary_shock_pct,
+            horizon_days=horizon_days,
+        )
+    except Exception as e:
+        return f"Error: {e}"
+
+
+@mcp.tool()
+def save_news_scenario_draft(
+    ticker: str = "NIFTY",
+    pipeline_as_of: str = "",
+    draft_json: str = "{}",
+) -> str:
+    """Save a news scenario draft (event + outcomes) before quant run."""
+    try:
+        from trade_integrations.dataflows.index_research.news_scenario_tools import (
+            tool_save_news_scenario_draft,
+        )
+
+        return tool_save_news_scenario_draft(ticker, pipeline_as_of, draft_json)
+    except Exception as e:
+        return f"Error: {e}"
+
+
+@mcp.tool()
+def run_news_event_scenario(
+    ticker: str = "NIFTY",
+    pipeline_as_of: str = "",
+    draft_id: str = "",
+    session_id: str | None = None,
+) -> str:
+    """Run quant paths for all outcomes in a saved draft."""
+    try:
+        from trade_integrations.dataflows.index_research.news_scenario_tools import (
+            tool_run_news_event_scenario,
+        )
+
+        return tool_run_news_event_scenario(
+            ticker, pipeline_as_of, draft_id, session_id=session_id
+        )
+    except Exception as e:
+        return f"Error: {e}"
+
+
+@mcp.tool()
+def get_news_scenario_widget(
+    ticker: str = "NIFTY",
+    pipeline_as_of: str = "",
+    scenario_id: str = "",
+    selected_outcome_id: str | None = None,
+) -> str:
+    """Build a news_event_scenario trade_plan.widget from a saved scenario."""
+    try:
+        from trade_integrations.dataflows.index_research.news_scenario_tools import (
+            tool_get_news_scenario_widget,
+        )
+
+        return tool_get_news_scenario_widget(
+            ticker, pipeline_as_of, scenario_id, selected_outcome_id=selected_outcome_id
+        )
+    except Exception as e:
+        return f"Error: {e}"
 
 
 @mcp.tool()

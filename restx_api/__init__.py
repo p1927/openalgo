@@ -12,6 +12,7 @@ api = Api(
 
 # Import namespaces
 from .analyzer import api as analyzer_ns
+from .brokerinfo import api as brokerinfo_ns
 from .basket_order import api as basket_order_ns
 from .cancel_all_order import api as cancel_all_order_ns
 from .cancel_gtt_order import api as cancel_gtt_order_ns
@@ -90,6 +91,7 @@ api.add_namespace(option_greeks_ns, path="/optiongreeks")
 api.add_namespace(multi_option_greeks_ns, path="/multioptiongreeks")
 api.add_namespace(synthetic_future_ns, path="/syntheticfuture")
 api.add_namespace(analyzer_ns, path="/analyzer")
+api.add_namespace(brokerinfo_ns, path="/brokerinfo")
 api.add_namespace(ping_ns, path="/ping")
 api.add_namespace(telegram_ns, path="/telegram")
 api.add_namespace(whatsapp_ns, path="/whatsapp")

@@ -1018,23 +1018,23 @@ def get_auth_token_broker(provided_api_key, include_feed_token=False):
     # Check cache first (but still verify revocation status)
     if cache_key in auth_cache:
         cached_result = auth_cache[cache_key]
-        # Security: Still check if auth is revoked even with cached data
         user_id = verify_api_key(provided_api_key)
         if user_id:
             try:
                 auth_obj = Auth.query.filter_by(name=user_id).first()
                 if auth_obj and auth_obj.is_revoked:
-                    # Token was revoked, remove from cache
-                    del auth_cache[cache_key]
+                    auth_cache.pop(cache_key, None)
                     logger.warning(f"Cached auth token was revoked for user_id '{user_id}'.")
                     return (None, None, None) if include_feed_token else (None, None)
-                # Not revoked, return cached result
-                logger.debug(f"Auth token retrieved from cache for user_id: {user_id}")
-                return cached_result
+                # Re-fetch from DB when cache holds a negative result (valid key, dead session)
+                if cached_result and cached_result[0] is None:
+                    auth_cache.pop(cache_key, None)
+                else:
+                    logger.debug(f"Auth token retrieved from cache for user_id: {user_id}")
+                    return cached_result
             except Exception as e:
                 logger.exception(f"Error checking revocation status: {e}")
-                # On error, don't use cache
-                del auth_cache[cache_key]
+                auth_cache.pop(cache_key, None)
 
     # Cache miss or revocation check failed - fetch from database
     user_id = verify_api_key(provided_api_key)
