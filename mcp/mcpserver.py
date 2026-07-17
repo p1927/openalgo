@@ -960,65 +960,23 @@ def _chain_snapshot_via_hub_channel(
 ) -> dict[str, Any]:
     """Build chain snapshot through hub channel (read-first + write-through)."""
     _ensure_trade_stack_import()
-    from trade_integrations.dataflows.openalgo import _fetch_option_chain_raw
+    from trade_integrations.openalgo.market_data import fetch_option_chain_channel_vendor
     from trade_integrations.hub_capture.channel import get_chain
 
     return get_chain(
         underlying,
         exchange,
-        _fetch_option_chain_raw,
+        fetch_option_chain_channel_vendor,
         expiry_date=expiry_date,
         strike_count=strike_count,
     )
 
 
-def _chain_snapshot_from_optionchain(
-    underlying: str,
-    exchange: str,
-    *,
-    expiry_date: str | None = None,
-    strike_count: int | None = None,
-) -> dict[str, Any]:
-    """Build normalized chain snapshot via OpenAlgo SDK (no trade_integrations import)."""
-    params: dict[str, Any] = {
-        "underlying": underlying.upper(),
-        "exchange": exchange.upper(),
-    }
-    if expiry_date:
-        params["expiry_date"] = _normalize_openalgo_expiry(expiry_date)
-    if strike_count is not None:
-        params["strike_count"] = strike_count
-    response = client.optionchain(**params)
-    meta = _unwrap_optionchain_response(response if isinstance(response, dict) else {})
-    chain = meta.get("chain") or []
-    ce_oi = sum(int(row.get("ce", {}).get("oi") or 0) for row in chain if isinstance(row, dict))
-    pe_oi = sum(int(row.get("pe", {}).get("oi") or 0) for row in chain if isinstance(row, dict))
-    pcr = round(pe_oi / ce_oi, 4) if ce_oi else None
-    return {
-        "underlying": meta.get("underlying") or underlying.upper(),
-        "underlying_ltp": meta.get("underlying_ltp"),
-        "expiry_date": meta.get("expiry_date") or params.get("expiry_date"),
-        "atm_strike": meta.get("atm_strike"),
-        "chain": chain,
-        "pcr": pcr,
-        "total_call_oi": ce_oi,
-        "total_put_oi": pe_oi,
-        "source": "openalgo",
-    }
+def _fetch_expiries_via_channel(underlying: str, options_exchange: str) -> list[str]:
+    _ensure_trade_stack_import()
+    from trade_integrations.openalgo.market_data import fetch_option_expiry_dates
 
-
-def _fetch_expiries_via_client(underlying: str, options_exchange: str) -> list[str]:
-    response = client.expiry(
-        symbol=underlying.upper(),
-        exchange=options_exchange.upper(),
-        instrumenttype="options",
-    )
-    if not isinstance(response, dict):
-        return []
-    data = response.get("data") or {}
-    if isinstance(data, list):
-        return [str(x) for x in data]
-    return [str(x) for x in (data.get("expiry_dates") or data.get("expiries") or [])]
+    return fetch_option_expiry_dates(underlying, options_exchange)
 
 
 def _import_stock_research():
@@ -1154,7 +1112,7 @@ def get_options_browse(
         )
         if not chain_snapshot.get("expiry_date"):
             options_exchange = "NFO" if exchange.upper() in ("NSE", "NSE_INDEX") else "BFO"
-            expiries = _fetch_expiries_via_client(underlying, options_exchange)
+            expiries = _fetch_expiries_via_channel(underlying, options_exchange)
             if expiries and not expiry_date:
                 chain_snapshot = _chain_snapshot_via_hub_channel(
                     underlying,
@@ -1163,7 +1121,7 @@ def get_options_browse(
                     strike_count=strike_count,
                 )
         options_exchange = "NFO" if exchange.upper() in ("NSE", "NSE_INDEX") else "BFO"
-        expiries = _fetch_expiries_via_client(underlying, options_exchange)
+        expiries = _fetch_expiries_via_channel(underlying, options_exchange)
         chain_snapshot["expiries"] = [_normalize_openalgo_expiry(e) for e in expiries]
 
         summary = build_browse_summary(chain_snapshot)
