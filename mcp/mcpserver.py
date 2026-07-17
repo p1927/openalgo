@@ -1649,6 +1649,25 @@ def set_agent_watch_spec(agent_id: str, watch_spec: dict) -> str:
 
 
 @mcp.tool()
+def get_quant_monitor_status(agent_id: str) -> str:
+    """
+    Quant monitor snapshot for an autonomous agent (profile, baselines, last alert).
+
+    Args:
+        agent_id: aa_* agent id
+
+    Returns:
+        JSON with quant_state and last_quant_alert_at.
+    """
+    try:
+        actions = _import_autonomous_agents()
+        result = actions.mcp_get_quant_monitor_status(agent_id=agent_id)
+        return json.dumps(result, indent=2, default=str)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)}, indent=2)
+
+
+@mcp.tool()
 def submit_bridge_execution_intent(
     agent_id: str,
     action: str,
