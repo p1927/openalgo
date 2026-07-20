@@ -22,6 +22,15 @@ from utils.logging import get_logger
 
 logger = get_logger(__name__)
 
+
+def _safe_socketio_emit(event: str, payload: dict) -> None:
+    """Emit progress when Flask-SocketIO is initialized (CLI-safe no-op otherwise)."""
+    try:
+        if getattr(socketio, "server", None) is not None:
+            _safe_socketio_emit(event, payload)
+    except Exception as exc:
+        logger.debug("socketio emit skipped: %s", exc)
+
 DATABASE_URL = os.getenv("DATABASE_URL")  # Replace with your database path
 
 # Create engine with optimized settings for SQLite concurrency
@@ -119,7 +128,7 @@ def copy_from_dataframe(df, broker="indmoney"):
 
                         progress_msg = f"Importing: {total_inserted:,} / {total_to_insert:,} symbols"
                         update_status(broker, "downloading", progress_msg)
-                        socketio.emit(
+                        _safe_socketio_emit(
                             "master_contract_download",
                             {"status": "downloading", "message": progress_msg, "progress": overall_progress, "stages": stages},
                         )
@@ -198,7 +207,7 @@ def download_csv_indmoney_data(output_path):
         overall_progress = int(progress_pct * 0.3)
 
         update_status("indmoney", "downloading", progress_msg)
-        socketio.emit(
+        _safe_socketio_emit(
             "master_contract_download",
             {"status": "downloading", "message": progress_msg, "progress": overall_progress, "stages": stages},
         )
@@ -366,7 +375,7 @@ def process_indmoney_csv(path):
         overall_progress = 30 + int(progress_pct * 0.3)
 
         update_status("indmoney", "downloading", progress_msg)
-        socketio.emit(
+        _safe_socketio_emit(
             "master_contract_download",
             {"status": "downloading", "message": progress_msg, "progress": overall_progress, "stages": stages},
         )
@@ -520,14 +529,14 @@ def master_contract_download():
             delete_indmoney_temp_data(output_path)
             success_msg = "Successfully Downloaded Indmoney Instruments"
             update_status("indmoney", "success", success_msg, total_symbols=len(token_df))
-            return socketio.emit(
+            return _safe_socketio_emit(
                 "master_contract_download",
                 {"status": "success", "message": success_msg},
             )
         else:
             error_msg = "No data downloaded from Indmoney"
             update_status("indmoney", "error", error_msg)
-            return socketio.emit(
+            return _safe_socketio_emit(
                 "master_contract_download",
                 {"status": "error", "message": error_msg},
             )
@@ -535,7 +544,7 @@ def master_contract_download():
     except Exception as e:
         logger.exception(f"Error during master contract download: {e}")
         update_status("indmoney", "error", str(e))
-        return socketio.emit("master_contract_download", {"status": "error", "message": str(e)})
+        return _safe_socketio_emit("master_contract_download", {"status": "error", "message": str(e)})
 
 
 def search_symbols(symbol, exchange):
