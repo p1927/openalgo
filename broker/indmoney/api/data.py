@@ -37,6 +37,22 @@ def _is_known_bad(scrip_code):
         return True
 
 
+def _is_auth_error_message(message: str) -> bool:
+    """True when INDstocks rejected the broker session (403 / expired token)."""
+    lowered = str(message or "").lower()
+    return any(
+        token in lowered
+        for token in (
+            "access_token",
+            "expired",
+            "revoked",
+            "re-authenticate",
+            "unauthorized",
+            "http error 403",
+        )
+    )
+
+
 def _mark_bad(scrip_code):
     """Cache scrip_code as unquotable so future batches skip it."""
     with _bad_scrip_lock:
@@ -355,6 +371,7 @@ class BrokerData:
             logger.debug(f"Using scrip code: {scrip_code}")
 
             params = {"scrip-codes": scrip_code}
+            last_error: str | None = None
 
             try:
                 # Try the /full endpoint first for comprehensive quote data
@@ -402,8 +419,11 @@ class BrokerData:
                     return result
 
             except Exception as full_error:
+                full_msg = str(full_error)
+                if _is_auth_error_message(full_msg):
+                    last_error = full_msg
                 logger.warning(
-                    f"Full quotes endpoint failed, falling back to separate calls: {str(full_error)}"
+                    f"Full quotes endpoint failed, falling back to separate calls: {full_msg}"
                 )
 
             # Fallback to separate LTP and market depth calls
@@ -419,7 +439,10 @@ class BrokerData:
                 logger.debug(f"LTP Response: {ltp_response}")
                 ltp_data = ltp_response.get("data", {}).get(scrip_code, {})
             except Exception as ltp_error:
-                logger.warning(f"Could not fetch LTP data: {str(ltp_error)}")
+                ltp_msg = str(ltp_error)
+                if _is_auth_error_message(ltp_msg):
+                    last_error = ltp_msg
+                logger.warning(f"Could not fetch LTP data: {ltp_msg}")
 
             # Get market depth for bid/ask
             try:
@@ -457,6 +480,9 @@ class BrokerData:
                 "ask": ask_price,
                 "prev_close": 0,  # Previous close not available from LTP endpoint
             }
+
+            if last_error and result["ltp"] <= 0 and result["prev_close"] <= 0:
+                result["error"] = last_error
 
             logger.debug(f"Final quotes result: {result}")
             return result
