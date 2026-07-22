@@ -1639,6 +1639,74 @@ def set_agent_watch_spec(
 
 
 @mcp.tool()
+def list_watches(
+    session_id: str | None = None,
+    agent_id: str | None = None,
+) -> str:
+    """
+    List active Nautilus watches for an interactive session or autonomous agent.
+
+    Args:
+        session_id: Vibe session id for /agent watches
+        agent_id: aa_* autonomous agent id
+    """
+    try:
+        actions = _import_autonomous_agents()
+        result = actions.mcp_list_watches(session_id=session_id, agent_id=agent_id)
+        return json.dumps(result, indent=2, default=str)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)}, indent=2)
+
+
+@mcp.tool()
+def create_session_watch(
+    session_id: str,
+    watch_spec: dict,
+    symbols: list[str] | None = None,
+    label: str | None = None,
+    one_shot: bool = False,
+) -> str:
+    """
+    Create a Nautilus watch bound to an interactive /agent session (owner ws_{session_id}).
+
+    Args:
+        session_id: Vibe session id
+        watch_spec: {rules: [...], cooldown_sec: 300}
+        symbols: optional symbol list; derived from rules when omitted
+        label: optional display label
+        one_shot: delete watch after first alert fires
+    """
+    try:
+        actions = _import_autonomous_agents()
+        result = actions.mcp_create_session_watch(
+            session_id=session_id,
+            watch_spec=watch_spec,
+            symbols=symbols,
+            label=label,
+            one_shot=one_shot,
+        )
+        return json.dumps(result, indent=2, default=str)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)}, indent=2)
+
+
+@mcp.tool()
+def delete_watch(watch_id: str) -> str:
+    """
+    Delete (deactivate) a watch by watch_id from the unified registry.
+
+    Args:
+        watch_id: w_* id from list_watches or create_session_watch
+    """
+    try:
+        actions = _import_autonomous_agents()
+        result = actions.mcp_delete_watch(watch_id=watch_id)
+        return json.dumps(result, indent=2, default=str)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)}, indent=2)
+
+
+@mcp.tool()
 def get_quant_monitor_status(agent_id: str) -> str:
     """
     Quant monitor snapshot for an autonomous agent (profile, baselines, last alert).
