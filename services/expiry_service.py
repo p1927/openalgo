@@ -9,6 +9,23 @@ from utils.logging import get_logger
 logger = get_logger(__name__)
 
 
+def _expiry_reference_date(api_key: str | None):
+    """Wall-clock today for live brokers; replay anchor date for stock_simulator."""
+    from datetime import date, datetime
+    import os
+
+    if api_key:
+        from database.auth_db import get_broker_name
+
+        if get_broker_name(api_key) == "stock_simulator":
+            replay = os.getenv("NSE_REPLAY_DATE", "2021-03-25").strip()[:10]
+            try:
+                return date.fromisoformat(replay)
+            except ValueError:
+                pass
+    return datetime.now().date()
+
+
 def get_expiry_dates(
     symbol: str, exchange: str, instrumenttype: str, api_key: str = None
 ) -> tuple[bool, dict[str, Any], int]:
@@ -221,7 +238,7 @@ def get_expiry_dates(
                     )
                     return datetime.max
 
-        today = datetime.now().date()
+        today = _expiry_reference_date(api_key)
         live_expiry_dates = [
             d for d in filtered_expiry_dates if parse_expiry_date(d).date() >= today
         ]

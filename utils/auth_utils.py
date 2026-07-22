@@ -16,6 +16,7 @@ from database.master_contract_status_db import (
     get_exchange_stats_from_db,
     get_last_download_time,
     get_last_downloaded_broker,
+    get_status,
     init_broker_status,
     mark_status_ready_without_download,
     update_download_stats,
@@ -102,6 +103,55 @@ def should_download_master_contract(broker):
     last_broker = get_last_downloaded_broker()
     if last_broker and last_broker != broker:
         return True, f"Broker changed from {last_broker} to {broker}, symtoken needs refresh"
+
+    if broker == "stock_simulator":
+        broker_status = get_status(broker)
+        stats = broker_status.get("exchange_stats") or {}
+        if broker_status.get("status") == "error":
+            return True, "Simulator master contract last download failed"
+        try:
+            from database.token_db import get_symbol_count
+
+            if get_symbol_count() == 0:
+                return True, "Simulator symtoken table is empty"
+        except Exception:
+            pass
+        replay_date = os.getenv("NSE_REPLAY_DATE", "2021-03-25").strip()[:10]
+        if stats.get("replay_date") != replay_date:
+            return True, f"Simulator replay date changed to {replay_date}"
+        try:
+            from broker.stock_simulator.api._trade_path import ensure_trade_integrations_path
+
+            ensure_trade_integrations_path()
+            from trade_integrations.stock_simulator.master_contract import (
+                load_mc_max_expiries,
+                load_mc_underlyings,
+            )
+
+            wanted = load_mc_underlyings()
+            max_expiries_wanted = load_mc_max_expiries()
+        except Exception:
+            wanted = [
+                u.strip().upper()
+                for u in os.getenv("SIM_MC_UNDERLYINGS", "NIFTY,BANKNIFTY,SENSEX").split(",")
+                if u.strip()
+            ]
+            try:
+                max_expiries_wanted = int(os.getenv("SIM_MC_MAX_EXPIRIES", "12") or "12")
+            except ValueError:
+                max_expiries_wanted = 12
+        cached = stats.get("underlyings")
+        if wanted:
+            if not cached:
+                return True, "Simulator underlying universe not cached"
+            if sorted(wanted) != sorted(cached):
+                return True, "Simulator underlying universe changed"
+        cached_max = stats.get("max_expiries")
+        if cached_max is None:
+            return True, "Simulator max expiries not cached"
+        if cached_max != max_expiries_wanted:
+            return True, "Simulator max expiries changed"
+        return False, "Simulator master contract matches replay fingerprint"
 
     # Get cutoff time and reference timezone for this broker
     cutoff_hour, cutoff_minute, tz = get_master_contract_cutoff(broker)
@@ -294,9 +344,14 @@ def async_master_contract_download(broker):
     # Use the dynamically imported module's master_contract_download function
     try:
         master_contract_status = master_contract_module.master_contract_download()
-
-        # Most brokers return the socketio.emit result, we need to check completion
-        # by looking at the module's actual completion
+        current = get_status(broker)
+        if current.get("status") == "error":
+            logger.error(
+                "Master contract download reported error for %s: %s",
+                broker,
+                current.get("message"),
+            )
+            return {"status": "error", "message": current.get("message") or "Master contract download failed"}
 
         # Try to get the symbol count from the database
         try:
@@ -304,21 +359,23 @@ def async_master_contract_download(broker):
 
             total_symbols = get_symbol_count()
         except Exception:
-            total_symbols = None
+            total_symbols = current.get("total_symbols")
 
-        # Since socketio.emit doesn't return a meaningful value, we check if no exception was raised
-        update_status(
-            broker, "success", "Master contract download completed successfully", total_symbols
-        )
-        logger.info(f"Master contract download completed for {broker}")
+        if current.get("status") != "success":
+            update_status(
+                broker, "success", "Master contract download completed successfully", total_symbols
+            )
+            logger.info(f"Master contract download completed for {broker}")
+        else:
+            logger.info(f"Master contract download completed for {broker} (status already success)")
 
-        # Calculate download duration and get exchange stats
-        duration_seconds = int(time.time() - start_time)
-        exchange_stats = get_exchange_stats_from_db()
-
-        # Update download statistics for smart download tracking
-        update_download_stats(broker, duration_seconds, exchange_stats)
-        logger.info(f"Download stats recorded: {duration_seconds}s, exchanges: {list(exchange_stats.keys())}")
+        if broker != "stock_simulator":
+            duration_seconds = int(time.time() - start_time)
+            exchange_stats = get_exchange_stats_from_db()
+            update_download_stats(broker, duration_seconds, exchange_stats)
+            logger.info(
+                f"Download stats recorded: {duration_seconds}s, exchanges: {list(exchange_stats.keys())}"
+            )
 
         # Load symbols into memory cache after successful download
         try:
