@@ -493,6 +493,12 @@ def broker_callback(broker, para=None):
         auth_token, error_message = auth_function(code)
         forward_url = "broker.html"
 
+    elif broker == "stock_simulator":
+        code = "stock_simulator"
+        logger.debug("Stock simulator broker — no live token required")
+        auth_token, error_message = auth_function(code)
+        forward_url = "broker.html"
+
     elif broker == "groww":
         code = "groww"
         logger.debug(f"Groww broker - The code is {code}")

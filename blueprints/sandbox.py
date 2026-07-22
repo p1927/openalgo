@@ -1163,3 +1163,84 @@ def export_trades():
     except Exception as e:
         logger.exception(f"Error exporting trades: {str(e)}")
         return jsonify({"status": "error", "message": f"Error exporting data: {str(e)}"}), 500
+
+
+def _simulator_env_update(payload: dict) -> None:
+    """Apply simulator settings to process env (OpenAlgo co-located with Trade)."""
+    mapping = {
+        "replay_date": "NSE_REPLAY_DATE",
+        "replay_time": "NSE_REPLAY_TIME",
+        "replay_speed": "NSE_REPLAY_SPEED",
+        "replay_loop": "NSE_REPLAY_LOOP",
+        "eval_mode": "SIM_EVAL_MODE",
+    }
+    for key, env_key in mapping.items():
+        if key not in payload:
+            continue
+        value = payload[key]
+        if key == "replay_loop":
+            value = "1" if str(value).lower() in {"1", "true", "yes", "on"} else "0"
+        os.environ[env_key] = str(value)
+    os.environ["STOCK_SIMULATOR_MODE"] = "replay"
+    os.environ["HUB_NO_LEARN"] = "1"
+
+
+@sandbox_bp.route("/api/simulator/status")
+@check_session_validity
+@limiter.limit(API_RATE_LIMIT)
+def api_simulator_status():
+    try:
+        from broker.stock_simulator.api._trade_path import ensure_trade_integrations_path
+
+        ensure_trade_integrations_path()
+        from trade_integrations.stock_simulator.replay import get_replay_service
+
+        svc = get_replay_service()
+        return jsonify({"status": "success", "simulator": svc.status()})
+    except Exception as e:
+        logger.exception("simulator status failed: %s", e)
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@sandbox_bp.route("/api/simulator/config", methods=["POST"])
+@check_session_validity
+@limiter.limit(API_RATE_LIMIT)
+def api_simulator_config():
+    try:
+        data = request.get_json(silent=True) or {}
+        _simulator_env_update(data)
+        for key in ("replay_date", "replay_time", "replay_speed", "replay_loop", "eval_mode"):
+            if key in data:
+                set_config(f"sim_{key}", str(data[key]), description=f"Simulator {key}")
+        from broker.stock_simulator.api._trade_path import ensure_trade_integrations_path
+
+        ensure_trade_integrations_path()
+        from trade_integrations.stock_simulator.config import load_sim_config
+        from trade_integrations.stock_simulator.replay import get_replay_service
+
+        svc = get_replay_service(reload=True)
+        svc.reload(load_sim_config())
+        return jsonify({"status": "success", "simulator": svc.status()})
+    except Exception as e:
+        logger.exception("simulator config failed: %s", e)
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@sandbox_bp.route("/api/simulator/step", methods=["POST"])
+@check_session_validity
+@limiter.limit(API_RATE_LIMIT)
+def api_simulator_step():
+    try:
+        data = request.get_json(silent=True) or {}
+        minutes = int(data.get("minutes") or 5)
+        from broker.stock_simulator.api._trade_path import ensure_trade_integrations_path
+
+        ensure_trade_integrations_path()
+        from trade_integrations.stock_simulator.replay import get_replay_service
+
+        svc = get_replay_service()
+        new_ts = svc.step(minutes=minutes)
+        return jsonify({"status": "success", "sim_now": new_ts.isoformat(), "simulator": svc.status()})
+    except Exception as e:
+        logger.exception("simulator step failed: %s", e)
+        return jsonify({"status": "error", "message": str(e)}), 500

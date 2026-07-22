@@ -25,6 +25,7 @@ const allBrokers = [
   { id: 'deltaexchange', name: 'Delta Exchange', authType: 'totp' },
   { id: 'indmoney', name: 'IndMoney', authType: 'totp' },
   { id: 'dhan_sandbox', name: 'Dhan (Sandbox)', authType: 'totp' },
+  { id: 'stock_simulator', name: 'NSE Simulator (Replay)', authType: 'totp' },
   { id: 'definedge', name: 'Definedge', authType: 'totp' },
   { id: 'firstock', name: 'Firstock', authType: 'totp' },
   { id: 'flattrade', name: 'Flattrade', authType: 'oauth' },
@@ -138,6 +139,7 @@ export default function BrokerSelect() {
       case 'deltaexchange':
       case 'jainamxts':
       case 'dhan_sandbox':
+      case 'stock_simulator':
       case 'definedge':
       case 'firstock':
       case 'samco':

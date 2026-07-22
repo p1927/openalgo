@@ -84,12 +84,67 @@ export default function Sandbox() {
   const [isLoading, setIsLoading] = useState(true)
   const [isResetting, setIsResetting] = useState(false)
   const [showResetDialog, setShowResetDialog] = useState(false)
+  const [simStatus, setSimStatus] = useState<Record<string, unknown> | null>(null)
+  const [simDate, setSimDate] = useState('2021-03-25')
+  const [simSpeed, setSimSpeed] = useState('1')
+  const [simEvalMode, setSimEvalMode] = useState('continuous')
+  const [simSaving, setSimSaving] = useState(false)
 
   // Fetch configs on mount
   // biome-ignore lint/correctness/useExhaustiveDependencies: one-time config load on mount; fetchConfigs has no reactive inputs
   useEffect(() => {
     fetchConfigs()
+    fetchSimStatus()
   }, [])
+
+  const fetchSimStatus = async () => {
+    try {
+      const response = await fetch('/sandbox/api/simulator/status', { credentials: 'include' })
+      if (response.ok) {
+        const data = await response.json()
+        if (data.status === 'success') {
+          setSimStatus(data.simulator)
+          const clock = (data.simulator?.clock || {}) as Record<string, string>
+          if (clock.replay_date) setSimDate(String(clock.replay_date))
+        }
+      }
+    } catch {
+      // Simulator optional when Trade stack path unavailable
+    }
+  }
+
+  const saveSimulator = async () => {
+    setSimSaving(true)
+    try {
+      const csrf = await fetchCSRFToken()
+      const response = await fetch('/sandbox/api/simulator/config', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': csrf,
+        },
+        body: JSON.stringify({
+          replay_date: simDate,
+          replay_time: '09:15',
+          replay_speed: simSpeed,
+          replay_loop: true,
+          eval_mode: simEvalMode,
+        }),
+      })
+      const data = await response.json()
+      if (data.status === 'success') {
+        setSimStatus(data.simulator)
+        showToast.success('Simulator replay updated', 'analyzer')
+      } else {
+        showToast.error(data.message || 'Failed to update simulator', 'analyzer')
+      }
+    } catch {
+      showToast.error('Failed to update simulator', 'analyzer')
+    } finally {
+      setSimSaving(false)
+    }
+  }
 
   const fetchConfigs = async () => {
     try {
@@ -391,6 +446,54 @@ export default function Sandbox() {
           </Button>
         </div>
       </div>
+
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>NSE Simulator (Historical Replay)</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-4 md:grid-cols-4">
+          <div>
+            <Label htmlFor="sim-date">Replay date</Label>
+            <Input id="sim-date" type="date" value={simDate} onChange={(e) => setSimDate(e.target.value)} />
+          </div>
+          <div>
+            <Label htmlFor="sim-speed">Speed (x)</Label>
+            <Input
+              id="sim-speed"
+              type="number"
+              min="0"
+              step="0.5"
+              value={simSpeed}
+              onChange={(e) => setSimSpeed(e.target.value)}
+            />
+          </div>
+          <div>
+            <Label>Eval mode</Label>
+            <Select value={simEvalMode} onValueChange={setSimEvalMode}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="continuous">continuous</SelectItem>
+                <SelectItem value="stepped">stepped</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex items-end">
+            <Button onClick={saveSimulator} disabled={simSaving}>
+              {simSaving ? 'Saving…' : 'Apply replay'}
+            </Button>
+          </div>
+          {simStatus?.clock ? (
+            <Alert className="md:col-span-4">
+              <AlertDescription>
+                SIM · {(simStatus.clock as Record<string, string>).sim_now || '—'} · speed{' '}
+                {String((simStatus.clock as Record<string, string | number>).speed ?? simSpeed)}x
+              </AlertDescription>
+            </Alert>
+          ) : null}
+        </CardContent>
+      </Card>
 
       {/* Configuration Sections */}
       <div className="space-y-6">

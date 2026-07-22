@@ -20,7 +20,7 @@ from utils.logging import get_logger
 logger = get_logger(__name__)
 
 # Brokers where BROKER_API_SECRET is the access token (see broker/*/api/auth_api.py).
-ENV_TOKEN_BROKERS = frozenset({"indmoney", "groww", "deltaexchange", "dhan_sandbox"})
+ENV_TOKEN_BROKERS = frozenset({"indmoney", "groww", "deltaexchange", "dhan_sandbox", "stock_simulator"})
 
 
 def _env_path() -> str:
