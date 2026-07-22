@@ -1,5 +1,5 @@
 import { BarChart3, RotateCcw, Save, Settings } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -85,16 +85,20 @@ export default function Sandbox() {
   const [isResetting, setIsResetting] = useState(false)
   const [showResetDialog, setShowResetDialog] = useState(false)
   const [simStatus, setSimStatus] = useState<Record<string, unknown> | null>(null)
-  const [simDate, setSimDate] = useState('2021-03-25')
-  const [simSpeed, setSimSpeed] = useState('1')
+  const [simDate, setSimDate] = useState('2024-04-15')
+  const [simSpeed, setSimSpeed] = useState('60')
   const [simEvalMode, setSimEvalMode] = useState('continuous')
   const [simSaving, setSimSaving] = useState(false)
+  const [simStepping, setSimStepping] = useState(false)
+  const simFormDirty = useRef(false)
 
   // Fetch configs on mount
   // biome-ignore lint/correctness/useExhaustiveDependencies: one-time config load on mount; fetchConfigs has no reactive inputs
   useEffect(() => {
     fetchConfigs()
     fetchSimStatus()
+    const id = setInterval(fetchSimStatus, 1000)
+    return () => clearInterval(id)
   }, [])
 
   const fetchSimStatus = async () => {
@@ -104,8 +108,14 @@ export default function Sandbox() {
         const data = await response.json()
         if (data.status === 'success') {
           setSimStatus(data.simulator)
-          const clock = (data.simulator?.clock || {}) as Record<string, string>
-          if (clock.replay_date) setSimDate(String(clock.replay_date))
+          const clock = (data.simulator?.clock || {}) as Record<string, string | number | boolean>
+          if (!simFormDirty.current) {
+            if (clock.replay_date) setSimDate(String(clock.replay_date))
+            if (clock.speed != null) setSimSpeed(String(clock.speed))
+            if (typeof clock.stepped === 'boolean') {
+              setSimEvalMode(clock.stepped ? 'stepped' : 'continuous')
+            }
+          }
         }
       }
     } catch {
@@ -135,6 +145,7 @@ export default function Sandbox() {
       const data = await response.json()
       if (data.status === 'success') {
         setSimStatus(data.simulator)
+        simFormDirty.current = false
         showToast.success('Simulator replay updated', 'analyzer')
       } else {
         showToast.error(data.message || 'Failed to update simulator', 'analyzer')
@@ -145,6 +156,43 @@ export default function Sandbox() {
       setSimSaving(false)
     }
   }
+
+  const applyDemoPreset = () => {
+    simFormDirty.current = true
+    setSimDate('2024-04-15')
+    setSimSpeed('60')
+    setSimEvalMode('continuous')
+  }
+
+  const stepSimulator = async (minutes = 5) => {
+    setSimStepping(true)
+    try {
+      const csrf = await fetchCSRFToken()
+      const response = await fetch('/sandbox/api/simulator/step', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': csrf,
+        },
+        body: JSON.stringify({ minutes }),
+      })
+      const data = await response.json()
+      if (data.status === 'success') {
+        setSimStatus(data.simulator)
+        showToast.success(`Advanced sim to ${data.sim_now || 'next step'}`, 'analyzer')
+      } else {
+        showToast.error(data.message || 'Step failed', 'analyzer')
+      }
+    } catch {
+      showToast.error('Failed to step simulator', 'analyzer')
+    } finally {
+      setSimStepping(false)
+    }
+  }
+
+  const simClock = (simStatus?.clock || {}) as Record<string, string | number | boolean>
+  const simIsStepped = simEvalMode === 'stepped' || simClock.stepped === true
 
   const fetchConfigs = async () => {
     try {
@@ -454,7 +502,7 @@ export default function Sandbox() {
         <CardContent className="grid gap-4 md:grid-cols-4">
           <div>
             <Label htmlFor="sim-date">Replay date</Label>
-            <Input id="sim-date" type="date" value={simDate} onChange={(e) => setSimDate(e.target.value)} />
+            <Input id="sim-date" type="date" value={simDate} onChange={(e) => { simFormDirty.current = true; setSimDate(e.target.value) }} />
           </div>
           <div>
             <Label htmlFor="sim-speed">Speed (x)</Label>
@@ -464,12 +512,12 @@ export default function Sandbox() {
               min="0"
               step="0.5"
               value={simSpeed}
-              onChange={(e) => setSimSpeed(e.target.value)}
+              onChange={(e) => { simFormDirty.current = true; setSimSpeed(e.target.value) }}
             />
           </div>
           <div>
             <Label>Eval mode</Label>
-            <Select value={simEvalMode} onValueChange={setSimEvalMode}>
+            <Select value={simEvalMode} onValueChange={(v) => { simFormDirty.current = true; setSimEvalMode(v) }}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -479,16 +527,24 @@ export default function Sandbox() {
               </SelectContent>
             </Select>
           </div>
-          <div className="flex items-end">
+          <div className="flex items-end gap-2 flex-wrap">
+            <Button variant="secondary" onClick={applyDemoPreset}>
+              Demo mode (60x)
+            </Button>
             <Button onClick={saveSimulator} disabled={simSaving}>
               {simSaving ? 'Saving…' : 'Apply replay'}
             </Button>
+            {simIsStepped ? (
+              <Button variant="outline" onClick={() => stepSimulator(5)} disabled={simStepping}>
+                {simStepping ? 'Stepping…' : 'Step +5 min'}
+              </Button>
+            ) : null}
           </div>
           {simStatus?.clock ? (
             <Alert className="md:col-span-4">
               <AlertDescription>
-                SIM · {(simStatus.clock as Record<string, string>).sim_now || '—'} · speed{' '}
-                {String((simStatus.clock as Record<string, string | number>).speed ?? simSpeed)}x
+                SIM · {String(simClock.sim_now || '—')} · speed {String(simClock.speed ?? simSpeed)}x
+                {simIsStepped ? ' · stepped (clock frozen until Step or watch tick)' : ' · continuous'}
               </AlertDescription>
             </Alert>
           ) : null}

@@ -36,9 +36,11 @@ import {
 } from '@/components/ui/table'
 import { useOptionChainLive } from '@/hooks/useOptionChainLive'
 import { useOptionChainPreferences } from '@/hooks/useOptionChainPreferences'
+import { useSimulatorStatus } from '@/hooks/useSimulatorStatus'
 import { useSupportedExchanges } from '@/hooks/useSupportedExchanges'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/authStore'
+import { useBrokerStore } from '@/stores/brokerStore'
 import type { BarDataSource, BarStyle, ColumnKey, OptionStrike } from '@/types/option-chain'
 import { COLUMN_DEFINITIONS } from '@/types/option-chain'
 import { showToast } from '@/utils/toast'
@@ -460,6 +462,19 @@ const OptionChainRow = React.memo(function OptionChainRow({
 
 export default function OptionChain() {
   const { apiKey } = useAuthStore()
+  const { capabilities, isLoaded, fetchCapabilities } = useBrokerStore()
+  const isSimulatorBroker = capabilities?.broker_name === 'stock_simulator'
+  const chainPollInterval = isSimulatorBroker ? 1000 : 30000
+  const { clock: simClock, available: simStatusAvailable } = useSimulatorStatus({
+    enabled: isSimulatorBroker,
+    pollMs: 1000,
+  })
+
+  useEffect(() => {
+    if (!isLoaded) {
+      fetchCapabilities()
+    }
+  }, [fetchCapabilities, isLoaded])
   const {
     toolsFnoExchanges: fnoExchanges,
     defaultToolsFnoExchange: defaultFnoExchange,
@@ -528,7 +543,7 @@ export default function OptionChain() {
     optionExchange,
     convertExpiryForAPI(selectedExpiry),
     strikeCount,
-    { enabled: !!selectedExpiry, oiRefreshInterval: 30000, pauseWhenHidden: true }
+    { enabled: !!selectedExpiry, oiRefreshInterval: chainPollInterval, pauseWhenHidden: true }
   )
 
   // Fetch underlyings when exchange changes
@@ -963,15 +978,23 @@ export default function OptionChain() {
                 <Badge
                   variant={isStreaming ? 'default' : isConnected ? 'secondary' : 'destructive'}
                 >
-                  {isPaused
-                    ? 'Paused'
-                    : isStreaming
-                      ? `Streaming ${streamingSymbols} symbols`
-                      : isConnected
-                        ? 'Polling'
-                        : 'Disconnected'}
+                  {isSimulatorBroker && simStatusAvailable
+                    ? `Simulator replay${simClock?.stepped ? ' (stepped)' : ''}`
+                    : isPaused
+                      ? 'Paused'
+                      : isStreaming
+                        ? `Streaming ${streamingSymbols} symbols`
+                        : isConnected
+                          ? 'Polling'
+                          : 'Disconnected'}
                 </Badge>
               </div>
+              {isSimulatorBroker && simClock?.sim_now ? (
+                <div className="text-xs font-mono">
+                  SIM {simClock.sim_now}
+                  {typeof simClock.speed === 'number' ? ` · ${simClock.speed}x` : ''}
+                </div>
+              ) : null}
               <div className="text-xs">
                 Bar: {barDataSource === 'oi' ? 'OI' : 'Volume'} ({barStyle})
               </div>
