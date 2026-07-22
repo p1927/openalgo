@@ -607,9 +607,22 @@ export default function MasterContract() {
             <CardDescription>Symbol count per exchange</CardDescription>
           </CardHeader>
           <CardContent>
-            {status?.exchange_stats && Object.keys(status.exchange_stats).length > 0 ? (
+            {(() => {
+              const rawStats = status?.exchange_stats
+              const exchangeCounts =
+                rawStats &&
+                typeof rawStats === "object" &&
+                rawStats.counts &&
+                typeof rawStats.counts === "object"
+                  ? rawStats.counts
+                  : rawStats
+              const entries =
+                exchangeCounts && typeof exchangeCounts === "object"
+                  ? Object.entries(exchangeCounts).filter(([, count]) => typeof count === "number")
+                  : []
+              return entries.length > 0 ? (
               <div className="grid grid-cols-2 gap-3">
-                {Object.entries(status.exchange_stats)
+                {entries
                   .sort(([, a], [, b]) => b - a)
                   .map(([exchange, count]) => (
                     <div
@@ -625,7 +638,8 @@ export default function MasterContract() {
               <p className="text-muted-foreground text-center py-4">
                 No exchange statistics available
               </p>
-            )}
+            )
+            })()}
           </CardContent>
         </Card>
 
