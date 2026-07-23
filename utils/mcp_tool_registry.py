@@ -66,14 +66,12 @@ TOOL_SCOPES: dict[str, str] = {
     # mistaken True silently routes future orders to the real broker.
     # Treated as a write because the blast radius is the same.
     "analyzer_toggle": SCOPE_WRITE_ORDERS,
-    # ---- Active intraday paper trading (agent-driven) ----
-    "start_auto_paper_trading": SCOPE_WRITE_ORDERS,
-    "resume_auto_paper_trading": SCOPE_WRITE_ORDERS,
-    "stop_auto_paper_trading": SCOPE_WRITE_ORDERS,
-    "execute_auto_paper_basket": SCOPE_WRITE_ORDERS,
-    "get_auto_paper_status": SCOPE_READ_ACCOUNT,
-    "get_auto_paper_market_feedback": SCOPE_READ_ACCOUNT,
-    "record_auto_paper_decision": SCOPE_READ_ACCOUNT,
+    # ---- Autonomous agents (agent-driven) ----
+    "stop_autonomous_agents": SCOPE_WRITE_ORDERS,
+    "execute_autonomous_basket": SCOPE_WRITE_ORDERS,
+    "get_autonomous_agent_status": SCOPE_READ_ACCOUNT,
+    "get_autonomous_market_feedback": SCOPE_READ_ACCOUNT,
+    "record_autonomous_decision": SCOPE_READ_ACCOUNT,
     # ---- Trade-stack research widgets (Vibe advisor) ----
     "get_options_browse": SCOPE_READ_MARKET,
     "get_options_trade_plan": SCOPE_READ_MARKET,
