@@ -52,6 +52,10 @@ class BrokerInfoSchema(Schema):
     apikey = fields.Str(required=True, validate=validate.Length(min=1, max=256))
 
 
+class MarketContextSchema(Schema):
+    apikey = fields.Str(required=True, validate=validate.Length(min=1, max=256))
+
+
 class ChartSchema(Schema):
     apikey = fields.Str(required=True, validate=validate.Length(min=1, max=256))
 

@@ -146,7 +146,11 @@ export default function Sandbox() {
       if (data.status === 'success') {
         setSimStatus(data.simulator)
         simFormDirty.current = false
-        showToast.success('Simulator replay updated', 'analyzer')
+        if (data.master_contract_refresh === 'started') {
+          showToast.success('Replay updated — rebuilding symbol master contract', 'analyzer')
+        } else {
+          showToast.success('Simulator replay updated', 'analyzer')
+        }
       } else {
         showToast.error(data.message || 'Failed to update simulator', 'analyzer')
       }
