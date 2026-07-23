@@ -87,7 +87,7 @@ from typing import Any
 from database.whatsapp_db import (
     clear_session_blob,
     get_bot_config,
-    load_session_blob,
+    load_legacy_session_blob,
     log_command,
     save_session_blob,
     update_bot_config,
@@ -604,7 +604,7 @@ class WhatsAppBotService:
             if self._is_running and self._wa is not None:
                 return True, "Bot already running"
 
-            blob = load_session_blob()
+            blob = load_legacy_session_blob()
             if not blob:
                 return False, "Device not paired. Pair from /whatsapp first."
 

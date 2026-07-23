@@ -324,7 +324,7 @@ def save_session_blob(
         db_session.remove()
 
 
-def load_session_blob() -> bytes | None:
+def load_legacy_session_blob() -> bytes | None:
     """Return decrypted session bytes, or None if device isn't paired."""
     try:
         config = db_session.query(WhatsAppConfig).filter_by(id=1).first()
