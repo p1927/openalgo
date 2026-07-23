@@ -463,12 +463,13 @@ const OptionChainRow = React.memo(function OptionChainRow({
 export default function OptionChain() {
   const { apiKey } = useAuthStore()
   const { capabilities, isLoaded, fetchCapabilities } = useBrokerStore()
-  const isSimulatorBroker = capabilities?.broker_name === 'stock_simulator'
-  const chainPollInterval = isSimulatorBroker ? 1000 : 30000
-  const { clock: simClock, available: simStatusAvailable } = useSimulatorStatus({
-    enabled: isSimulatorBroker,
+  const { status: simStatus, available: simStatusAvailable, clock: simClock } = useSimulatorStatus({
     pollMs: 1000,
   })
+  const isSimulatorReplay =
+    capabilities?.broker_name === 'stock_simulator' ||
+    (simStatusAvailable && simStatus?.mode === 'replay')
+  const chainPollInterval = isSimulatorReplay ? 1000 : 30000
 
   useEffect(() => {
     if (!isLoaded) {
@@ -978,7 +979,7 @@ export default function OptionChain() {
                 <Badge
                   variant={isStreaming ? 'default' : isConnected ? 'secondary' : 'destructive'}
                 >
-                  {isSimulatorBroker && simStatusAvailable
+                  {isSimulatorReplay && simStatusAvailable
                     ? `Simulator replay${simClock?.stepped ? ' (stepped)' : ''}`
                     : isPaused
                       ? 'Paused'
@@ -989,7 +990,7 @@ export default function OptionChain() {
                           : 'Disconnected'}
                 </Badge>
               </div>
-              {isSimulatorBroker && simClock?.sim_now ? (
+              {isSimulatorReplay && simClock?.sim_now ? (
                 <div className="text-xs font-mono">
                   SIM {simClock.sim_now}
                   {typeof simClock.speed === 'number' ? ` · ${simClock.speed}x` : ''}

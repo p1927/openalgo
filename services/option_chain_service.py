@@ -447,21 +447,102 @@ def get_option_chain(
                                 fyers_chain = _dh.get_option_chain(
                                     fyers_symbol, strikecount=min(strike_count + 2, 50)
                                 )
+                                fyers_mapped = 0
+                                fyers_needed = 0
                                 for item in chain_symbols:
+                                    if item["ce"]["exists"]:
+                                        fyers_needed += 1
+                                    if item["pe"]["exists"]:
+                                        fyers_needed += 1
                                     strike = item["strike"]
                                     if item["ce"]["exists"]:
                                         data = fyers_chain.get((strike, "CE"))
                                         if data:
                                             quotes_map[item["ce"]["symbol"]] = data
+                                            fyers_mapped += 1
                                     if item["pe"]["exists"]:
                                         data = fyers_chain.get((strike, "PE"))
                                         if data:
                                             quotes_map[item["pe"]["symbol"]] = data
-                                used_fast_path = bool(fyers_chain)
+                                            fyers_mapped += 1
+                                used_fast_path = fyers_needed > 0 and fyers_mapped == fyers_needed
+                                if not used_fast_path and fyers_mapped:
+                                    for item in chain_symbols:
+                                        if item["ce"]["exists"]:
+                                            quotes_map.pop(item["ce"]["symbol"], None)
+                                        if item["pe"]["exists"]:
+                                            quotes_map.pop(item["pe"]["symbol"], None)
                             except Exception as _fe:
                                 logger.warning(
                                     f"Fyers fast-path option chain failed, falling back to "
                                     f"generic multiquotes: {_fe}"
+                                )
+                                quotes_map = {}
+                    elif _broker == "stock_simulator" and _auth:
+                        _bmod = import_broker_module(_broker)
+                        if _bmod is not None and hasattr(_bmod.BrokerData, "get_option_chain"):
+                            try:
+                                _dh = _bmod.BrokerData(_auth)
+                                sim_chain = _dh.get_option_chain(
+                                    base_symbol,
+                                    quote_exchange,
+                                    expiry_date=final_expiry,
+                                    strike_count=strike_count,
+                                )
+                                legs_by_strike = {
+                                    float(leg.get("strike") or leg.get("strike_price") or 0): leg
+                                    for leg in sim_chain.get("chain", [])
+                                }
+
+                                def _sim_quote(ltp: float, oi: int) -> dict[str, Any]:
+                                    spread = max(0.05, ltp * 0.0001)
+                                    return {
+                                        "ltp": ltp,
+                                        "oi": oi,
+                                        "open": ltp,
+                                        "high": ltp,
+                                        "low": ltp,
+                                        "prev_close": ltp,
+                                        "volume": 0,
+                                        "bid": round(ltp - spread, 2),
+                                        "ask": round(ltp + spread, 2),
+                                        "bid_qty": 100,
+                                        "ask_qty": 100,
+                                    }
+
+                                sim_mapped = 0
+                                sim_needed = 0
+                                for item in chain_symbols:
+                                    if item["ce"]["exists"]:
+                                        sim_needed += 1
+                                    if item["pe"]["exists"]:
+                                        sim_needed += 1
+                                    leg = legs_by_strike.get(float(item["strike"]))
+                                    if not leg:
+                                        continue
+                                    if item["ce"]["exists"]:
+                                        ce_ltp = float(leg.get("ce_ltp") or 0)
+                                        quotes_map[item["ce"]["symbol"]] = _sim_quote(
+                                            ce_ltp, int(leg.get("ce_oi") or 0)
+                                        )
+                                        sim_mapped += 1
+                                    if item["pe"]["exists"]:
+                                        pe_ltp = float(leg.get("pe_ltp") or 0)
+                                        quotes_map[item["pe"]["symbol"]] = _sim_quote(
+                                            pe_ltp, int(leg.get("pe_oi") or 0)
+                                        )
+                                        sim_mapped += 1
+                                used_fast_path = sim_needed > 0 and sim_mapped == sim_needed
+                                if not used_fast_path and sim_mapped:
+                                    for item in chain_symbols:
+                                        if item["ce"]["exists"]:
+                                            quotes_map.pop(item["ce"]["symbol"], None)
+                                        if item["pe"]["exists"]:
+                                            quotes_map.pop(item["pe"]["symbol"], None)
+                            except Exception as _se:
+                                logger.warning(
+                                    f"Simulator HF option chain failed, falling back to "
+                                    f"generic multiquotes: {_se}"
                                 )
                                 quotes_map = {}
 

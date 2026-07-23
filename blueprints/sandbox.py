@@ -1208,6 +1208,7 @@ def api_simulator_status():
 def api_simulator_config():
     try:
         data = request.get_json(silent=True) or {}
+        prior_replay_date = os.getenv("NSE_REPLAY_DATE", "2021-03-25").strip()[:10]
         _simulator_env_update(data)
         for key in ("replay_date", "replay_time", "replay_speed", "replay_loop", "eval_mode"):
             if key in data:
@@ -1220,7 +1221,22 @@ def api_simulator_config():
 
         svc = get_replay_service(reload=True)
         svc.reload(load_sim_config())
-        return jsonify({"status": "success", "simulator": svc.status()})
+
+        mc_refresh = None
+        if "replay_date" in data:
+            new_replay_date = str(data["replay_date"]).strip()[:10]
+            if new_replay_date != prior_replay_date:
+                from threading import Thread
+
+                from utils.auth_utils import async_master_contract_download
+
+                Thread(target=async_master_contract_download, args=("stock_simulator",), daemon=True).start()
+                mc_refresh = "started"
+
+        payload = {"status": "success", "simulator": svc.status()}
+        if mc_refresh:
+            payload["master_contract_refresh"] = mc_refresh
+        return jsonify(payload)
     except Exception as e:
         logger.exception("simulator config failed: %s", e)
         return jsonify({"status": "error", "message": str(e)}), 500

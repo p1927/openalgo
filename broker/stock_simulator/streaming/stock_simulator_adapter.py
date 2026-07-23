@@ -151,6 +151,8 @@ class Stock_simulatorWebSocketAdapter(BaseBrokerWebSocketAdapter):
                         "sim_ts": quote.get("sim_ts"),
                     }
                     if mode >= 2:
+                        bid = float(quote.get("bid") or ltp)
+                        ask = float(quote.get("ask") or ltp)
                         market_data.update(
                             {
                                 "volume": int(quote.get("volume") or 0),
@@ -159,10 +161,21 @@ class Stock_simulatorWebSocketAdapter(BaseBrokerWebSocketAdapter):
                                 "high": float(quote.get("high") or ltp),
                                 "low": float(quote.get("low") or ltp),
                                 "close": float(quote.get("close") or ltp),
-                                "bid": float(quote.get("bid") or ltp),
-                                "ask": float(quote.get("ask") or ltp),
+                                "bid": bid,
+                                "ask": ask,
+                                "bid_price": bid,
+                                "ask_price": ask,
+                                "bid_size": 100,
+                                "ask_size": 100,
                             }
                         )
+                    if mode >= 3:
+                        bid = float(market_data.get("bid") or ltp)
+                        ask = float(market_data.get("ask") or ltp)
+                        market_data["depth"] = {
+                            "buy": [{"price": bid, "quantity": 100}],
+                            "sell": [{"price": ask, "quantity": 100}],
+                        }
                     mode_str = _MODE_LABEL.get(mode, "QUOTE")
                     topic = f"{exchange}_{symbol}_{mode_str}"
                     self.publish_market_data(topic, market_data)
