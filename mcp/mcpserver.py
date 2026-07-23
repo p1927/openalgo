@@ -2986,6 +2986,28 @@ def get_instruments(exchange: str | None = None, limit: int = 500) -> str:
         return f"Error getting instruments: {str(e)}"
 
 
+# Tool to get authoritative market context
+@mcp.tool()
+def market_context() -> str:
+    """
+    Get authoritative OpenAlgo market context (broker, analyze mode, simulator).
+
+    Returns:
+        JSON with market context including context_generation, data_broker,
+        execution_venue, analyze_mode, market_region, positions_authority,
+        and simulator replay state when applicable.
+    """
+    try:
+        from services.marketcontext_service import get_marketcontext
+
+        if not api_key:
+            return json.dumps({"status": "error", "error": "API key not configured"}, indent=2)
+        _success, response_data, _code = get_marketcontext(api_key=api_key)
+        return json.dumps(response_data, indent=2, default=str)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)}, indent=2)
+
+
 # Tool to get analyzer status
 @mcp.tool()
 def analyzer_status() -> str:

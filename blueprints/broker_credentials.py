@@ -340,15 +340,18 @@ def update_credentials():
             return jsonify({"status": "error", "message": f"Failed to write .env file: {e}"}), 500
 
         sync_result = None
-        if "BROKER_API_SECRET" in updated_fields:
+        if "BROKER_API_SECRET" in updated_fields or "REDIRECT_URL" in updated_fields:
             from utils.broker_env_sync import reload_env_from_file, sync_env_secret_to_auth_db
+            from utils.broker_credentials import apply_broker_credentials
 
             reload_env_from_file()
+            active_broker = get_broker_from_redirect_url(get_env_value("REDIRECT_URL"))
+            apply_broker_credentials(active_broker)
             from flask import session
 
             sync_result = sync_env_secret_to_auth_db(
                 username=session.get("user"),
-                broker=get_broker_from_redirect_url(get_env_value("REDIRECT_URL")),
+                broker=active_broker,
             )
 
         restart_required = "BROKER_API_SECRET" not in updated_fields

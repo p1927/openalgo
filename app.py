@@ -708,8 +708,10 @@ def setup_environment(app):
 
             # Sync env-token brokers (IndMoney daily JWT) from .env → auth DB
             try:
-                from utils.broker_env_sync import is_env_token_broker, sync_env_secret_to_auth_db
+                from utils.broker_credentials import apply_broker_credentials
+                from utils.broker_env_sync import get_configured_broker, is_env_token_broker, sync_env_secret_to_auth_db
 
+                apply_broker_credentials(get_configured_broker())
                 if is_env_token_broker():
                     sync_result = sync_env_secret_to_auth_db(reload_env=False)
                     if sync_result.get("synced"):

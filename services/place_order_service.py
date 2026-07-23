@@ -145,8 +145,8 @@ def place_order_with_auth(
 
     api_key = original_data.get("apikey", "")
 
-    # If in analyze mode, route to sandbox for sandbox trading
-    if get_analyze_mode():
+    # Alpaca US: analyze_mode uses Alpaca paper API, not OpenAlgo sandbox
+    if get_analyze_mode() and broker != "alpaca":
         from services.sandbox_service import sandbox_place_order
 
         if not api_key:

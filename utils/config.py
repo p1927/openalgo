@@ -8,23 +8,41 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 
 
+def _active_broker() -> str:
+    from utils.broker_env_sync import get_configured_broker
+
+    return get_configured_broker()
+
+
 def get_broker_api_key() -> str | None:
     """
-    Retrieve the configured broker API key.
+    Retrieve the broker API key for the active broker (REDIRECT_URL).
 
-    Returns:
-        str | None: The broker API key from environment variables, or None if not set.
+    Resolves from per-broker env vars (e.g. ALPACA_API_KEY) then BROKER_API_KEY.
     """
+    from utils.broker_credentials import resolve_broker_credentials
+
+    broker = _active_broker()
+    if broker:
+        key, _ = resolve_broker_credentials(broker)
+        if key:
+            return key
     return os.getenv("BROKER_API_KEY")
 
 
 def get_broker_api_secret() -> str | None:
     """
-    Retrieve the configured broker API secret.
+    Retrieve the broker API secret for the active broker.
 
-    Returns:
-        str | None: The broker API secret from environment variables, or None if not set.
+    Resolves from per-broker env vars (e.g. INDMONEY_ACCESS_TOKEN) then BROKER_API_SECRET.
     """
+    from utils.broker_credentials import resolve_broker_credentials
+
+    broker = _active_broker()
+    if broker:
+        _, secret = resolve_broker_credentials(broker)
+        if secret:
+            return secret
     return os.getenv("BROKER_API_SECRET")
 
 

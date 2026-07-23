@@ -71,8 +71,13 @@ def is_env_token_broker(broker: str | None = None) -> bool:
 def get_token_sync_status(username: str | None = None, broker: str | None = None) -> dict[str, Any]:
     """Compare .env BROKER_API_* values with the auth DB token."""
     broker = (broker or get_configured_broker()).lower()
-    env_key = read_env_key_from_file("BROKER_API_KEY") or os.getenv("BROKER_API_KEY", "")
-    env_secret = read_env_key_from_file("BROKER_API_SECRET") or os.getenv("BROKER_API_SECRET", "")
+    from utils.broker_credentials import resolve_broker_credentials
+
+    env_key, env_secret = resolve_broker_credentials(broker)
+    if not env_key:
+        env_key = read_env_key_from_file("BROKER_API_KEY") or os.getenv("BROKER_API_KEY", "")
+    if not env_secret:
+        env_secret = read_env_key_from_file("BROKER_API_SECRET") or os.getenv("BROKER_API_SECRET", "")
 
     db_token: str | None = None
     db_username: str | None = None
@@ -125,6 +130,11 @@ def sync_env_secret_to_auth_db(
         return {"synced": False, "reason": "not_env_token_broker", "broker": broker, "updated_users": []}
 
     env_secret = (read_env_key_from_file("BROKER_API_SECRET") or os.getenv("BROKER_API_SECRET", "")).strip()
+    if not env_secret:
+        from utils.broker_credentials import resolve_broker_credentials
+
+        _, env_secret = resolve_broker_credentials(broker)
+        env_secret = env_secret.strip()
     if not env_secret or env_secret.startswith("YOUR_"):
         return {"synced": False, "reason": "no_env_secret", "broker": broker, "updated_users": []}
 

@@ -28,13 +28,19 @@ def _enforce_rate_limit():
     _last_history_call = time.monotonic()
 
 
-def validate_symbol_exchange(symbol: str, exchange: str) -> tuple[bool, str | None]:
+_US_BROKERS_SKIP_TOKEN = frozenset({"alpaca"})
+
+
+def validate_symbol_exchange(
+    symbol: str, exchange: str, *, broker: str | None = None
+) -> tuple[bool, str | None]:
     """
     Validate that a symbol exists for the given exchange.
 
     Args:
         symbol: Trading symbol
         exchange: Exchange (e.g., NSE, NFO)
+        broker: Optional broker name (Alpaca skips master-contract token lookup)
 
     Returns:
         Tuple of (is_valid, error_message)
@@ -43,6 +49,12 @@ def validate_symbol_exchange(symbol: str, exchange: str) -> tuple[bool, str | No
     exchange_upper = exchange.upper()
     if exchange_upper not in VALID_EXCHANGES:
         return False, f"Invalid exchange '{exchange}'. Must be one of: {', '.join(VALID_EXCHANGES)}"
+
+    # US Alpaca symbols resolve by ticker — no master-contract token row
+    if broker and broker.lower() in _US_BROKERS_SKIP_TOKEN:
+        if not (symbol or "").strip():
+            return False, "Symbol is required"
+        return True, None
 
     # Validate symbol exists in master contract
     token = get_token(symbol, exchange_upper)
@@ -104,7 +116,7 @@ def get_history_with_auth(
         - HTTP status code (int)
     """
     # Validate symbol and exchange before making broker API call
-    is_valid, error_msg = validate_symbol_exchange(symbol, exchange)
+    is_valid, error_msg = validate_symbol_exchange(symbol, exchange, broker=broker)
     if not is_valid:
         return False, {"status": "error", "message": error_msg}, 400
 
