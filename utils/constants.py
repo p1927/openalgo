@@ -17,6 +17,9 @@ EXCHANGE_NSE_INDEX = "NSE_INDEX"  # NSE Index
 EXCHANGE_BSE_INDEX = "BSE_INDEX"  # BSE Index
 EXCHANGE_MCX_INDEX = "MCX_INDEX"  # MCX Index (declared by Angel + Zerodha plugins)
 EXCHANGE_GLOBAL_INDEX = "GLOBAL_INDEX"  # Global indices (US30, JAPAN225, HANGSENG, GIFTNIFTY, etc.)
+EXCHANGE_NASDAQ = "NASDAQ"  # US equities — Alpaca plugin
+EXCHANGE_NYSE = "NYSE"
+EXCHANGE_AMEX = "AMEX"
 EXCHANGE_CRYPTO = "CRYPTO"  # Crypto Exchanges (broker-agnostic; brexchange carries broker name)
 
 # Set of all crypto-family exchanges.
@@ -63,6 +66,9 @@ VALID_EXCHANGES = [
     EXCHANGE_BSE_INDEX,
     EXCHANGE_MCX_INDEX,
     EXCHANGE_GLOBAL_INDEX,
+    EXCHANGE_NASDAQ,
+    EXCHANGE_NYSE,
+    EXCHANGE_AMEX,
     EXCHANGE_CRYPTO,
 ]
 

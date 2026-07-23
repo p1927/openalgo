@@ -83,8 +83,8 @@ def cancel_order_with_auth(
     if "apikey" in order_request_data:
         order_request_data.pop("apikey", None)
 
-    # If in analyze mode, route to sandbox for sandbox trading
-    if get_analyze_mode():
+    # Alpaca US: analyze_mode cancels on Alpaca paper, not sandbox
+    if get_analyze_mode() and broker != "alpaca":
         from services.sandbox_service import sandbox_cancel_order
 
         # Get API key from original data

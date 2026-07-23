@@ -10,7 +10,12 @@ from utils.logging import get_logger
 logger = get_logger(__name__)
 
 
-def validate_symbol_exchange(symbol: str, exchange: str) -> tuple[bool, str | None]:
+_US_BROKERS_SKIP_TOKEN = frozenset({"alpaca"})
+
+
+def validate_symbol_exchange(
+    symbol: str, exchange: str, *, broker: str | None = None
+) -> tuple[bool, str | None]:
     """
     Validate that a symbol exists for the given exchange.
 
@@ -26,6 +31,12 @@ def validate_symbol_exchange(symbol: str, exchange: str) -> tuple[bool, str | No
     if exchange_upper not in VALID_EXCHANGES:
         return False, f"Invalid exchange '{exchange}'. Must be one of: {', '.join(VALID_EXCHANGES)}"
 
+    # US Alpaca symbols resolve by ticker — no master-contract token row
+    if broker and broker.lower() in _US_BROKERS_SKIP_TOKEN:
+        if not (symbol or "").strip():
+            return False, "Symbol is required"
+        return True, None
+
     # Validate symbol exists in master contract
     token = get_token(symbol, exchange_upper)
     if token is None:
@@ -39,6 +50,8 @@ def validate_symbol_exchange(symbol: str, exchange: str) -> tuple[bool, str | No
 
 def validate_symbols_bulk(
     symbols: list[dict[str, str]],
+    *,
+    broker: str | None = None,
 ) -> tuple[bool, list[dict[str, Any]], str | None]:
     """
     Validate multiple symbols and their exchanges.
@@ -65,7 +78,7 @@ def validate_symbols_bulk(
                 all_valid = False
             continue
 
-        is_valid, error = validate_symbol_exchange(symbol, exchange)
+        is_valid, error = validate_symbol_exchange(symbol, exchange, broker=broker)
         validated.append({**item, "valid": is_valid, "error": error})
 
         if not is_valid and all_valid:
@@ -114,7 +127,7 @@ def get_quotes_with_auth(
         - HTTP status code (int)
     """
     # Validate symbol and exchange before making broker API call
-    is_valid, error_msg = validate_symbol_exchange(symbol, exchange)
+    is_valid, error_msg = validate_symbol_exchange(symbol, exchange, broker=broker)
     if not is_valid:
         return False, {"status": "error", "message": error_msg}, 400
 
@@ -224,7 +237,7 @@ def get_multiquotes_with_auth(
         - HTTP status code (int)
     """
     # Validate all symbols before making broker API calls
-    all_valid, validated_symbols, first_error = validate_symbols_bulk(symbols)
+    all_valid, validated_symbols, first_error = validate_symbols_bulk(symbols, broker=broker)
 
     # Separate valid and invalid symbols
     valid_symbols = [item for item in validated_symbols if item.get("valid", False)]

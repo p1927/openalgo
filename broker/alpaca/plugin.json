@@ -1,0 +1,11 @@
+{
+    "Plugin Name": "alpaca",
+    "Plugin URI": "https://openalgo.in",
+    "Description": "Alpaca US equities — API key auth, paper/live trading and IEX market data",
+    "Version": "1.0",
+    "Author": "Trade",
+    "Author URI": "https://github.com/",
+    "supported_exchanges": ["NASDAQ", "NYSE", "AMEX"],
+    "broker_type": "US_equity",
+    "leverage_config": false
+}
