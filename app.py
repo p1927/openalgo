@@ -516,7 +516,7 @@ def create_app():
                 "/auth/login",
                 "/auth/reset-password",
                 "/auth/csrf-token",
-                "/auth/broker-config",
+                "/auth/brokers",
                 "/auth/session-status",  # Session status check for React SPA
                 "/auth/check-setup",  # Setup check for React SPA
                 "/setup",

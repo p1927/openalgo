@@ -1298,6 +1298,23 @@ def _import_autonomous_agents():
     return mcp_actions
 
 
+def _coerce_mcp_dict(value: Any) -> dict[str, Any] | None:
+    """Accept dict or JSON string from LLM tool calls."""
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        parsed = json.loads(text)
+        if not isinstance(parsed, dict):
+            raise ValueError("expected JSON object")
+        return parsed
+    raise ValueError(f"expected dict or JSON string, got {type(value).__name__}")
+
+
 @mcp.tool()
 def stop_autonomous_agents() -> str:
     """
@@ -1467,28 +1484,53 @@ def record_autonomous_decision(
 @mcp.tool()
 def set_agent_watch_spec(
     agent_id: str,
-    watch_spec: dict | None = None,
+    watch_spec: dict | str | None = None,
     strategy: str | None = None,
+    spot_move_pct: float | None = None,
+    cooldown_sec: int | None = None,
+    skip_if_unchanged_minutes: int | None = None,
+    spot: float | None = None,
+    target: float | None = None,
+    stop: float | None = None,
 ) -> str:
     """
     Persist Nautilus-compatible watch rules on an autonomous agent instance.
 
-    Prefer `strategy` — backend derives rules from the chosen strategy (hold_cash,
-    buy_dip, momentum_breakout, etc.). Or pass explicit `watch_spec`.
+    Prefer `strategy` with scalar params — e.g.
+    `set_agent_watch_spec(agent_id=..., strategy="hold_cash", spot_move_pct=0.009)`.
+    Backend derives rules from strategy; do not pass raw nested `watch_spec` unless necessary.
 
     Args:
         agent_id: aa_* agent id
-        watch_spec: optional explicit {rules: [...], gate: {...}, cooldown_sec: 300}
+        watch_spec: optional explicit {rules: [...], gate: {...}, cooldown_sec: 300} (dict or JSON string)
         strategy: recommended strategy name — rules derived automatically
+        spot_move_pct: override spot-move alert threshold (%)
+        cooldown_sec: seconds between repeated alerts
+        skip_if_unchanged_minutes: gate — skip alert when spot unchanged for N minutes
+        spot: current spot price (for N-point mandate conversion and level rules)
+        target: optional dip/target level for strategy-derived rules
+        stop: optional stop level for strategy-derived rules
     """
     try:
+        watch_spec = _coerce_mcp_dict(watch_spec)
         actions = _import_autonomous_agents()
         result = actions.mcp_set_watch_spec(
             agent_id=agent_id,
             watch_spec=watch_spec,
             strategy=strategy,
+            spot_move_pct=spot_move_pct,
+            cooldown_sec=cooldown_sec,
+            skip_if_unchanged_minutes=skip_if_unchanged_minutes,
+            spot=spot,
+            target=target,
+            stop=stop,
         )
         return json.dumps(result, indent=2, default=str)
+    except json.JSONDecodeError as e:
+        return json.dumps(
+            {"status": "error", "error": f"watch_spec JSON invalid or truncated: {e}"},
+            indent=2,
+        )
     except Exception as e:
         return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
@@ -1516,7 +1558,7 @@ def list_watches(
 @mcp.tool()
 def create_session_watch(
     session_id: str,
-    watch_spec: dict,
+    watch_spec: dict | str,
     symbols: list[str] | None = None,
     label: str | None = None,
     one_shot: bool = False,
@@ -1526,12 +1568,15 @@ def create_session_watch(
 
     Args:
         session_id: Vibe session id
-        watch_spec: {rules: [...], cooldown_sec: 300}
+        watch_spec: {rules: [...], cooldown_sec: 300} (dict or JSON string)
         symbols: optional symbol list; derived from rules when omitted
         label: optional display label
         one_shot: delete watch after first alert fires
     """
     try:
+        watch_spec = _coerce_mcp_dict(watch_spec)
+        if not watch_spec:
+            return json.dumps({"status": "error", "error": "watch_spec is required"}, indent=2)
         actions = _import_autonomous_agents()
         result = actions.mcp_create_session_watch(
             session_id=session_id,
@@ -1541,6 +1586,11 @@ def create_session_watch(
             one_shot=one_shot,
         )
         return json.dumps(result, indent=2, default=str)
+    except json.JSONDecodeError as e:
+        return json.dumps(
+            {"status": "error", "error": f"watch_spec JSON invalid or truncated: {e}"},
+            indent=2,
+        )
     except Exception as e:
         return json.dumps({"status": "error", "error": str(e)}, indent=2)
 

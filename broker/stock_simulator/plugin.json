@@ -1,5 +1,7 @@
 {
     "Plugin Name": "stock_simulator",
+    "display_name": "NSE Simulator (Replay)",
+    "auth_flow": "callback",
     "Plugin URI": "https://openalgo.in",
     "Description": "NSE historical replay simulator — no live broker token",
     "Version": "1.0",

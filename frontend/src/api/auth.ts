@@ -32,26 +32,35 @@ export const authApi = {
    * Get current session info
    */
   getSession: async (): Promise<SessionInfo> => {
-    const response = await authClient.get<SessionInfo>('/auth/session')
+    const response = await authClient.get<SessionInfo>('/auth/session-status')
     return response.data
   },
 
   /**
-   * Get list of available brokers
+   * Get list of available brokers (login UI)
    */
   getBrokers: async (): Promise<BrokerInfo[]> => {
-    const response = await authClient.get<{ brokers: BrokerInfo[] }>('/auth/brokers')
+    const response = await authClient.get<{ status: string; brokers: BrokerInfo[] }>(
+      '/auth/brokers'
+    )
     return response.data.brokers
   },
 
   /**
-   * Initiate broker OAuth flow
+   * Prepare broker connect URL for the selected broker
    */
   initiateBrokerAuth: async (
     broker: string
-  ): Promise<{ redirect_url?: string; requires_totp?: boolean }> => {
-    const response = await authClient.post(`/auth/broker/${broker}`)
-    return response.data
+  ): Promise<{ redirect_url?: string; requires_totp?: boolean; connect_url?: string }> => {
+    const response = await authClient.post<{
+      status: string
+      connect_url?: string
+      auth_flow?: string
+    }>('/auth/broker/prepare-connect', { broker })
+    if (response.data.auth_flow === 'totp') {
+      return { requires_totp: true }
+    }
+    return { connect_url: response.data.connect_url, redirect_url: response.data.connect_url }
   },
 
   /**

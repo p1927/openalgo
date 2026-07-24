@@ -38,13 +38,13 @@ ENV_FILE=".env"
 SAMPLE_ENV_URL="https://raw.githubusercontent.com/marketcalls/openalgo/main/.sample.env"
 # Use the directory where the script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=lib/valid_brokers.sh
+source "$SCRIPT_DIR/lib/valid_brokers.sh"
 OPENALGO_DIR="$SCRIPT_DIR"
 
 # XTS Brokers that require market data credentials
 XTS_BROKERS="fivepaisaxts,compositedge,ibulls,iifl,jainamxts,rmoney,wisdom"
-
-# Valid brokers list
-VALID_BROKERS="fivepaisa,fivepaisaxts,aliceblue,angel,arrow,compositedge,definedge,deltaexchange,dhan,dhan_sandbox,firstock,flattrade,fyers,groww,ibulls,iifl,iiflcapital,indmoney,jainamxts,kotak,motilal,mstock,nubra,paytm,pocketful,rmoney,samco,shoonya,tradejini,tradesmart,upstox,wisdom,zebu,zerodha"
 
 # Banner
 echo ""
@@ -97,11 +97,7 @@ check_docker() {
 # Validate broker name
 validate_broker() {
     local broker=$1
-    if [[ ",$VALID_BROKERS," == *",$broker,"* ]]; then
-        return 0
-    else
-        return 1
-    fi
+    validate_broker_name "$broker" "$REPO_ROOT"
 }
 
 # Check if broker is XTS based

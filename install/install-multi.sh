@@ -20,6 +20,9 @@ echo -e "${NC}"
 
 # Create logs directory
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=lib/valid_brokers.sh
+source "$SCRIPT_DIR/lib/valid_brokers.sh"
 LOGS_DIR="$SCRIPT_DIR/logs"
 mkdir -p "$LOGS_DIR"
 
@@ -50,13 +53,7 @@ generate_hex() {
 # Function to validate broker name
 validate_broker() {
     local broker=$1
-    local valid_brokers="fivepaisa,fivepaisaxts,aliceblue,angel,arrow,compositedge,definedge,deltaexchange,dhan,dhan_sandbox,firstock,flattrade,fyers,groww,ibulls,iifl,iiflcapital,indmoney,jainamxts,kotak,motilal,mstock,nubra,paytm,pocketful,rmoney,samco,shoonya,tradejini,tradesmart,upstox,wisdom,zebu,zerodha"
-
-    if [[ ",$valid_brokers," == *",$broker,"* ]]; then
-        return 0
-    else
-        return 1
-    fi
+    validate_broker_name "$broker" "$REPO_ROOT"
 }
 
 # Function to check if broker is XTS based

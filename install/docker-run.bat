@@ -39,8 +39,26 @@ set SETUP_FAILED=0
 REM XTS Brokers that require market data credentials
 set XTS_BROKERS=fivepaisaxts,compositedge,ibulls,iifl,jainamxts,rmoney,wisdom
 
-REM Valid brokers list
-set VALID_BROKERS=fivepaisa,fivepaisaxts,aliceblue,angel,arrow,compositedge,definedge,deltaexchange,dhan,dhan_sandbox,firstock,flattrade,fyers,groww,ibulls,iifl,iiflcapital,indmoney,jainamxts,kotak,motilal,mstock,nubra,paytm,pocketful,rmoney,samco,shoonya,tradejini,tradesmart,upstox,wisdom,zebu,zerodha
+REM Valid brokers list — prefer .sample.env when present (single authority)
+set VALID_BROKERS=
+if exist "%OPENALGO_DIR%..\.sample.env" (
+    for /f "usebackq tokens=1,* delims==" %%a in (`findstr /b /c:"VALID_BROKERS" "%OPENALGO_DIR%..\.sample.env"`) do (
+        set "VALID_BROKERS=%%b"
+    )
+)
+if not defined VALID_BROKERS if exist "%OPENALGO_DIR%\.sample.env" (
+    for /f "usebackq tokens=1,* delims==" %%a in (`findstr /b /c:"VALID_BROKERS" "%OPENALGO_DIR%\.sample.env"`) do (
+        set "VALID_BROKERS=%%b"
+    )
+)
+if defined VALID_BROKERS (
+    set "VALID_BROKERS=!VALID_BROKERS:'=!"
+    set "VALID_BROKERS=!VALID_BROKERS:"=!"
+    set "VALID_BROKERS=!VALID_BROKERS: =!"
+)
+if not defined VALID_BROKERS (
+    set VALID_BROKERS=fivepaisa,fivepaisaxts,aliceblue,angel,arrow,compositedge,definedge,deltaexchange,dhan,dhan_sandbox,firstock,flattrade,fyers,groww,ibulls,iifl,iiflcapital,indmoney,jainamxts,kotak,motilal,mstock,nubra,paytm,pocketful,rmoney,samco,shoonya,tradejini,tradesmart,upstox,wisdom,zebu,zerodha,stock_simulator,alpaca
+)
 
 REM Banner
 echo.

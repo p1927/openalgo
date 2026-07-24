@@ -123,7 +123,8 @@ interface BrokerCredentials {
   broker_api_secret_market_raw_length: number
   redirect_url: string
   current_broker: string
-  valid_brokers: string[]
+  default_broker?: string
+  brokers?: Array<{ id: string; display_name: string }>
   ngrok_allow: boolean
   host_server: string
   websocket_url: string
@@ -308,6 +309,9 @@ export default function ProfilePage() {
 
   // Broker credentials state
   const [brokerCredentials, setBrokerCredentials] = useState<BrokerCredentials | null>(null)
+  const [brokerCredentialsLoadError, setBrokerCredentialsLoadError] = useState<string | null>(
+    null
+  )
   const [brokerApiKey, setBrokerApiKey] = useState('')
   const [brokerApiSecret, setBrokerApiSecret] = useState('')
   const [brokerApiKeyMarket, setBrokerApiKeyMarket] = useState('')
@@ -364,17 +368,38 @@ export default function ProfilePage() {
 
   const fetchBrokerCredentials = async () => {
     try {
+      setBrokerCredentialsLoadError(null)
       const response = await webClient.get<{ status: string; data: BrokerCredentials }>(
         '/api/broker/credentials'
       )
       if (response.data.status === 'success') {
-        setBrokerCredentials(response.data.data)
-        setSelectedBroker(response.data.data.current_broker)
+        const data = response.data.data
+        const brokerIds = new Set((data.brokers ?? []).map((broker) => broker.id))
+        const initialBroker =
+          data.current_broker && brokerIds.has(data.current_broker)
+            ? data.current_broker
+            : data.default_broker && brokerIds.has(data.default_broker)
+              ? data.default_broker
+              : (data.brokers?.[0]?.id ?? '')
+        setBrokerCredentials(data)
+        setSelectedBroker(initialBroker)
         setNgrokEnabled(response.data.data.ngrok_allow)
         setHostServer(response.data.data.host_server)
         setWebsocketUrl(response.data.data.websocket_url || '')
+        if (!response.data.data.brokers?.length) {
+          setBrokerCredentialsLoadError(
+            'No brokers available. Check VALID_BROKERS in .env and broker plugins.'
+          )
+        }
+      } else {
+        setBrokerCredentialsLoadError('Failed to load broker configuration from server.')
       }
-    } catch (_error) {}
+    } catch (_error) {
+      setBrokerCredentialsLoadError(
+        'Failed to load broker list. Refresh the page or check your session.'
+      )
+      showToast.error('Failed to load broker credentials', 'admin')
+    }
   }
 
   const fetchPermissions = async () => {
@@ -1030,15 +1055,18 @@ export default function ProfilePage() {
             <CardContent className="space-y-4">
               {/* Broker Selection */}
               <div className="space-y-2">
-                <Label>Select Broker</Label>
+                <Label>Default broker</Label>
+                {brokerCredentialsLoadError && (
+                  <p className="text-sm text-destructive">{brokerCredentialsLoadError}</p>
+                )}
                 <Select value={selectedBroker} onValueChange={setSelectedBroker}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select a broker" />
                   </SelectTrigger>
                   <SelectContent>
-                    {brokerCredentials?.valid_brokers.map((broker) => (
-                      <SelectItem key={broker} value={broker}>
-                        {broker.charAt(0).toUpperCase() + broker.slice(1)}
+                    {(brokerCredentials?.brokers ?? []).map((broker) => (
+                      <SelectItem key={broker.id} value={broker.id}>
+                        {broker.display_name}
                       </SelectItem>
                     ))}
                   </SelectContent>

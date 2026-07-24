@@ -20,9 +20,29 @@ GET masks secrets with a fixed-length suffix and returns raw length separately f
 
 The UI is part of `frontend/src/pages/Profile.tsx`. Broker selection/login uses `BrokerSelect.tsx` and `BrokerTOTP.tsx`.
 
+## Broker Registry (single authority)
+
+`utils/broker_registry.py` discovers installed brokers from `broker/*/plugin.json`, intersects with `VALID_BROKERS`, and emits `BrokerDescriptor` records (display name, auth flow, login notices).
+
+| Route | Purpose |
+|---|---|
+| `GET /auth/brokers` | Session-authenticated broker list for login UI |
+| `POST /auth/broker/prepare-connect` | Apply credentials + return `connect_url` for selected broker |
+| `GET /api/broker/credentials` | Includes `brokers[]` descriptors for Profile UI |
+
+Login connect URLs are built server-side in `utils/broker_login.py` (not in the React bundle).
+
 ## Public Broker Config
 
-`GET /auth/broker-config` always exposes the broker name needed to render login. API key and redirect URL are returned only for an authenticated app session. The route derives the broker key from the configured callback URL.
+Use `GET /auth/brokers` (session-authenticated) for login UI broker lists.
+
+## plugin.json fields
+
+| Field | Purpose |
+|---|---|
+| `display_name` | Human label in login/profile dropdowns |
+| `auth_flow` | `callback`, `oauth_external`, `oauth_init`, `totp`, `api_key_env` |
+| `login_notice` | Optional subscription/requirements alert on login page |
 
 ## Capability Loading
 
@@ -42,6 +62,8 @@ At startup `utils/plugin_loader.py` caches metadata for all 34 plugin directorie
 |---|---|
 | `.sample.env` | Environment contract and defaults |
 | `utils/env_check.py` | Startup validation |
+| `utils/broker_registry.py` | Broker discovery + descriptors |
+| `utils/broker_login.py` | Connect URL construction |
 | `utils/plugin_loader.py` | Plugin/capability discovery |
 | `blueprints/broker_credentials.py` | Credential and capability API |
 | `blueprints/auth.py` | Broker config/login routes |

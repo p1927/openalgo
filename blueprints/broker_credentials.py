@@ -107,13 +107,9 @@ def mask_secret(value: str, show_chars: int = 4) -> str:
 
 def get_broker_from_redirect_url(redirect_url: str) -> str:
     """Extract broker name from redirect URL."""
-    try:
-        match = re.search(r"/([^/]+)/callback$", redirect_url)
-        if match:
-            return match.group(1).lower()
-    except Exception:
-        pass
-    return ""
+    from utils.broker_registry import get_broker_from_redirect_url as _parse
+
+    return _parse(redirect_url)
 
 
 @broker_credentials_bp.route("/credentials", methods=["GET"])
@@ -127,7 +123,6 @@ def get_credentials():
         broker_api_key_market = get_env_value("BROKER_API_KEY_MARKET")
         broker_api_secret_market = get_env_value("BROKER_API_SECRET_MARKET")
         redirect_url = get_env_value("REDIRECT_URL")
-        valid_brokers = get_env_value("VALID_BROKERS")
         ngrok_allow = get_env_value("NGROK_ALLOW")
         host_server = get_env_value("HOST_SERVER")
         websocket_url = get_env_value("WEBSOCKET_URL")
@@ -143,8 +138,12 @@ def get_credentials():
         # Get current broker from redirect URL
         current_broker = get_broker_from_redirect_url(redirect_url)
 
-        # Parse valid brokers list
-        brokers_list = [b.strip() for b in valid_brokers.split(",") if b.strip()]
+        from utils.broker_registry import list_available_brokers, resolve_default_broker_for_list
+
+        default_broker = resolve_default_broker_for_list(b.id for b in list_available_brokers())
+        broker_descriptors = [
+            broker.to_dict() for broker in list_available_brokers(default_broker=default_broker)
+        ]
 
         return jsonify(
             {
@@ -160,7 +159,8 @@ def get_credentials():
                     "broker_api_secret_market_raw_length": len(broker_api_secret_market),
                     "redirect_url": redirect_url,
                     "current_broker": current_broker,
-                    "valid_brokers": brokers_list,
+                    "default_broker": default_broker,
+                    "brokers": broker_descriptors,
                     "ngrok_allow": ngrok_allow.upper() == "TRUE",
                     "host_server": host_server,
                     "websocket_url": websocket_url,
@@ -219,16 +219,18 @@ def update_credentials():
 
             # Validate broker name
             broker_name = get_broker_from_redirect_url(redirect_url)
-            valid_brokers_str = get_env_value("VALID_BROKERS")
-            valid_brokers = set(
-                b.strip().lower() for b in valid_brokers_str.split(",") if b.strip()
-            )
+            from utils.broker_registry import list_available_brokers
 
-            if broker_name and broker_name not in valid_brokers:
+            available_brokers = {b.id for b in list_available_brokers()}
+
+            if broker_name and broker_name not in available_brokers:
                 return jsonify(
                     {
                         "status": "error",
-                        "message": f"Invalid broker '{broker_name}'. Valid brokers: {', '.join(sorted(valid_brokers))}",
+                        "message": (
+                            f"Invalid broker '{broker_name}'. "
+                            f"Available brokers: {', '.join(sorted(available_brokers))}"
+                        ),
                     }
                 ), 400
 

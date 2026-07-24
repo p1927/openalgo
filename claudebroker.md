@@ -194,30 +194,22 @@ JWT/token broker uses the 2-tuple generic path.
 
 ## 4. .env + install wiring (don't forget these)
 
-To make the broker selectable and installable, add the broker id to **every**
-hardcoded broker list:
+To make the broker selectable and installable:
 
 | File | What |
 | --- | --- |
 | `.sample.env` + `.env` | `VALID_BROKERS` |
-| `install/install.sh` (2x), `install/install-docker.sh`, `install/install-multi.sh` (2x), `install/install-docker-multi-custom-ssl.sh`, `install/docker-run.sh`, `install/docker-run.bat`, `start.sh` | hardcoded `valid_brokers` lists |
-| `install/README.md` | "supported list" block |
-| `README.md` | "Supported Brokers" list |
-| `frontend/src/pages/BrokerSelect.tsx` | `allBrokers[]` entry + `switch` login-URL `case` (rebuild with `npm run build`) |
+| `broker/<name>/plugin.json` | `display_name`, `auth_flow`, optional `login_notice` |
+| `install/lib/valid_brokers.sh` | Install scripts read VALID_BROKERS from `.sample.env` (no hardcoded list) |
+| `blueprints/brlogin.py` | Callback/auth handler if non-generic |
 | `websocket_proxy/__init__.py` | import + `register_adapter("<name>", <Name>WebSocketAdapter)` + `__all__` |
 
-Runtime modules (`websocket_proxy/server.py`, `utils/env_check.py`,
+Runtime modules (`utils/broker_registry.py`, `utils/env_check.py`,
 `blueprints/broker_credentials.py`, `blueprints/admin.py`) **read `VALID_BROKERS`
-from env** — no edit needed.
+from env** — no frontend broker list edits required.
 
-### NUANCE — the broker dropdown is EMPTY on feature branches (stale dist)
-Flask serves the pre-built `frontend/dist/`, and CI rebuilds it **only on
-`main`**. On your feature branch the committed dist predates your
-`BrokerSelect.tsx` edit, so the login dropdown filters against a broker list
-that doesn't contain your broker → it renders empty. This is not a backend
-bug: run `cd frontend && npm install && npm run build` locally (the output is
-gitignored — don't commit it; CI produces the canonical dist after merge),
-then hard-refresh the browser.
+Login UI loads brokers from `GET /auth/brokers`; connect URLs from
+`POST /auth/broker/prepare-connect`. No `BrokerSelect.tsx` `allBrokers[]` maintenance.
 
 Env keys: `BROKER_API_KEY`, `BROKER_API_SECRET`, `REDIRECT_URL`
 (`http://127.0.0.1:5000/<broker>/callback` — must EXACTLY match the broker
@@ -605,10 +597,8 @@ history epochs.
 
 ### C. Wire into the platform
 - [ ] `websocket_proxy/__init__.py` — import + `register_adapter` + `__all__`
-- [ ] `.sample.env` + `.env` — add to `VALID_BROKERS`
-- [ ] `install/install.sh`, `install-docker.sh`, `install-multi.sh`, `install-docker-multi-custom-ssl.sh`, `docker-run.sh`, `docker-run.bat`, `start.sh` — add to every `valid_brokers` list (some appear twice)
-- [ ] `install/README.md` + `README.md` — add to supported-broker lists
-- [ ] `frontend/src/pages/BrokerSelect.tsx` — `allBrokers[]` entry + login-URL `case` (then `npm run build`)
+- [ ] `.sample.env` + `.env` — add to `VALID_BROKERS` (install scripts read from `.sample.env` via `install/lib/valid_brokers.sh`)
+- [ ] `broker/<name>/plugin.json` — set `display_name`, `auth_flow`, optional `login_notice` (login UI reads registry; no frontend broker list edits)
 - [ ] `blueprints/brlogin.py` — add an `elif broker == "<name>"` branch ONLY if the callback param name differs or token rewrite / feed_token handling is needed
 
 ### D. Configure `.env`

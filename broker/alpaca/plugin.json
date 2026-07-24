@@ -1,5 +1,7 @@
 {
     "Plugin Name": "alpaca",
+    "display_name": "Alpaca",
+    "auth_flow": "api_key_env",
     "Plugin URI": "https://openalgo.in",
     "Description": "Alpaca US equities — API key auth, paper/live trading and IEX market data",
     "Version": "1.0",

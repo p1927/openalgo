@@ -85,9 +85,10 @@ export default function Sandbox() {
   const [isResetting, setIsResetting] = useState(false)
   const [showResetDialog, setShowResetDialog] = useState(false)
   const [simStatus, setSimStatus] = useState<Record<string, unknown> | null>(null)
-  const [simDate, setSimDate] = useState('2024-04-15')
+  const [simDate, setSimDate] = useState('')
   const [simSpeed, setSimSpeed] = useState('60')
   const [simEvalMode, setSimEvalMode] = useState('continuous')
+  const [simWeekMode, setSimWeekMode] = useState(true)
   const [simSaving, setSimSaving] = useState(false)
   const [simStepping, setSimStepping] = useState(false)
   const simFormDirty = useRef(false)
@@ -115,6 +116,9 @@ export default function Sandbox() {
             if (typeof clock.stepped === 'boolean') {
               setSimEvalMode(clock.stepped ? 'stepped' : 'continuous')
             }
+            if (typeof data.simulator?.week_mode === 'boolean') {
+              setSimWeekMode(data.simulator.week_mode)
+            }
           }
         }
       }
@@ -140,6 +144,8 @@ export default function Sandbox() {
           replay_speed: simSpeed,
           replay_loop: true,
           eval_mode: simEvalMode,
+          week_mode: simWeekMode,
+          week_days_count: 5,
         }),
       })
       const data = await response.json()
@@ -163,9 +169,24 @@ export default function Sandbox() {
 
   const applyDemoPreset = () => {
     simFormDirty.current = true
-    setSimDate('2024-04-15')
+    setSimWeekMode(true)
     setSimSpeed('60')
     setSimEvalMode('continuous')
+    const weekDates = (simStatus?.week_dates || []) as string[]
+    if (weekDates.length > 0) {
+      setSimDate(String(weekDates[weekDates.length - 1]))
+    }
+  }
+
+  const applyLastWeekPreset = () => {
+    simFormDirty.current = true
+    setSimWeekMode(true)
+    setSimSpeed('60')
+    setSimEvalMode('continuous')
+    const weekDates = (simStatus?.week_dates || []) as string[]
+    if (weekDates.length > 0) {
+      setSimDate(String(weekDates[0]))
+    }
   }
 
   const stepSimulator = async (minutes = 5) => {
@@ -197,6 +218,7 @@ export default function Sandbox() {
 
   const simClock = (simStatus?.clock || {}) as Record<string, string | number | boolean>
   const simIsStepped = simEvalMode === 'stepped' || simClock.stepped === true
+  const weekDates = (simStatus?.week_dates || simClock.week_dates || []) as string[]
 
   const fetchConfigs = async () => {
     try {
@@ -547,7 +569,36 @@ export default function Sandbox() {
         <CardContent className="grid gap-4 md:grid-cols-4">
           <div>
             <Label htmlFor="sim-date">Replay date</Label>
-            <Input id="sim-date" type="date" value={simDate} onChange={(e) => { simFormDirty.current = true; setSimDate(e.target.value) }} />
+            {weekDates.length > 0 && simWeekMode ? (
+              <Select
+                value={simDate}
+                onValueChange={(v) => {
+                  simFormDirty.current = true
+                  setSimDate(v)
+                }}
+              >
+                <SelectTrigger id="sim-date">
+                  <SelectValue placeholder="Pick trading day" />
+                </SelectTrigger>
+                <SelectContent>
+                  {weekDates.map((d) => (
+                    <SelectItem key={d} value={d}>
+                      {d}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Input
+                id="sim-date"
+                type="date"
+                value={simDate}
+                onChange={(e) => {
+                  simFormDirty.current = true
+                  setSimDate(e.target.value)
+                }}
+              />
+            )}
           </div>
           <div>
             <Label htmlFor="sim-speed">Speed (x)</Label>
@@ -573,6 +624,9 @@ export default function Sandbox() {
             </Select>
           </div>
           <div className="flex items-end gap-2 flex-wrap">
+            <Button variant="secondary" onClick={applyLastWeekPreset}>
+              Last week (rotate)
+            </Button>
             <Button variant="secondary" onClick={applyDemoPreset}>
               Demo mode (60x)
             </Button>
@@ -590,6 +644,11 @@ export default function Sandbox() {
               <AlertDescription>
                 SIM · {String(simClock.sim_now || '—')} · speed {String(simClock.speed ?? simSpeed)}x
                 {simIsStepped ? ' · stepped (clock frozen until Step or watch tick)' : ' · continuous'}
+                {simWeekMode && weekDates.length > 0
+                  ? ` · week rotation (${weekDates.join(' → ')})`
+                  : ''}
+                {simStatus?.data_watermark ? ` · data through ${String(simStatus.data_watermark)}` : ''}
+                {simStatus?.active_expiry ? ` · expiry ${String(simStatus.active_expiry)}` : ''}
               </AlertDescription>
             </Alert>
           ) : null}

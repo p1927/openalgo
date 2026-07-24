@@ -722,21 +722,26 @@ def get_historical_data(symbol, interval, start_date, end_date):
 
 ```json
 {
-  "broker_name": "brokername",
+  "Plugin Name": "Broker Name",
   "display_name": "Broker Name",
-  "version": "1.0.0",
-  "auth_type": "oauth2",
-  "api_base_url": "https://api.broker.com",
-  "features": {
-    "place_order": true,
-    "modify_order": true,
-    "cancel_order": true,
-    "websocket": true,
-    "market_depth": true,
-    "historical_data": true
-  }
+  "Version": "1.0.0",
+  "Description": "Short description for UI",
+  "auth_flow": "callback",
+  "login_notice": null,
+  "Plugin URI": "",
+  "Author": "",
+  "Author URI": "",
+  "License": "MIT",
+  "License URI": "",
+  "Text Domain": "brokername",
+  "Domain Path": "/languages",
+  "Requires at least": "1.0.0",
+  "broker_type": "IN_stock",
+  "supported_exchanges": ["NSE", "BSE"]
 }
 ```
+
+`auth_flow` values: `callback`, `oauth_external`, `oauth_init`, `totp`, `api_key_env`. The broker registry uses these for login routing; `display_name` and `login_notice` drive the login/profile dropdowns.
 
 ### 3. Testing Your Broker Integration
 

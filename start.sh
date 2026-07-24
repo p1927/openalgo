@@ -30,7 +30,17 @@ else
         
         # Use Railway's PORT, default to 5000 for local development
         APP_PORT="${PORT:-5000}"
-        
+
+        if [ -z "$VALID_BROKERS" ]; then
+            if [ -f "/app/install/lib/valid_brokers.sh" ]; then
+                # shellcheck source=install/lib/valid_brokers.sh
+                source "/app/install/lib/valid_brokers.sh"
+                VALID_BROKERS="$(get_valid_brokers_csv /app)"
+            elif [ -f "/app/.sample.env" ]; then
+                VALID_BROKERS="$(grep -E '^VALID_BROKERS\s*=' /app/.sample.env | head -1 | sed -E "s/^VALID_BROKERS\s*=\s*['\"]?([^'\"]*)['\"]?.*/\1/" | tr -d ' ')"
+            fi
+        fi
+
         cat > "$ENV_FILE" << EOF
 # OpenAlgo Environment Configuration File
 # Auto-generated from environment variables
@@ -48,7 +58,7 @@ BROKER_API_SECRET_MARKET = '${BROKER_API_SECRET_MARKET:-}'
 REDIRECT_URL = '${REDIRECT_URL}'
 
 # Valid Brokers Configuration
-VALID_BROKERS = '${VALID_BROKERS:-fivepaisa,fivepaisaxts,aliceblue,angel,arrow,compositedge,definedge,deltaexchange,dhan,dhan_sandbox,firstock,flattrade,fyers,groww,ibulls,iifl,iiflcapital,indmoney,jainamxts,kotak,motilal,mstock,nubra,paytm,pocketful,rmoney,samco,shoonya,tradejini,tradesmart,upstox,wisdom,zebu,zerodha}'
+VALID_BROKERS = '${VALID_BROKERS}'
 
 # Security Configuration
 APP_KEY = '${APP_KEY}'

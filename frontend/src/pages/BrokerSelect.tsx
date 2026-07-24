@@ -1,5 +1,6 @@
 import { BookOpen, ExternalLink, Info, Loader2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { prepareConnect } from '@/api/brokers'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -11,106 +12,39 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { useBrokers } from '@/hooks/useBrokers'
 import { useAuthStore } from '@/stores/authStore'
-
-// All supported brokers with their display names and auth types
-const allBrokers = [
-  { id: 'fivepaisa', name: '5 Paisa', authType: 'totp' },
-  { id: 'fivepaisaxts', name: '5 Paisa (XTS)', authType: 'totp' },
-  { id: 'aliceblue', name: 'Alice Blue', authType: 'totp' },
-  { id: 'angel', name: 'Angel One', authType: 'totp' },
-  { id: 'arrow', name: 'Arrow', authType: 'oauth' },
-  { id: 'compositedge', name: 'CompositEdge', authType: 'oauth' },
-  { id: 'dhan', name: 'Dhan', authType: 'oauth' },
-  { id: 'deltaexchange', name: 'Delta Exchange', authType: 'totp' },
-  { id: 'indmoney', name: 'IndMoney', authType: 'totp' },
-  { id: 'dhan_sandbox', name: 'Dhan (Sandbox)', authType: 'totp' },
-  { id: 'stock_simulator', name: 'NSE Simulator (Replay)', authType: 'totp' },
-  { id: 'definedge', name: 'Definedge', authType: 'totp' },
-  { id: 'firstock', name: 'Firstock', authType: 'totp' },
-  { id: 'flattrade', name: 'Flattrade', authType: 'oauth' },
-  { id: 'motilal', name: 'Motilal Oswal', authType: 'totp' },
-  { id: 'fyers', name: 'Fyers', authType: 'oauth' },
-  { id: 'groww', name: 'Groww', authType: 'totp' },
-  { id: 'ibulls', name: 'Ibulls', authType: 'totp' },
-  { id: 'iifl', name: 'IIFL', authType: 'totp' },
-  { id: 'iiflcapital', name: 'IIFL Capital', authType: 'oauth' },
-  { id: 'jainamxts', name: 'JainamXts', authType: 'totp' },
-  { id: 'kotak', name: 'Kotak Securities', authType: 'totp' },
-  { id: 'mstock', name: 'mStock by Mirae Asset', authType: 'totp' },
-  { id: 'nubra', name: 'Nubra', authType: 'totp' },
-  { id: 'paytm', name: 'Paytm Money', authType: 'oauth' },
-  { id: 'pocketful', name: 'Pocketful', authType: 'oauth' },
-  { id: 'rmoney', name: 'RMoney', authType: 'oauth' },
-  { id: 'samco', name: 'Samco', authType: 'totp' },
-  { id: 'shoonya', name: 'Shoonya', authType: 'totp' },
-  { id: 'tradejini', name: 'Tradejini', authType: 'totp' },
-  { id: 'tradesmart', name: 'TradeSmart', authType: 'oauth' },
-  { id: 'upstox', name: 'Upstox', authType: 'oauth' },
-  { id: 'wisdom', name: 'Wisdom Capital', authType: 'totp' },
-  { id: 'zebu', name: 'Zebu', authType: 'totp' },
-  { id: 'zerodha', name: 'Zerodha', authType: 'oauth' },
-] as const
-
-interface BrokerConfig {
-  broker_name: string
-  broker_api_key: string
-  redirect_url: string
-}
-
-// Helper function to get Flattrade API key
-function getFlattradeApiKey(fullKey: string): string {
-  if (!fullKey) return ''
-  const parts = fullKey.split(':::')
-  return parts.length > 1 ? parts[1] : fullKey
-}
-
-// Generate random state for OAuth
-function generateRandomState(): string {
-  const length = 16
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
-  let result = ''
-  for (let i = 0; i < length; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length))
-  }
-  return result
-}
+import type { BrokerDescriptor } from '@/types/broker'
 
 export default function BrokerSelect() {
   const { user } = useAuthStore()
+  const { data, isLoading, error: loadError } = useBrokers()
   const [selectedBroker, setSelectedBroker] = useState<string>('')
-  const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [brokerConfig, setBrokerConfig] = useState<BrokerConfig | null>(null)
+
+  const brokers = data?.brokers ?? []
+  const defaultBroker = data?.default_broker ?? ''
 
   useEffect(() => {
-    // Fetch broker configuration
-    const fetchBrokerConfig = async () => {
-      try {
-        const response = await fetch('/auth/broker-config', {
-          credentials: 'include',
-        })
-        const data = await response.json()
-
-        if (data.status === 'success') {
-          setBrokerConfig(data)
-          // Auto-select the configured broker
-          setSelectedBroker(data.broker_name)
-        } else {
-          setError(data.message || 'Failed to load broker configuration')
-        }
-      } catch {
-        setError('Failed to load broker configuration')
-      } finally {
-        setIsLoading(false)
-      }
+    if (selectedBroker || brokers.length === 0) {
+      return
     }
+    const preferred =
+      defaultBroker && brokers.some((broker) => broker.id === defaultBroker)
+        ? defaultBroker
+        : (brokers[0]?.id ?? '')
+    if (preferred) {
+      setSelectedBroker(preferred)
+    }
+  }, [defaultBroker, brokers, selectedBroker])
 
-    fetchBrokerConfig()
-  }, [])
+  const selectedDescriptor = useMemo(
+    () => brokers.find((broker) => broker.id === selectedBroker),
+    [brokers, selectedBroker]
+  )
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
     if (!selectedBroker) {
@@ -118,106 +52,24 @@ export default function BrokerSelect() {
       return
     }
 
-    if (!brokerConfig) {
-      setError('Broker configuration not loaded')
-      return
-    }
-
     setIsSubmitting(true)
-    let loginUrl = ''
+    setError(null)
 
-    const { broker_api_key, redirect_url } = brokerConfig
-
-    // Build login URL based on broker type (matching original broker.html logic)
-    switch (selectedBroker) {
-      case 'fivepaisa':
-      case 'fivepaisaxts':
-      case 'aliceblue':
-      case 'angel':
-      case 'mstock':
-      case 'indmoney':
-      case 'deltaexchange':
-      case 'jainamxts':
-      case 'dhan_sandbox':
-      case 'stock_simulator':
-      case 'definedge':
-      case 'firstock':
-      case 'samco':
-      case 'motilal':
-      case 'nubra':
-      case 'groww':
-      case 'ibulls':
-      case 'iifl':
-      case 'kotak':
-      case 'rmoney':
-      case 'shoonya':
-      case 'tradejini':
-      case 'tradesmart':
-      case 'wisdom':
-      case 'zebu':
-        // Brokers using callback route (form-based or redirect-based)
-        loginUrl = `/${selectedBroker}/callback`
-        break
-
-      case 'iiflcapital':
-        // Route via backend callback endpoint to centralize URL generation and
-        // avoid provider-specific redirect parameter parsing differences.
-        loginUrl = '/iiflcapital/callback'
-        break
-
-      case 'dhan':
-        loginUrl = '/dhan/initiate-oauth'
-        break
-
-      case 'compositedge':
-        loginUrl = `https://xts.compositedge.com/interactive/thirdparty?appKey=${broker_api_key}&returnURL=${redirect_url}`
-        break
-
-      case 'flattrade': {
-        const flattradeApiKey = getFlattradeApiKey(broker_api_key)
-        loginUrl = `https://auth.flattrade.in/?app_key=${flattradeApiKey}`
-        break
-      }
-
-      case 'fyers':
-        loginUrl = `https://api-t1.fyers.in/api/v3/generate-authcode?client_id=${broker_api_key}&redirect_uri=${redirect_url}&response_type=code&state=2e9b44629ebb28226224d09db3ffb47c`
-        break
-
-      case 'upstox':
-        loginUrl = `https://api.upstox.com/v2/login/authorization/dialog?response_type=code&client_id=${broker_api_key}&redirect_uri=${redirect_url}`
-        break
-
-      case 'zerodha':
-        loginUrl = `https://kite.trade/connect/login?api_key=${broker_api_key}`
-        break
-
-      case 'arrow':
-        // Arrow hosted login; redirects back to /arrow/callback with request-token.
-        loginUrl = `https://app.arrow.trade/app/login?appID=${broker_api_key}`
-        break
-
-      case 'paytm':
-        loginUrl = `https://login.paytmmoney.com/merchant-login?apiKey=${broker_api_key}&state={default}`
-        break
-
-      case 'pocketful': {
-        const state = generateRandomState()
-        localStorage.setItem('pocketful_oauth_state', state)
-        const scope = 'orders holdings'
-        loginUrl = `https://trade.pocketful.in/oauth2/auth?client_id=${broker_api_key}&redirect_uri=${redirect_url}&response_type=code&scope=${encodeURIComponent(scope)}&state=${encodeURIComponent(state)}`
-        break
-      }
-
-      default:
-        setError('Please select a broker')
+    try {
+      const result = await prepareConnect(selectedBroker)
+      if (result.status !== 'success' || !result.connect_url) {
+        setError(result.message || 'Failed to prepare broker connection')
         setIsSubmitting(false)
         return
+      }
+      window.location.href = result.connect_url
+    } catch (err: unknown) {
+      const message =
+        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+        'Failed to connect to broker'
+      setError(message)
+      setIsSubmitting(false)
     }
-
-    // Use setTimeout to ensure state updates complete before navigation
-    setTimeout(() => {
-      window.location.href = loginUrl
-    }, 100)
   }
 
   if (isLoading) {
@@ -228,11 +80,17 @@ export default function BrokerSelect() {
     )
   }
 
+  const listError =
+    error ||
+    (loadError ? 'Failed to load broker list from server' : null) ||
+    (brokers.length === 0
+      ? 'No brokers configured. Check VALID_BROKERS in .env and ensure broker plugins exist.'
+      : null)
+
   return (
     <div className="min-h-screen flex items-center justify-center py-8 px-4">
       <div className="container max-w-6xl">
         <div className="flex flex-col lg:flex-row items-center justify-between gap-8 lg:gap-16">
-          {/* Right side broker form - Shown first on mobile */}
           <Card className="w-full max-w-md shadow-xl order-1 lg:order-2">
             <CardHeader className="text-center">
               <div className="flex justify-center mb-4">
@@ -244,49 +102,55 @@ export default function BrokerSelect() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {error && (
+              {listError && (
                 <Alert variant="destructive" className="mb-4">
-                  <AlertDescription>{error}</AlertDescription>
+                  <AlertDescription>{listError}</AlertDescription>
                 </Alert>
               )}
 
               <form onSubmit={handleSubmit} className="space-y-6">
                 <div className="space-y-2">
                   <Label htmlFor="broker-select" className="block text-center">
-                    Login with your Broker
+                    Connect with broker
                   </Label>
-                  <Select
-                    value={selectedBroker}
-                    onValueChange={setSelectedBroker}
-                    disabled={isSubmitting}
-                  >
-                    <SelectTrigger id="broker-select" className="w-full">
-                      <SelectValue placeholder="Select a Broker" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {allBrokers
-                        .filter((broker) => broker.id === brokerConfig?.broker_name)
-                        .map((broker) => (
+                  {brokers.length > 0 ? (
+                    <Select
+                      value={selectedBroker}
+                      onValueChange={setSelectedBroker}
+                      disabled={isSubmitting}
+                    >
+                      <SelectTrigger id="broker-select" className="w-full">
+                        <SelectValue placeholder="Select a broker" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {brokers.map((broker: BrokerDescriptor) => (
                           <SelectItem key={broker.id} value={broker.id}>
-                            {broker.name}
+                            {broker.display_name}
                           </SelectItem>
                         ))}
-                    </SelectContent>
-                  </Select>
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <p className="text-sm text-muted-foreground text-center">
+                      No brokers available for this installation.
+                    </p>
+                  )}
                 </div>
 
-                {(selectedBroker === 'zerodha' || selectedBroker === 'dhan') && (
+                {selectedDescriptor?.login_notice && (
                   <Alert className="border-amber-500/50 bg-amber-500/10">
                     <Info className="h-4 w-4 text-amber-500" />
                     <AlertDescription className="text-amber-700 dark:text-amber-400">
-                      {selectedBroker === 'zerodha'
-                        ? 'Zerodha requires an active Kite Connect data subscription for market data access.'
-                        : 'Dhan requires an active Data API subscription for market data access.'}
+                      {selectedDescriptor.login_notice}
                     </AlertDescription>
                   </Alert>
                 )}
 
-                <Button type="submit" className="w-full" disabled={!selectedBroker || isSubmitting}>
+                <Button
+                  type="submit"
+                  className="w-full"
+                  disabled={!selectedBroker || isSubmitting || brokers.length === 0}
+                >
                   {isSubmitting ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -303,14 +167,13 @@ export default function BrokerSelect() {
             </CardContent>
           </Card>
 
-          {/* Left side content - Shown second on mobile */}
           <div className="flex-1 max-w-xl text-center lg:text-left order-2 lg:order-1">
             <h1 className="text-4xl lg:text-5xl font-bold mb-6">
               Connect Your <span className="text-primary">Broker</span>
             </h1>
             <p className="text-lg lg:text-xl mb-8 text-muted-foreground">
-              Link your trading account to start executing trades through OpenAlgo's algorithmic
-              trading platform.
+              Choose any broker enabled on this OpenAlgo instance. Your selection applies to this
+              login session; set a persistent default in Profile settings.
             </p>
 
             <Alert className="mb-6">
