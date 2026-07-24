@@ -1,5 +1,8 @@
 {
     "Plugin Name": "dhan",
+    "display_name": "Dhan",
+    "auth_flow": "oauth_init",
+    "login_notice": "Dhan requires an active Data API subscription for market data access.",
     "Plugin URI": "https://openalgo.in",
     "Description": "Dhan OpenAlgo Plugin",
     "Version": "1.0",

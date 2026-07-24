@@ -1349,6 +1349,12 @@ def load_and_check_env_variables() -> None:
             print("\nPlease update your REDIRECT_URL with a valid broker name.")
             sys.exit(1)
 
+        from utils.broker_registry import validate_registry_at_startup
+
+        registry_warnings = validate_registry_at_startup()
+        for warning in registry_warnings:
+            print(f"\nWarning: {warning}")
+
     except Exception as e:
         print("\nError: Could not validate REDIRECT_URL format.")
         print(f"Details: {str(e)}")

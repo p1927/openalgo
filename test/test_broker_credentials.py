@@ -46,3 +46,26 @@ def test_generic_broker_prefix_fallback(monkeypatch) -> None:
     key, secret = bc.resolve_broker_credentials("kotak")
     assert key == "kotak-k"
     assert secret == "kotak-s"
+
+
+@pytest.mark.unit
+def test_resolve_does_not_use_global_keys_for_other_broker(monkeypatch) -> None:
+    monkeypatch.setenv("REDIRECT_URL", "http://127.0.0.1:5001/zerodha/callback")
+    monkeypatch.setenv("ZERODHA_API_KEY", "zerodha-key")
+    monkeypatch.setenv("BROKER_API_KEY", "zerodha-key")
+    monkeypatch.delenv("DHAN_API_KEY", raising=False)
+    monkeypatch.delenv("DHAN_API_SECRET", raising=False)
+    key, secret = bc.resolve_broker_credentials("dhan")
+    assert key == ""
+    assert secret == ""
+
+
+@pytest.mark.unit
+def test_resolve_uses_global_keys_for_default_broker(monkeypatch) -> None:
+    monkeypatch.setenv("REDIRECT_URL", "http://127.0.0.1:5001/zerodha/callback")
+    monkeypatch.delenv("ZERODHA_API_KEY", raising=False)
+    monkeypatch.setenv("BROKER_API_KEY", "legacy-key")
+    monkeypatch.setenv("BROKER_API_SECRET", "legacy-secret")
+    key, secret = bc.resolve_broker_credentials("zerodha")
+    assert key == "legacy-key"
+    assert secret == "legacy-secret"

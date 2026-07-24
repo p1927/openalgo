@@ -90,11 +90,27 @@ def resolve_broker_credentials(broker: str) -> tuple[str, str]:
     if not broker:
         return _first_env("BROKER_API_KEY"), _first_env("BROKER_API_SECRET")
 
+    from utils.broker_registry import get_default_broker
+
+    default_broker = (get_default_broker() or "").lower()
+    allow_global_fallback = broker == default_broker
+
     key_vars, secret_vars = _alias_tuple(broker)
-    api_key = _first_env(*key_vars, "BROKER_API_KEY") if key_vars else _first_env("BROKER_API_KEY")
-    api_secret = _first_env(*secret_vars, "BROKER_API_SECRET") if secret_vars else _first_env(
-        "BROKER_API_SECRET"
-    )
+
+    if key_vars:
+        api_key = _first_env(*key_vars)
+        if not api_key and allow_global_fallback:
+            api_key = _first_env("BROKER_API_KEY")
+    else:
+        api_key = _first_env("BROKER_API_KEY")
+
+    if secret_vars:
+        api_secret = _first_env(*secret_vars)
+        if not api_secret and allow_global_fallback:
+            api_secret = _first_env("BROKER_API_SECRET")
+    else:
+        api_secret = _first_env("BROKER_API_SECRET")
+
     return api_key, api_secret
 
 

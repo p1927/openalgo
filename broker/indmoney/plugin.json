@@ -1,5 +1,7 @@
 {
     "Plugin Name": "indmoney",
+    "display_name": "IndMoney",
+    "auth_flow": "callback",
     "Plugin URI": "https://openalgo.in",
     "Description": "IndMoney OpenAlgo Plugin",
     "Version": "1.0",

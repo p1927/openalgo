@@ -309,7 +309,8 @@ blueprints/apikey.py:47 GET,POST /apikey manage_api_key
 blueprints/apikey.py:105 POST /apikey/mode update_api_key_mode
 blueprints/arbitrage.py:24 GET /arbitrage/api/universe arbitrage_universe
 blueprints/auth.py:85 GET /auth/csrf-token get_csrf_token
-blueprints/auth.py:92 GET /auth/broker-config get_broker_config
+blueprints/auth.py:92 GET /auth/brokers list_brokers
+blueprints/auth.py:112 POST /auth/broker/prepare-connect prepare_broker_connect
 blueprints/auth.py:131 GET /auth/check-setup check_setup_required
 blueprints/auth.py:253 GET,POST /auth/login login
 blueprints/auth.py:358 POST /auth/login/totp login_totp

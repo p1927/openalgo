@@ -1,5 +1,8 @@
 {
     "Plugin Name": "zerodha",
+    "display_name": "Zerodha",
+    "auth_flow": "oauth_external",
+    "login_notice": "Zerodha requires an active Kite Connect data subscription for market data access.",
     "Plugin URI": "https://openalgo.in",
     "Description": "Zerodha OpenAlgo Plugin",
     "Version": "1.0",

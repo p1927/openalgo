@@ -14,6 +14,8 @@ _SIM_DB_ENV: tuple[tuple[str, str], ...] = (
     ("sim_replay_speed", "NSE_REPLAY_SPEED"),
     ("sim_replay_loop", "NSE_REPLAY_LOOP"),
     ("sim_eval_mode", "SIM_EVAL_MODE"),
+    ("sim_week_mode", "NSE_REPLAY_WEEK_MODE"),
+    ("sim_week_days_count", "NSE_REPLAY_WEEK_COUNT"),
 )
 
 

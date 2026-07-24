@@ -1197,12 +1197,14 @@ def _simulator_env_update(payload: dict) -> None:
         "replay_speed": "NSE_REPLAY_SPEED",
         "replay_loop": "NSE_REPLAY_LOOP",
         "eval_mode": "SIM_EVAL_MODE",
+        "week_mode": "NSE_REPLAY_WEEK_MODE",
+        "week_days_count": "NSE_REPLAY_WEEK_COUNT",
     }
     for key, env_key in mapping.items():
         if key not in payload:
             continue
         value = payload[key]
-        if key == "replay_loop":
+        if key in {"replay_loop", "week_mode"}:
             value = "1" if str(value).lower() in {"1", "true", "yes", "on"} else "0"
         os.environ[env_key] = str(value)
     os.environ["STOCK_SIMULATOR_MODE"] = "replay"
@@ -1233,8 +1235,17 @@ def api_simulator_config():
     try:
         data = request.get_json(silent=True) or {}
         prior_replay_date = os.getenv("NSE_REPLAY_DATE", "2021-03-25").strip()[:10]
+        prior_week_mode = os.getenv("NSE_REPLAY_WEEK_MODE", "1").strip()
         _simulator_env_update(data)
-        for key in ("replay_date", "replay_time", "replay_speed", "replay_loop", "eval_mode"):
+        for key in (
+            "replay_date",
+            "replay_time",
+            "replay_speed",
+            "replay_loop",
+            "eval_mode",
+            "week_mode",
+            "week_days_count",
+        ):
             if key in data:
                 set_config(f"sim_{key}", str(data[key]), description=f"Simulator {key}")
         from broker.stock_simulator.api._trade_path import ensure_trade_integrations_path
@@ -1247,9 +1258,14 @@ def api_simulator_config():
         svc.reload(load_sim_config())
 
         mc_refresh = None
-        if "replay_date" in data:
-            new_replay_date = str(data["replay_date"]).strip()[:10]
-            if new_replay_date != prior_replay_date:
+        new_replay_date = os.getenv("NSE_REPLAY_DATE", prior_replay_date).strip()[:10]
+        week_mode_changed = False
+        if "week_mode" in data:
+            new_week = str(data["week_mode"]).lower() in {"1", "true", "yes", "on"}
+            old_week = prior_week_mode.lower() in {"1", "true", "yes", "on"}
+            week_mode_changed = new_week != old_week
+        if "replay_date" in data or week_mode_changed:
+            if new_replay_date != prior_replay_date or week_mode_changed:
                 from threading import Thread
 
                 from utils.auth_utils import async_master_contract_download
