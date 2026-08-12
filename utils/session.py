@@ -329,6 +329,7 @@ def check_session_validity(f):
                 or request.headers.get("Accept", "").startswith("application/json")
                 or request.content_type == "application/json"
                 or request.is_json
+                or request.path.startswith("/api/")
             )
 
             if is_ajax:
