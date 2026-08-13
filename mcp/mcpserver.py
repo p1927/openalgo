@@ -2164,6 +2164,93 @@ def run_nse_browser_mission(
 
 
 @mcp.tool()
+def get_hub_news(
+    ticker: str = "NIFTY",
+    limit: int = 20,
+    refresh: bool = False,
+) -> str:
+    """
+    Latest verified news for a ticker via the hub gateway (news SSOT).
+
+    Reads hub cache first; pass refresh=True to trigger a live fetch (RSS,
+    SearXNG, Moneycontrol, etc.) across all configured sources before reading.
+
+    Args:
+        ticker: Ticker or index, e.g. NIFTY, RELIANCE
+        limit: Max headlines to return
+        refresh: Fetch fresh news before reading
+
+    Returns:
+        JSON HubResult: status, data (headlines), source, as_of.
+    """
+    try:
+        _ensure_trade_stack_import()
+        from trade_integrations.tools.hub_gateway_tools import query_hub_news as _get
+
+        return _get(ticker, limit=limit, refresh=refresh)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)}, indent=2)
+
+
+@mcp.tool()
+def get_hub_fii_dii(
+    start_date: str | None = None,
+    end_date: str | None = None,
+    refresh: bool = False,
+    limit: int = 500,
+) -> str:
+    """
+    Daily FII/DII (foreign/domestic institutional investor) net cash flows via the hub gateway.
+
+    Reads hub cache first; pass refresh=True to force a live NSE/NSDL fetch.
+
+    Args:
+        start_date: YYYY-MM-DD (default ~30 days ago)
+        end_date: YYYY-MM-DD (default today)
+        refresh: Force live fetch even if hub cache is fresh
+        limit: Max rows returned
+
+    Returns:
+        JSON HubResult: status, data (daily FII/DII rows), source, as_of.
+    """
+    try:
+        _ensure_trade_stack_import()
+        from trade_integrations.tools.hub_gateway_tools import query_hub_fii_dii as _get
+
+        return _get(start_date, end_date, refresh=refresh, limit=limit)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)}, indent=2)
+
+
+@mcp.tool()
+def get_hub_index_history(
+    index: str = "NIFTY",
+    start_date: str | None = None,
+    end_date: str | None = None,
+    refresh: bool = False,
+) -> str:
+    """
+    Daily index OHLCV (open/high/low/close) timeline via the hub gateway.
+
+    Args:
+        index: Index symbol — NIFTY or SENSEX
+        start_date: YYYY-MM-DD
+        end_date: YYYY-MM-DD
+        refresh: Force a live refresh via data_router before reading
+
+    Returns:
+        JSON HubResult: status, data (daily OHLCV rows), source, as_of.
+    """
+    try:
+        _ensure_trade_stack_import()
+        from trade_integrations.tools.hub_gateway_tools import query_hub_index_history as _get
+
+        return _get(index, start_date, end_date, refresh=refresh)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)}, indent=2)
+
+
+@mcp.tool()
 def run_browser_task(
     goal: str,
     start_urls: str | None = None,

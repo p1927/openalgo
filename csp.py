@@ -128,7 +128,11 @@ def get_security_headers():
     headers = {}
 
     # X-Frame-Options: prevent clickjacking
-    headers["X-Frame-Options"] = "DENY"
+    # An explicit frame-ancestors policy is the modern embedding authority.
+    # X-Frame-Options: DENY would override it in browsers that honor both.
+    frame_ancestors = os.getenv("CSP_FRAME_ANCESTORS")
+    if not frame_ancestors or frame_ancestors.strip() == "'none'":
+        headers["X-Frame-Options"] = "DENY"
 
     # X-Content-Type-Options: prevent MIME-type sniffing
     headers["X-Content-Type-Options"] = "nosniff"
