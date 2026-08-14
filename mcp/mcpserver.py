@@ -2053,6 +2053,7 @@ def get_nse_browser_status() -> str:
     Does not refresh data — use get_nse_browser_data to fetch and return rows.
     """
     try:
+        _ensure_trade_stack_import()
         from trade_integrations.tools.nse_browser_tools import query_nse_browser_status as _status
 
         return _status()
@@ -2098,6 +2099,7 @@ def get_nse_browser_data(
         JSON with status, records[], summary, freshness, hub_paths, mission_result.
     """
     try:
+        _ensure_trade_stack_import()
         from trade_integrations.tools.nse_browser_tools import query_nse_browser_data as _get
 
         return _get(
@@ -2122,6 +2124,7 @@ def ingest_nse_repository() -> str:
     Use after cloning the repo or when data/nse/*.parquet was updated locally.
     """
     try:
+        _ensure_trade_stack_import()
         from trade_integrations.tools.nse_browser_tools import query_ingest_nse_repository as _ingest
 
         return _ingest()
@@ -2150,6 +2153,7 @@ def run_nse_browser_mission(
         JSON mission result with status, rows, artifacts, and date_range.
     """
     try:
+        _ensure_trade_stack_import()
         from trade_integrations.tools.nse_browser_tools import fetch_nse_browser_data
 
         return fetch_nse_browser_data(
