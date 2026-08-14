@@ -118,6 +118,137 @@ def start_replay():
     return jsonify({"status": "ok", **service.status()})
 
 
+@simulator_control_bp.route("/replay/pause", methods=["POST"])
+@limiter.limit(API_RATE_LIMIT)
+def pause_replay():
+    """Freeze the simulator's replay clock without unloading it."""
+    unauthorized = _require_control_token()
+    if unauthorized is not None:
+        return unauthorized
+
+    try:
+        service = _get_replay_service()
+    except Exception as exc:
+        logger.exception("failed to load replay service for pause")
+        return jsonify({"status": "error", "message": str(exc)}), 500
+
+    service.pause()
+    return jsonify({"status": "ok", **service.status()})
+
+
+@simulator_control_bp.route("/replay/resume", methods=["POST"])
+@limiter.limit(API_RATE_LIMIT)
+def resume_replay():
+    """Resume a previously paused simulator clock."""
+    unauthorized = _require_control_token()
+    if unauthorized is not None:
+        return unauthorized
+
+    try:
+        service = _get_replay_service()
+    except Exception as exc:
+        logger.exception("failed to load replay service for resume")
+        return jsonify({"status": "error", "message": str(exc)}), 500
+
+    service.resume()
+    return jsonify({"status": "ok", **service.status()})
+
+
+@simulator_control_bp.route("/replay/stop", methods=["POST"])
+@limiter.limit(API_RATE_LIMIT)
+def stop_replay():
+    """Tear the simulator down so OpenAlgo falls back to its real broker."""
+    unauthorized = _require_control_token()
+    if unauthorized is not None:
+        return unauthorized
+
+    try:
+        service = _get_replay_service()
+    except Exception as exc:
+        logger.exception("failed to load replay service for stop")
+        return jsonify({"status": "error", "message": str(exc)}), 500
+
+    service.stop_simulator()
+
+    # Clear the persisted sandbox_db rows too, not just the in-process env
+    # var — otherwise hydrate_simulator_env_from_db() re-arms replay mode
+    # from the stale sim_replay_* config on the next OpenAlgo restart.
+    try:
+        from database.sandbox_db import set_config
+
+        for db_key, _env_key in _SIM_DB_ENV:
+            set_config(db_key, "")
+    except Exception:
+        logger.exception("failed to clear persisted simulator replay settings in sandbox_db")
+
+    return jsonify(
+        {
+            "status": "ok",
+            "message": "simulator stopped; OpenAlgo will fall back to its real broker",
+            **service.status(),
+        }
+    )
+
+
+@simulator_control_bp.route("/replay/calendar", methods=["GET"])
+@limiter.limit(API_RATE_LIMIT)
+def replay_calendar():
+    """Per-day availability + bar counts for the calendar heatmap.
+
+    Returns one row per union-of-underlyings day, with coverage flags and
+    bar counts so the UI can color squares by which underlyings are usable.
+    """
+    unauthorized = _require_control_token()
+    if unauthorized is not None:
+        return unauthorized
+
+    try:
+        from broker.stock_simulator.api._trade_path import ensure_trade_integrations_path
+
+        ensure_trade_integrations_path()
+        from trade_integrations.stock_simulator.catalog import ReplayCatalog
+        from trade_integrations.stock_simulator.config import load_sim_config
+    except Exception as exc:
+        logger.exception("failed to load simulator modules for calendar")
+        return jsonify({"status": "error", "message": str(exc)}), 500
+
+    data_root = load_sim_config().data_root
+    catalog = ReplayCatalog(data_root)
+    underlyings = (
+        ("NIFTY", "NSE_INDEX"),
+        ("BANKNIFTY", "NSE_INDEX"),
+        ("SENSEX", "BSE_INDEX"),
+    )
+    by_day: dict[str, dict[str, object]] = {}
+    for symbol, exchange in underlyings:
+        for day in catalog.available_dates(symbol, exchange):
+            row = by_day.setdefault(
+                day,
+                {
+                    "date": day,
+                    "has_nifty": False,
+                    "has_banknifty": False,
+                    "has_sensex": False,
+                    "nifty_rows": 0,
+                    "banknifty_rows": 0,
+                    "sensex_rows": 0,
+                },
+            )
+            count = catalog.day_row_count(symbol, exchange, day)
+            if symbol == "NIFTY":
+                row["has_nifty"] = True
+                row["nifty_rows"] = count
+            elif symbol == "BANKNIFTY":
+                row["has_banknifty"] = True
+                row["banknifty_rows"] = count
+            elif symbol == "SENSEX":
+                row["has_sensex"] = True
+                row["sensex_rows"] = count
+
+    rows = sorted(by_day.values(), key=lambda r: r["date"], reverse=True)  # type: ignore[arg-type,return-value]
+    return jsonify({"status": "ok", "days": rows, "underlyings": [u[0] for u in underlyings]})
+
+
 @simulator_control_bp.route("/replay/status", methods=["GET"])
 @limiter.limit(API_RATE_LIMIT)
 def replay_status():
