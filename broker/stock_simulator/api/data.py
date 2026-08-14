@@ -103,8 +103,8 @@ class BrokerData:
 
         interval = (interval or "D").strip()
         catalog = ReplayCatalog(load_sim_config().data_root)
-        start = start_date[:10]
-        end = end_date[:10]
+        start = str(start_date)[:10]
+        end = str(end_date)[:10]
 
         if exchange.upper() in {"NFO", "BFO"} or parse_openalgo_option_symbol(symbol):
             rows = self._history_options(symbol, exchange, start, end, interval)

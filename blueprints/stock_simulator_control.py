@@ -25,8 +25,8 @@ from utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-simulator_control_bp = Blueprint(
-    "simulator_control_bp", __name__, url_prefix="/simulator/control"
+stock_simulator_control_bp = Blueprint(
+    "stock_simulator_control_bp", __name__, url_prefix="/stock_simulator/control"
 )
 
 API_RATE_LIMIT = os.getenv("API_RATE_LIMIT", "50 per second")
@@ -34,6 +34,7 @@ API_RATE_LIMIT = os.getenv("API_RATE_LIMIT", "50 per second")
 _TOKEN_HEADER = "X-Simulator-Control-Token"
 _SIM_DB_ENV = (
     ("sim_replay_date", "NSE_REPLAY_DATE"),
+    ("sim_replay_end_date", "NSE_REPLAY_END_DATE"),
     ("sim_replay_speed", "NSE_REPLAY_SPEED"),
     ("sim_replay_loop", "NSE_REPLAY_LOOP"),
 )
@@ -61,14 +62,14 @@ def _get_replay_service(*, reload: bool = False):
     return get_replay_service(reload=reload)
 
 
-@simulator_control_bp.errorhandler(429)
+@stock_simulator_control_bp.errorhandler(429)
 def ratelimit_handler(e):
     return jsonify(
         {"status": "error", "message": "Rate limit exceeded. Please try again later."}
     ), 429
 
 
-@simulator_control_bp.route("/replay/start", methods=["POST"])
+@stock_simulator_control_bp.route("/replay/start", methods=["POST"])
 @limiter.limit(API_RATE_LIMIT)
 def start_replay():
     """Arm the simulator to replay a specific previously recorded day."""
@@ -87,6 +88,15 @@ def start_replay():
             {"status": "error", "message": "date must be YYYY-MM-DD"}
         ), 400
 
+    end_date = str(body.get("end_date") or "").strip()
+    if end_date:
+        try:
+            date.fromisoformat(end_date[:10])
+        except ValueError:
+            return jsonify(
+                {"status": "error", "message": "end_date must be YYYY-MM-DD"}
+            ), 400
+
     speed = body.get("speed")
     loop = body.get("loop")
 
@@ -94,6 +104,7 @@ def start_replay():
         from database.sandbox_db import set_config
 
         set_config("sim_replay_date", replay_date)
+        set_config("sim_replay_end_date", end_date)
         if speed is not None:
             set_config("sim_replay_speed", speed)
         if loop is not None:
@@ -102,6 +113,12 @@ def start_replay():
         logger.exception("failed to persist simulator replay settings to sandbox_db")
 
     os.environ["NSE_REPLAY_DATE"] = replay_date
+    if end_date:
+        os.environ["NSE_REPLAY_END_DATE"] = end_date
+    else:
+        # No range this time — drop any end date left over from a previous
+        # range-arm so a plain single-day arm doesn't inherit it.
+        os.environ.pop("NSE_REPLAY_END_DATE", None)
     if speed is not None:
         os.environ["NSE_REPLAY_SPEED"] = str(speed)
     if loop is not None:
@@ -118,7 +135,7 @@ def start_replay():
     return jsonify({"status": "ok", **service.status()})
 
 
-@simulator_control_bp.route("/replay/pause", methods=["POST"])
+@stock_simulator_control_bp.route("/replay/pause", methods=["POST"])
 @limiter.limit(API_RATE_LIMIT)
 def pause_replay():
     """Freeze the simulator's replay clock without unloading it."""
@@ -136,7 +153,7 @@ def pause_replay():
     return jsonify({"status": "ok", **service.status()})
 
 
-@simulator_control_bp.route("/replay/resume", methods=["POST"])
+@stock_simulator_control_bp.route("/replay/resume", methods=["POST"])
 @limiter.limit(API_RATE_LIMIT)
 def resume_replay():
     """Resume a previously paused simulator clock."""
@@ -154,7 +171,7 @@ def resume_replay():
     return jsonify({"status": "ok", **service.status()})
 
 
-@simulator_control_bp.route("/replay/stop", methods=["POST"])
+@stock_simulator_control_bp.route("/replay/stop", methods=["POST"])
 @limiter.limit(API_RATE_LIMIT)
 def stop_replay():
     """Tear the simulator down so OpenAlgo falls back to its real broker."""
@@ -190,7 +207,7 @@ def stop_replay():
     )
 
 
-@simulator_control_bp.route("/replay/calendar", methods=["GET"])
+@stock_simulator_control_bp.route("/replay/calendar", methods=["GET"])
 @limiter.limit(API_RATE_LIMIT)
 def replay_calendar():
     """Per-day availability + bar counts for the calendar heatmap.
@@ -221,7 +238,8 @@ def replay_calendar():
     )
     by_day: dict[str, dict[str, object]] = {}
     for symbol, exchange in underlyings:
-        for day in catalog.available_dates(symbol, exchange):
+        counts = catalog.day_counts(symbol, exchange)
+        for day, count in counts.items():
             row = by_day.setdefault(
                 day,
                 {
@@ -234,7 +252,6 @@ def replay_calendar():
                     "sensex_rows": 0,
                 },
             )
-            count = catalog.day_row_count(symbol, exchange, day)
             if symbol == "NIFTY":
                 row["has_nifty"] = True
                 row["nifty_rows"] = count
@@ -249,7 +266,7 @@ def replay_calendar():
     return jsonify({"status": "ok", "days": rows, "underlyings": [u[0] for u in underlyings]})
 
 
-@simulator_control_bp.route("/replay/status", methods=["GET"])
+@stock_simulator_control_bp.route("/replay/status", methods=["GET"])
 @limiter.limit(API_RATE_LIMIT)
 def replay_status():
     """Current simulator replay clock state, without forcing a reload."""

@@ -1,4 +1,4 @@
-"""Tests for the OpenAlgo simulator_control pause/resume/stop/calendar endpoints.
+"""Tests for the OpenAlgo stock_simulator_control pause/resume/stop/calendar endpoints.
 
 These cover the new wiring for the Replay calendar UI (Aug 2026):
 - pause/resume/stop are token-gated and fail loud (503) when token unset.
@@ -89,10 +89,10 @@ def fake_service():
 
 @pytest.fixture
 def control_app(monkeypatch, fake_service):
-    """Build a minimal Flask app with the simulator_control blueprint only."""
+    """Build a minimal Flask app with the stock_simulator_control blueprint only."""
     from flask import Flask
 
-    from openalgo.blueprints import simulator_control as sc
+    from openalgo.blueprints import stock_simulator_control as sc
 
     monkeypatch.setattr(sc, "_get_replay_service", lambda *, reload=False: fake_service)
     # Patch _require_control_token to honour the env var; the real one is
@@ -100,7 +100,7 @@ def control_app(monkeypatch, fake_service):
     monkeypatch.setattr(sc, "_require_control_token", lambda: None)
 
     app = Flask(__name__)
-    app.register_blueprint(sc.simulator_control_bp)
+    app.register_blueprint(sc.stock_simulator_control_bp)
     app.config["TESTING"] = True
     return app
 
@@ -114,24 +114,95 @@ def control_token(monkeypatch) -> str:
 def test_pause_returns_503_without_token(monkeypatch) -> None:
     from flask import Flask
 
-    from openalgo.blueprints import simulator_control as sc
+    from openalgo.blueprints import stock_simulator_control as sc
 
     monkeypatch.delenv("SIMULATOR_CONTROL_TOKEN", raising=False)
     app = Flask(__name__)
-    app.register_blueprint(sc.simulator_control_bp)
+    app.register_blueprint(sc.stock_simulator_control_bp)
     app.config["TESTING"] = True
     client = app.test_client()
-    res = client.post("/simulator/control/replay/pause")
+    res = client.post("/stock_simulator/control/replay/pause")
     assert res.status_code == 503
     body = res.get_json()
     assert body["status"] == "error"
     assert "not configured" in body["message"]
 
 
+def test_start_returns_400_for_missing_date(control_app, control_token) -> None:
+    client = control_app.test_client()
+    res = client.post(
+        "/stock_simulator/control/replay/start",
+        json={},
+        headers={"X-Simulator-Control-Token": control_token},
+    )
+    assert res.status_code == 400
+    assert "date is required" in res.get_json()["message"]
+
+
+def test_start_returns_400_for_malformed_end_date(control_app, control_token) -> None:
+    client = control_app.test_client()
+    res = client.post(
+        "/stock_simulator/control/replay/start",
+        json={"date": "2024-04-15", "end_date": "not-a-date"},
+        headers={"X-Simulator-Control-Token": control_token},
+    )
+    assert res.status_code == 400
+    assert "end_date must be YYYY-MM-DD" in res.get_json()["message"]
+
+
+def test_start_with_end_date_sets_range_env_and_persists(
+    control_app, control_token, monkeypatch
+) -> None:
+    import os
+
+    from database import sandbox_db
+
+    calls: list[tuple[str, object]] = []
+    monkeypatch.setattr(
+        sandbox_db, "set_config", lambda key, value, **kw: calls.append((key, value))
+    )
+    monkeypatch.delenv("NSE_REPLAY_END_DATE", raising=False)
+
+    client = control_app.test_client()
+    res = client.post(
+        "/stock_simulator/control/replay/start",
+        json={"date": "2024-04-15", "end_date": "2024-04-19", "speed": 10, "loop": True},
+        headers={"X-Simulator-Control-Token": control_token},
+    )
+    assert res.status_code == 200
+    assert os.environ["NSE_REPLAY_DATE"] == "2024-04-15"
+    assert os.environ["NSE_REPLAY_END_DATE"] == "2024-04-19"
+    persisted = dict(calls)
+    assert persisted["sim_replay_date"] == "2024-04-15"
+    assert persisted["sim_replay_end_date"] == "2024-04-19"
+
+
+def test_start_without_end_date_clears_stale_range_env(
+    control_app, control_token, monkeypatch
+) -> None:
+    """Arming a plain single day must not inherit a previously-armed range's
+    end date left over in the process env."""
+    import os
+
+    from database import sandbox_db
+
+    monkeypatch.setattr(sandbox_db, "set_config", lambda *a, **kw: True)
+    monkeypatch.setenv("NSE_REPLAY_END_DATE", "2024-04-19")
+
+    client = control_app.test_client()
+    res = client.post(
+        "/stock_simulator/control/replay/start",
+        json={"date": "2024-04-15"},
+        headers={"X-Simulator-Control-Token": control_token},
+    )
+    assert res.status_code == 200
+    assert "NSE_REPLAY_END_DATE" not in os.environ
+
+
 def test_pause_returns_200_when_armed(control_app, control_token, fake_service) -> None:
     client = control_app.test_client()
     res = client.post(
-        "/simulator/control/replay/pause",
+        "/stock_simulator/control/replay/pause",
         headers={"X-Simulator-Control-Token": control_token},
     )
     assert res.status_code == 200
@@ -145,7 +216,7 @@ def test_resume_returns_200_when_paused(control_app, control_token, fake_service
     fake_service.clock.paused = True
     client = control_app.test_client()
     res = client.post(
-        "/simulator/control/replay/resume",
+        "/stock_simulator/control/replay/resume",
         headers={"X-Simulator-Control-Token": control_token},
     )
     assert res.status_code == 200
@@ -158,7 +229,7 @@ def test_resume_returns_200_when_paused(control_app, control_token, fake_service
 def test_stop_returns_200_and_message(control_app, control_token, fake_service) -> None:
     client = control_app.test_client()
     res = client.post(
-        "/simulator/control/replay/stop",
+        "/stock_simulator/control/replay/stop",
         headers={"X-Simulator-Control-Token": control_token},
     )
     assert res.status_code == 200
@@ -181,13 +252,13 @@ def test_stop_clears_persisted_sandbox_db_config(control_app, control_token, mon
 
     client = control_app.test_client()
     res = client.post(
-        "/simulator/control/replay/stop",
+        "/stock_simulator/control/replay/stop",
         headers={"X-Simulator-Control-Token": control_token},
     )
     assert res.status_code == 200
 
     cleared_keys = {key for key, _value in calls}
-    assert cleared_keys == {"sim_replay_date", "sim_replay_speed", "sim_replay_loop"}
+    assert cleared_keys == {"sim_replay_date", "sim_replay_end_date", "sim_replay_speed", "sim_replay_loop"}
     assert all(value == "" for _key, value in calls)
 
 
@@ -202,7 +273,7 @@ def test_stop_survives_sandbox_db_write_failure(control_app, control_token, monk
 
     client = control_app.test_client()
     res = client.post(
-        "/simulator/control/replay/stop",
+        "/stock_simulator/control/replay/stop",
         headers={"X-Simulator-Control-Token": control_token},
     )
     assert res.status_code == 200
@@ -229,7 +300,7 @@ def test_calendar_returns_empty_days_when_no_data(
     monkeypatch.setenv("NSE_REPLAY_DATA_ROOT", str(tmp_path))
     client = control_app.test_client()
     res = client.get(
-        "/simulator/control/replay/calendar",
+        "/stock_simulator/control/replay/calendar",
         headers={"X-Simulator-Control-Token": control_token},
     )
     assert res.status_code == 200
@@ -272,7 +343,7 @@ def test_calendar_returns_per_day_coverage(control_app, control_token, monkeypat
 
     client = control_app.test_client()
     res = client.get(
-        "/simulator/control/replay/calendar",
+        "/stock_simulator/control/replay/calendar",
         headers={"X-Simulator-Control-Token": control_token},
     )
     assert res.status_code == 200

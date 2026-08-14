@@ -10,6 +10,7 @@ _hydrated = False
 
 _SIM_DB_ENV: tuple[tuple[str, str], ...] = (
     ("sim_replay_date", "NSE_REPLAY_DATE"),
+    ("sim_replay_end_date", "NSE_REPLAY_END_DATE"),
     ("sim_replay_time", "NSE_REPLAY_TIME"),
     ("sim_replay_speed", "NSE_REPLAY_SPEED"),
     ("sim_replay_loop", "NSE_REPLAY_LOOP"),
@@ -52,3 +53,10 @@ def ensure_trade_integrations_path() -> None:
     integrations = trade_root / "integrations"
     if integrations.is_dir() and str(integrations) not in sys.path:
         sys.path.insert(0, str(integrations))
+    # trade_integrations transitively imports tradingagents (e.g. dataflows.news_aggregator);
+    # without this on sys.path those imports raise ModuleNotFoundError inside the OpenAlgo
+    # process, which source_availability misreads as repeated OpenAlgo quote failures and
+    # trips the circuit breaker.
+    tradingagents = trade_root / "tradingagents"
+    if tradingagents.is_dir() and str(tradingagents) not in sys.path:
+        sys.path.insert(0, str(tradingagents))

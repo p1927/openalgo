@@ -95,7 +95,7 @@ from blueprints.scalping import scalping_bp  # Import the Scalping terminal blue
 from blueprints.search import search_bp
 from blueprints.security import security_bp  # Import the security blueprint
 from blueprints.settings import settings_bp  # Import the settings blueprint
-from blueprints.simulator_control import simulator_control_bp  # Import the simulator control blueprint
+from blueprints.stock_simulator_control import stock_simulator_control_bp  # Import the stock simulator control blueprint
 from blueprints.straddle_chart import straddle_bp  # Import the straddle chart blueprint
 from blueprints.strategy import strategy_bp  # Import the strategy blueprint
 from blueprints.strategy_chart import strategy_chart_bp  # Import the strategy chart blueprint
@@ -285,7 +285,7 @@ def create_app():
     # Exempt API endpoints from CSRF protection (they use API key authentication)
     csrf.exempt(api_v1_bp)
     # Server-to-server control endpoint (shared-secret token, no browser session)
-    csrf.exempt(simulator_control_bp)
+    csrf.exempt(stock_simulator_control_bp)
 
     # Initialize security middleware before traffic logging
     init_security_middleware(app)
@@ -322,7 +322,7 @@ def create_app():
     app.register_blueprint(whatsapp_bp)  # Register WhatsApp blueprint
     app.register_blueprint(security_bp)  # Register Security blueprint
     app.register_blueprint(sandbox_bp)  # Register Sandbox blueprint
-    app.register_blueprint(simulator_control_bp)  # Register simulator replay control blueprint
+    app.register_blueprint(stock_simulator_control_bp)  # Register stock simulator replay control blueprint
     app.register_blueprint(playground_bp)  # Register API playground blueprint
     app.register_blueprint(logging_bp)  # Register Logging blueprint
     app.register_blueprint(admin_bp)  # Register Admin blueprint
