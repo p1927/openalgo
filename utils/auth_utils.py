@@ -123,13 +123,16 @@ def should_download_master_contract(broker):
             from broker.stock_simulator.api._trade_path import ensure_trade_integrations_path
 
             ensure_trade_integrations_path()
+            from trade_integrations.stock_simulator.config import load_sim_config
             from trade_integrations.stock_simulator.master_contract import (
+                load_mc_equities,
                 load_mc_max_expiries,
                 load_mc_underlyings,
             )
 
             wanted = load_mc_underlyings()
             max_expiries_wanted = load_mc_max_expiries()
+            equities_wanted = load_mc_equities(load_sim_config().data_root)
         except Exception:
             wanted = [
                 u.strip().upper()
@@ -140,6 +143,7 @@ def should_download_master_contract(broker):
                 max_expiries_wanted = int(os.getenv("SIM_MC_MAX_EXPIRIES", "12") or "12")
             except ValueError:
                 max_expiries_wanted = 12
+            equities_wanted = []
         cached = stats.get("underlyings")
         if wanted:
             if not cached:
@@ -151,6 +155,9 @@ def should_download_master_contract(broker):
             return True, "Simulator max expiries not cached"
         if cached_max != max_expiries_wanted:
             return True, "Simulator max expiries changed"
+        cached_equities = sorted(stats.get("equities") or [])
+        if sorted(equities_wanted) != cached_equities:
+            return True, "Simulator recorded equities changed"
         return False, "Simulator master contract matches replay fingerprint"
 
     # Get cutoff time and reference timezone for this broker

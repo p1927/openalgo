@@ -77,7 +77,9 @@ def master_contract_download():
         df = pd.DataFrame(rows)
         copy_from_dataframe(df, broker=broker)
 
-        fingerprint = mc_cache_fingerprint(replay_date=cfg.replay_date, underlyings=load_mc_underlyings())
+        fingerprint = mc_cache_fingerprint(
+            replay_date=cfg.replay_date, underlyings=load_mc_underlyings(), data_root=cfg.data_root
+        )
         duration = int(time.time() - started)
         exchange_stats = {
             **fingerprint,
