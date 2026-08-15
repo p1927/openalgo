@@ -15,6 +15,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn, makeFormatCurrency } from '@/lib/utils'
 import { useAuthStore } from '@/stores/authStore'
+import { useOrderEventRefresh } from '@/hooks/useOrderEventRefresh'
 
 interface DailyPnL {
   date: string
@@ -94,6 +95,11 @@ export default function SandboxPnL() {
   useEffect(() => {
     fetchData()
   }, [])
+
+  useOrderEventRefresh(fetchData, {
+    events: ['analyzer_update'],
+    delay: 200,
+  })
 
   const fetchData = async () => {
     try {
