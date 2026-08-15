@@ -337,6 +337,10 @@ def test_calendar_returns_per_day_coverage(control_app, control_token, monkeypat
                 return 180
             return 0
 
+        def day_counts(self, symbol: str, exchange: str) -> dict[str, int]:
+            days = self.available_dates(symbol, exchange)
+            return {day: self.day_row_count(symbol, exchange, day) for day in days}
+
     from trade_integrations.stock_simulator import catalog as cat_mod
 
     monkeypatch.setattr(cat_mod, "ReplayCatalog", _CatalogWithRows)
