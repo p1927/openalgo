@@ -153,7 +153,11 @@ export function useSocket() {
       upgrade: false,
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
-      timeout: 20000,
+      // 20s was too tight during replay/simulator sessions: the server is
+      // busy pushing sim ticks over the same polling transport, so the
+      // handshake can take longer and the socket gave up before connecting,
+      // silently dropping order_event/analyzer_update trade confirmations.
+      timeout: 45000,
       forceNew: true, // Always create new session to avoid "Invalid session" errors on reconnect
     })
 
