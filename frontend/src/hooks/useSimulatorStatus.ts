@@ -11,6 +11,8 @@ export interface SimulatorClock {
 
 export interface SimulatorStatus {
   mode?: string
+  reason?: string
+  replay_date?: string | null
   clock?: SimulatorClock
   hf_replay?: boolean
 }

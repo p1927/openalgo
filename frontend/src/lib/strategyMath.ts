@@ -558,11 +558,14 @@ function analyzeTerminalPayoff(
   daysAtExpiry: number,
   ivShiftPct: number,
   fallbackIv: number,
-  now: Date
+  now: Date,
+  chargeOffset: number = 0
 ): TerminalAnalysis {
   const candidates = uniqueSorted([0, ...terminalBreakpoints(legs)])
   const valueAt = (underlying: number) =>
-    normalizePayoff(totalPnlAt(legs, underlying, daysAtExpiry, ivShiftPct, fallbackIv, now))
+    normalizePayoff(
+      totalPnlAt(legs, underlying, daysAtExpiry, ivShiftPct, fallbackIv, now) - chargeOffset
+    )
   if (!hasResponsiveExposure(legs)) {
     const constantPayoff = valueAt(0)
     return { breakevens: [], maxProfit: constantPayoff, maxLoss: constantPayoff }
@@ -672,7 +675,8 @@ function analyzeNonTerminalPayoff(
   priceRange: [number, number],
   ivShiftPct: number,
   fallbackIv: number,
-  now: Date
+  now: Date,
+  chargeOffset: number = 0
 ): TerminalAnalysis {
   const strikes = responsiveStrikes(legs)
   const maxStrike = Math.max(spot, ...strikes)
@@ -685,7 +689,9 @@ function analyzeNonTerminalPayoff(
     (1 + ivShiftPct / 100)
   const sigmaMove = spot > 0 && maxIv > 0 ? spot * (maxIv / 100) * Math.sqrt(maxRemainingYears) : 0
   const valueAt = (underlying: number) =>
-    normalizePayoff(totalPnlAt(legs, underlying, daysAtExpiry, ivShiftPct, fallbackIv, now))
+    normalizePayoff(
+      totalPnlAt(legs, underlying, daysAtExpiry, ivShiftPct, fallbackIv, now) - chargeOffset
+    )
   const slopes = asymptoticSlopes(legs)
   const tailLimit = rightTailValue(legs)
   let analysisHi = Math.max(priceRange[1], maxStrike * 2, spot + 6 * sigmaMove)
@@ -750,6 +756,39 @@ function analyzeNonTerminalPayoff(
   }
 }
 
+/**
+ * Optional per-leg charge input for `computePayoff`.
+ *
+ * `perLegCharges` maps a leg id → total round-trip charges (brokerage + STT + GST
+ * + stamp + exchange + SEBI) for that leg. When supplied, every sample in the
+ * returned payoff is netted by the sum of charges for ACTIVE legs (closed /
+ * inactive legs do not contribute the offset but their realized P&L is already
+ * captured in the leg-level math).
+ */
+export interface PayoffChargesOptions {
+  /** Map of leg.id → total round-trip charge for that leg. */
+  perLegCharges?: Record<string, number>
+}
+
+/**
+ * Sum the round-trip charges for all active legs.
+ *
+ * Used by `computePayoff` to net the per-sample payoff by total brokerage and
+ * taxes while leaving the underlying Black-76 / intrinsic math untouched. A
+ * missing map, a missing leg entry, or a non-finite entry contribute 0 (no
+ * exception, no NaN contamination).
+ */
+function computeChargeOffset(legs: StrategyLeg[], perLeg?: Record<string, number>): number {
+  if (!perLeg) return 0
+  let total = 0
+  for (const l of legs) {
+    if (!l.active) continue
+    const c = perLeg[l.id]
+    if (typeof c === 'number' && Number.isFinite(c)) total += c
+  }
+  return total
+}
+
 export function computePayoff(
   legs: StrategyLeg[],
   spot: number,
@@ -769,12 +808,15 @@ export function computePayoff(
   ivShiftPct: number = 0,
   /** Fallback IV (%) for legs that haven't received their own IV yet. */
   fallbackIv: number = 0,
-  now: ValuationTime = new Date()
+  now: ValuationTime = new Date(),
+  /** Optional per-leg charges — when provided, samples and analysis are netted. */
+  charges: PayoffChargesOptions = {}
 ): PayoffResult {
   const currentNow = valuationNow(now)
+  const chargeOffset = computeChargeOffset(legs, charges.perLegCharges)
   const terminal = isTerminalHorizon(legs, daysAtExpiry, currentNow)
   const terminalAnalysis = terminal
-    ? analyzeTerminalPayoff(legs, daysAtExpiry, ivShiftPct, fallbackIv, currentNow)
+    ? analyzeTerminalPayoff(legs, daysAtExpiry, ivShiftPct, fallbackIv, currentNow, chargeOffset)
     : analyzeNonTerminalPayoff(
         legs,
         spot,
@@ -782,7 +824,8 @@ export function computePayoff(
         priceRange,
         ivShiftPct,
         fallbackIv,
-        currentNow
+        currentNow,
+        chargeOffset
       )
   const strikes = terminal ? terminalBreakpoints(legs) : responsiveStrikes(legs)
   const initialBreakevens = terminalAnalysis.breakevens
@@ -796,12 +839,14 @@ export function computePayoff(
 
   const makeSample = (underlying: number): PayoffSample => ({
     underlying,
-    expiry: normalizePayoff(
-      totalPnlAt(legs, underlying, daysAtExpiry, ivShiftPct, fallbackIv, currentNow)
-    ),
-    tplus0: normalizePayoff(
-      totalPnlAt(legs, underlying, daysAtT0, ivShiftPct, fallbackIv, currentNow)
-    ),
+    expiry:
+      normalizePayoff(
+        totalPnlAt(legs, underlying, daysAtExpiry, ivShiftPct, fallbackIv, currentNow)
+      ) - chargeOffset,
+    tplus0:
+      normalizePayoff(
+        totalPnlAt(legs, underlying, daysAtT0, ivShiftPct, fallbackIv, currentNow)
+      ) - chargeOffset,
   })
   let samples = sampleXs.map(makeSample)
   const breakevens = terminalAnalysis.breakevens

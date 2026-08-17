@@ -528,3 +528,75 @@ describe('payoff geometry and structural risk', () => {
     )
   })
 })
+
+describe('computePayoff per-leg charges', () => {
+  it('nets per-leg charges from every sample when a perLegCharges map is supplied', () => {
+    const legs = [optionLeg('lc', 'BUY', 'CE', 100, 5)]
+    const without = computePayoff(legs, 100, EXPIRY_DAYS, 0, [80, 120], EXPIRY_DAYS, 0, 20, NOW)
+    const charges = { lc: 12.5 }
+    const withC = computePayoff(
+      legs,
+      100,
+      EXPIRY_DAYS,
+      0,
+      [80, 120],
+      EXPIRY_DAYS,
+      0,
+      20,
+      NOW,
+      { perLegCharges: charges }
+    )
+
+    expect(withC.samples.length).toBe(without.samples.length)
+    for (let i = 0; i < without.samples.length; i++) {
+      // Each active leg contributes its own charge once; the offset is the
+      // sum of per-leg charges, subtracted from both expiry and tplus0.
+      expect(withC.samples[i].expiry).toBeCloseTo(without.samples[i].expiry - 12.5, 6)
+      expect(withC.samples[i].tplus0).toBeCloseTo(without.samples[i].tplus0 - 12.5, 6)
+    }
+    expect(withC.maxProfit).toBeLessThan(without.maxProfit)
+    expect(withC.maxLoss).toBeLessThan(without.maxLoss)
+    // Breakevens should shift: zero of the netted curve is at the original
+    // breakeven + charge / slope. With a flat-zero delta they move inward.
+    expect(withC.breakevens).toHaveLength(without.breakevens.length)
+  })
+
+  it('produces bit-identical samples and analysis when perLegCharges is omitted', () => {
+    const legs = ironCondor()
+    const baseline = computePayoff(legs, 100, EXPIRY_DAYS, 0, [80, 120], EXPIRY_DAYS, 0, 20, NOW)
+    const withEmptyOptions = computePayoff(
+      legs,
+      100,
+      EXPIRY_DAYS,
+      0,
+      [80, 120],
+      EXPIRY_DAYS,
+      0,
+      20,
+      NOW,
+      {}
+    )
+    const withEmptyMap = computePayoff(
+      legs,
+      100,
+      EXPIRY_DAYS,
+      0,
+      [80, 120],
+      EXPIRY_DAYS,
+      0,
+      20,
+      NOW,
+      { perLegCharges: {} }
+    )
+
+    expect(withEmptyOptions.samples).toEqual(baseline.samples)
+    expect(withEmptyMap.samples).toEqual(baseline.samples)
+    expect(withEmptyOptions.maxProfit).toBe(baseline.maxProfit)
+    expect(withEmptyOptions.maxLoss).toBe(baseline.maxLoss)
+    expect(withEmptyOptions.breakevens).toEqual(baseline.breakevens)
+    expect(withEmptyOptions.zeroCrossings).toEqual(baseline.zeroCrossings)
+    expect(withEmptyMap.maxProfit).toBe(baseline.maxProfit)
+    expect(withEmptyMap.maxLoss).toBe(baseline.maxLoss)
+    expect(withEmptyMap.breakevens).toEqual(baseline.breakevens)
+  })
+})
