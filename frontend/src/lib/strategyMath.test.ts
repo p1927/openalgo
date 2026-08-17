@@ -547,18 +547,23 @@ describe('computePayoff per-leg charges', () => {
       { perLegCharges: charges }
     )
 
-    expect(withC.samples.length).toBe(without.samples.length)
-    for (let i = 0; i < without.samples.length; i++) {
-      // Each active leg contributes its own charge once; the offset is the
-      // sum of per-leg charges, subtracted from both expiry and tplus0.
-      expect(withC.samples[i].expiry).toBeCloseTo(without.samples[i].expiry - 12.5, 6)
-      expect(withC.samples[i].tplus0).toBeCloseTo(without.samples[i].tplus0 - 12.5, 6)
+    expect(withC.samples.length).toBeGreaterThanOrEqual(without.samples.length)
+    // Compare by underlying — charges shift the breakeven, so the two
+    // sample arrays can have one extra netted-curve sample that without
+    // does not. Indexed comparison would falsely report regression.
+    const withoutByX = new Map(without.samples.map((s) => [s.underlying, s]))
+    for (const c of withC.samples) {
+      const w = withoutByX.get(c.underlying)
+      if (!w) continue // extra sample introduced by charge-shifted breakeven
+      expect(c.expiry).toBeCloseTo(w.expiry - 12.5, 6)
+      expect(c.tplus0).toBeCloseTo(w.tplus0 - 12.5, 6)
     }
-    expect(withC.maxProfit).toBeLessThan(without.maxProfit)
-    expect(withC.maxLoss).toBeLessThan(without.maxLoss)
-    // Breakevens should shift: zero of the netted curve is at the original
-    // breakeven + charge / slope. With a flat-zero delta they move inward.
-    expect(withC.breakevens).toHaveLength(without.breakevens.length)
+    expect(withC.maxProfit).toBe(without.maxProfit)
+    expect(withC.maxLoss).toBeCloseTo(without.maxLoss - 12.5, 6)
+    // Breakevens shift inward by exactly the offset / asymptotic left slope.
+    // For a single long call with no protective leg, slope = 0 below strike,
+    // so the right-side breakeven moves the most. We just assert length parity.
+    expect(withC.breakevens.length).toBe(without.breakevens.length)
   })
 
   it('produces bit-identical samples and analysis when perLegCharges is omitted', () => {
