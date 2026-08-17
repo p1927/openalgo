@@ -2324,6 +2324,7 @@ export default function StrategyBuilder() {
                   fallbackPrices={fallbackPricesByLeg}
                   formatCurrency={formatCurrency}
                   planCharges={planCharges}
+                  perLegChargesMap={perLegCharges}
                 />
               </TabsContent>
               <TabsContent value="strategychart" className="pt-4">

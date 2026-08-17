@@ -23,6 +23,13 @@ export interface PnLTabProps {
   formatCurrency: (value: number) => string
   /** Live brokerage/GST breakdown — shown below the P&L table. */
   planCharges?: PlanCharges
+  /**
+   * Per-leg round-trip charge map (leg.id → total charges). When supplied, the
+   * table adds a "Net" column showing per-leg P&L after that leg's charges,
+   * and the footer grows a matching `Total - per-leg charges` total above the
+   * existing entry-charges row.
+   */
+  perLegChargesMap?: Record<string, number>
 }
 
 /** Briefly highlight a cell whenever its numeric value changes (WS tick). */
@@ -101,6 +108,7 @@ export function PnLTab({
   fallbackPrices,
   formatCurrency,
   planCharges = null,
+  perLegChargesMap,
 }: PnLTabProps) {
   // Only active (user-included) legs are considered "open" for this tab.
   // Excluded legs don't appear in the table, don't contribute to the total,
@@ -172,11 +180,24 @@ export function PnLTab({
         const sign = leg.side === 'BUY' ? 1 : -1
         const effective = isClosed ? (leg.exitPrice ?? leg.price) : (current ?? leg.price)
         const pnl = sign * (effective - leg.price) * qty
-        return { leg, current, pnl, isClosed }
+        // Per-leg charges net only out the *fixed-cost* contribution of one
+        // leg's round-trip. Symmetric with `computeChargeOffset` in
+        // strategyMath.ts — we sum active, non-excluded legs here because
+        // the table only renders `leg.active` rows.
+        const legCharge = perLegChargesMap?.[leg.id] ?? 0
+        const netPnl = pnl - legCharge
+        return { leg, current, pnl, netPnl, legCharge, isClosed }
       })
-  }, [legs, marketData, fnoExchange, fallbackPrices])
+  }, [legs, marketData, fnoExchange, fallbackPrices, perLegChargesMap])
 
   const total = useMemo(() => rows.reduce((acc, r) => acc + r.pnl, 0), [rows])
+  // Sum of per-leg charges for legs rendered in the table. `perLegCharge`
+  // is 0 for any leg not present in the map, so missing IDs vanish cleanly.
+  const totalPerLegCharges = useMemo(
+    () => rows.reduce((acc, r) => acc + r.legCharge, 0),
+    [rows]
+  )
+  const totalAfterPerLegCharges = total - totalPerLegCharges
   const entryCharges = planCharges?.total?.total_charges ?? 0
   const netAfterCharges = total - entryCharges
   const openCount = rows.filter((r) => !r.isClosed).length
@@ -270,21 +291,25 @@ export function PnLTab({
             <TableHead className="w-[128px] text-right text-[10px] font-semibold uppercase tracking-wider">
               P&amp;L
             </TableHead>
+            <TableHead className="w-[128px] text-right text-[10px] font-semibold uppercase tracking-wider">
+              Net
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {rows.length === 0 && (
             <TableRow>
-              <TableCell colSpan={7} className="py-8 text-center text-xs text-muted-foreground">
+              <TableCell colSpan={8} className="py-8 text-center text-xs text-muted-foreground">
                 {legs.length === 0
                   ? 'No legs yet.'
                   : 'All legs are excluded. Re-include at least one from the Positions panel.'}
               </TableCell>
             </TableRow>
           )}
-          {rows.map(({ leg, current, pnl, isClosed }) => (
+          {rows.map(({ leg, current, pnl, netPnl, isClosed }) => (
             <TableRow
               key={leg.id}
+              data-testid={perLegChargesMap ? 'pnl-net-row' : undefined}
               className={cn(!leg.active && 'opacity-50', isClosed && 'bg-rose-500/5')}
             >
               <TableCell className="text-center">
@@ -332,23 +357,59 @@ export function PnLTab({
               <TableCell className="whitespace-nowrap text-right text-xs">
                 <PnlCell value={pnl} formatCurrency={formatCurrency} />
               </TableCell>
+              <TableCell
+                className="whitespace-nowrap text-right text-xs"
+                data-testid={perLegChargesMap ? 'pnl-net' : undefined}
+              >
+                {perLegChargesMap ? (
+                  <PnlCell value={netPnl} formatCurrency={formatCurrency} />
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                )}
+              </TableCell>
             </TableRow>
           ))}
         </TableBody>
         {rows.length > 0 && (
           <TableFooter>
             <TableRow>
-              <TableCell colSpan={6} className="text-[10px] font-semibold uppercase tracking-wider">
+              <TableCell colSpan={7} className="text-[10px] font-semibold uppercase tracking-wider">
                 Total P&amp;L (gross)
               </TableCell>
               <TableCell className="whitespace-nowrap text-right text-sm">
                 <PnlCell value={total} formatCurrency={formatCurrency} />
               </TableCell>
             </TableRow>
+            {totalPerLegCharges > 0 && (
+              <>
+                <TableRow>
+                  <TableCell colSpan={7} className="text-[10px] font-semibold uppercase tracking-wider">
+                    Less: per-leg charges
+                  </TableCell>
+                  <TableCell
+                    className="whitespace-nowrap text-right text-sm tabular-nums text-amber-700 dark:text-amber-400"
+                    data-testid="pnl-net-footer-charges"
+                  >
+                    −₹{totalPerLegCharges.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                  </TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell colSpan={7} className="text-[10px] font-semibold uppercase tracking-wider">
+                    Total P&amp;L (after per-leg chg.)
+                  </TableCell>
+                  <TableCell
+                    className="whitespace-nowrap text-right text-sm"
+                    data-testid="pnl-net-footer-total"
+                  >
+                    <PnlCell value={totalAfterPerLegCharges} formatCurrency={formatCurrency} />
+                  </TableCell>
+                </TableRow>
+              </>
+            )}
             {entryCharges > 0 && (
               <>
                 <TableRow>
-                  <TableCell colSpan={6} className="text-[10px] font-semibold uppercase tracking-wider">
+                  <TableCell colSpan={7} className="text-[10px] font-semibold uppercase tracking-wider">
                     Entry charges
                   </TableCell>
                   <TableCell className="whitespace-nowrap text-right text-sm tabular-nums text-amber-700 dark:text-amber-400">
@@ -356,7 +417,7 @@ export function PnLTab({
                   </TableCell>
                 </TableRow>
                 <TableRow>
-                  <TableCell colSpan={6} className="text-[10px] font-semibold uppercase tracking-wider">
+                  <TableCell colSpan={7} className="text-[10px] font-semibold uppercase tracking-wider">
                     Net P&amp;L (after entry chg.)
                   </TableCell>
                   <TableCell className="whitespace-nowrap text-right text-sm">
