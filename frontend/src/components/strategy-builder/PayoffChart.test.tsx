@@ -500,4 +500,70 @@ describe('PayoffChart exact geometry', () => {
     // No slider panel: the chart card must NOT contain any <input type="range">
     expect(screen.queryByRole('slider')).toBeNull()
   })
+
+  it('enables layout.editable=true and dragmode="pan" so Plotly actually wires shape drag handlers', () => {
+    // Plotly silently ignores per-shape `editable: true` unless the
+    // LAYOUT-level `editable` flag is also true — and the chart panel must
+    // not be in `dragmode: 'zoom'`, which captures the mousedown before any
+    // shape handler runs. This test pins both invariants so a future
+    // refactor that drops one of them re-introduces a silent regression.
+    const payoff = computePayoff(
+      [leg('call', 'BUY', 'CE', 100, 2)],
+      100,
+      7,
+      0,
+      [80, 120],
+      7,
+      0,
+      20,
+      NOW
+    )
+
+    render(
+      <PayoffChart
+        title="Drag wired"
+        scenario={BASE_SCENARIO}
+        remainingYears={7 / 365}
+        payoff={payoff}
+        formatCurrency={formatCurrency}
+        legs={[leg('call', 'BUY', 'CE', 100, 2)]}
+        strikeStep={50}
+        onStrikeChange={() => {}}
+      />
+    )
+
+    expect((plotCapture.props?.layout as any).editable).toBe(true)
+    expect(plotCapture.props?.layout.dragmode).toBe('pan')
+  })
+
+  it('keeps layout.dragmode at the default "zoom" when onStrikeChange is absent', () => {
+    // When the user never asks for strike editing (e.g. PnL tab or a
+    // read-only page that reuses PayoffChart), we don't override the
+    // default dragmode — keeping 'zoom' so the box-zoom affordance still
+    // works for inspecting the payoff curve.
+    const payoff = computePayoff(
+      [leg('call', 'BUY', 'CE', 100, 2)],
+      100,
+      7,
+      0,
+      [80, 120],
+      7,
+      0,
+      20,
+      NOW
+    )
+
+    render(
+      <PayoffChart
+        title="Read-only"
+        scenario={BASE_SCENARIO}
+        remainingYears={7 / 365}
+        payoff={payoff}
+        formatCurrency={formatCurrency}
+      />
+    )
+
+    expect((plotCapture.props?.layout as any).editable).toBeFalsy()
+    expect(plotCapture.props?.layout.dragmode).toBe('zoom')
+  })
 })

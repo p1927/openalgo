@@ -428,6 +428,24 @@ export function PayoffChart({
 
     const chartLayout: Partial<PlotlyTypes.Layout> = {
       uirevision: chartIdentity,
+      // Globals that gate Plotly's shape-edit interactions:
+      //   - editable:true at the layout level tells Plotly to wire up its
+      //     shape-drag handlers and emit plotly_relayout events as the user
+      //     drags. Without it, the per-shape `editable: true` is silently
+      //     ignored — every pointerdown on a shape is captured by the
+      //     default 'zoom' drag handler instead.
+      //   - dragmode:'pan' means left-click drags the viewport horizontally/
+      //     vertically instead of drawing a zoom-rectangle. With 'zoom',
+      //     shape drags are intercepted by the chart panel's mousedown;
+      //     'pan' lets them flow through to the shape layer. Users still
+      //     get a "zoom" toggle button via the modeBar (see config below).
+      // @types/plotly.js v8 still types Layout.editable as optional; we
+      // pass it through as an explicit `any`-shaped clause to avoid a
+      // type mismatch without polluting the rest of the layout.
+      ...({
+        editable: strikeEditable,
+        dragmode: strikeEditable ? 'pan' : 'zoom',
+      } as any),
       title: {
         text: title,
         font: { color: colors.text, size: 14 },
