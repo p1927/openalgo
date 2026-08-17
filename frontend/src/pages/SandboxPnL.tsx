@@ -91,16 +91,6 @@ export default function SandboxPnL() {
   const [isLoading, setIsLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('daily')
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: one-time data load on mount; fetchData has no reactive inputs
-  useEffect(() => {
-    fetchData()
-  }, [])
-
-  useOrderEventRefresh(fetchData, {
-    events: ['analyzer_update'],
-    delay: 200,
-  })
-
   const fetchData = async () => {
     try {
       const response = await fetch('/sandbox/mypnl/api/data', {
@@ -117,6 +107,18 @@ export default function SandboxPnL() {
       setIsLoading(false)
     }
   }
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: one-time data
+  // load on mount; fetchData closure captures only stable setters — re-running
+  // it on every render would refetch and re-render in a loop.
+  useEffect(() => {
+    fetchData()
+  }, [])
+
+  useOrderEventRefresh(fetchData, {
+    events: ['analyzer_update'],
+    delay: 200,
+  })
 
   const handleExport = (type: 'daily' | 'positions' | 'holdings' | 'trades') => {
     // Trigger download by navigating to the export endpoint
