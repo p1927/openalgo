@@ -200,12 +200,40 @@ class BrokerData:
         else:
             rows = []
 
+        if not rows and not is_option:
+            # The chart requests a range anchored on the real wall-clock date
+            # (e.g. "last 30 days from today"), which the replay catalog has
+            # no coverage for — the catalog only holds the active replay
+            # window. Retry against that window instead of returning empty,
+            # so a replay day's chart isn't blank just because the caller
+            # didn't know which day is actually being replayed.
+            fallback_start, fallback_end = self._active_replay_window()
+            if fallback_start and (fallback_start, fallback_end) != (start, end):
+                if interval in _INTRADAY_MINUTES:
+                    rows = self._history_intraday(
+                        catalog, symbol, exchange, fallback_start, fallback_end,
+                        bar_minutes=_INTRADAY_MINUTES[interval],
+                    )
+                elif interval in {"D", "1d", "1day"}:
+                    rows = self._history_daily(catalog, symbol, exchange, fallback_start, fallback_end)
+
         if not rows:
             return pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume", "oi"])
         df = pd.DataFrame(rows)
         if "oi" not in df.columns:
             df["oi"] = 0
         return df
+
+    def _active_replay_window(self) -> tuple[str | None, str | None]:
+        """The replay day(s) actually loaded — the whole rotation week when
+        week-mode is on, else just the single active replay date."""
+        config = self._replay.config
+        if config.week_mode and config.week_dates:
+            dates = sorted(config.week_dates)
+            return dates[0], dates[-1]
+        if config.replay_date:
+            return config.replay_date, config.replay_date
+        return None, None
 
     def _history_options(
         self,
