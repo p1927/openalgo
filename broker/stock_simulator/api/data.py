@@ -46,11 +46,56 @@ class BrokerData:
 
         self._replay = get_replay_service()
 
+    @staticmethod
+    def _mode() -> dict[str, Any]:
+        from trade_integrations.stock_simulator.mode import effective_mode
+
+        return effective_mode()
+
     def get_quotes(self, symbol: str, exchange: str) -> dict[str, Any]:
-        return self._replay.get_quote(symbol, exchange)
+        mode_info = self._mode()
+        if mode_info["mode"] == "live":
+            try:
+                from trade_integrations.stock_simulator.live_quotes import get_live_quote_service
+
+                quote = get_live_quote_service().get_quote(symbol, exchange)
+                quote["replay_date"] = None
+                return quote
+            except Exception:
+                logger.warning(
+                    "live quote fetch failed for %s/%s; falling back to replay", symbol, exchange,
+                    exc_info=True,
+                )
+                mode_info = {"mode": "replay", "reason": "live_fetch_failed",
+                             "replay_date": self._replay.config.replay_date}
+
+        quote = self._replay.get_quote(symbol, exchange)
+        quote["mode"] = mode_info["mode"]
+        quote["replay_date"] = mode_info.get("replay_date")
+        return quote
 
     def get_multiquotes(self, symbols: list[dict[str, str]]) -> list[dict[str, Any]]:
-        return self._replay.get_multiquotes(symbols)
+        mode_info = self._mode()
+        if mode_info["mode"] == "live":
+            try:
+                from trade_integrations.stock_simulator.live_quotes import get_live_quote_service
+
+                results = get_live_quote_service().get_multiquotes(symbols)
+                for item in results:
+                    if "data" in item:
+                        item["data"]["replay_date"] = None
+                return results
+            except Exception:
+                logger.warning("live multiquote fetch failed; falling back to replay", exc_info=True)
+                mode_info = {"mode": "replay", "reason": "live_fetch_failed",
+                             "replay_date": self._replay.config.replay_date}
+
+        results = self._replay.get_multiquotes(symbols)
+        for item in results:
+            if "data" in item:
+                item["data"]["mode"] = mode_info["mode"]
+                item["data"]["replay_date"] = mode_info.get("replay_date")
+        return results
 
     def get_option_chain(
         self,
@@ -79,8 +124,10 @@ class BrokerData:
             "symbol": symbol.upper(),
             "exchange": exchange.upper(),
             "ltp": ltp,
-            "simulated": True,
-            "source": "stock_simulator",
+            "simulated": quote.get("mode") != "live",
+            "source": quote.get("source", "stock_simulator"),
+            "mode": quote.get("mode"),
+            "replay_date": quote.get("replay_date"),
             "bids": [{"price": round(ltp - spread, 2), "quantity": 100}],
             "asks": [{"price": round(ltp + spread, 2), "quantity": 100}],
         }
@@ -97,16 +144,52 @@ class BrokerData:
         end_date: str,
     ) -> pd.DataFrame:
         ensure_trade_integrations_path()
+        from trade_integrations.stock_simulator.master_contract import parse_openalgo_option_symbol
+
+        # Live history only covers the underlying's own cash/index series —
+        # option-chain candles aren't exposed by INDmoney's historical
+        # endpoint, so options always fall through to the replay catalog
+        # even when the broker is otherwise in live mode.
+        is_option = exchange.upper() in {"NFO", "BFO"} or parse_openalgo_option_symbol(symbol)
+        if not is_option and self._mode()["mode"] == "live":
+            try:
+                from trade_integrations.stock_simulator.live_quotes import get_live_quote_service
+
+                rows = get_live_quote_service().get_history(
+                    symbol, exchange, interval, start_date, end_date
+                )
+                if rows:
+                    df = pd.DataFrame(rows)
+                    if "oi" not in df.columns:
+                        df["oi"] = 0
+                    return df
+            except Exception:
+                logger.warning(
+                    "live history fetch failed for %s/%s; falling back to replay",
+                    symbol, exchange, exc_info=True,
+                )
+
+        return self._replay_history(symbol, exchange, interval, start_date, end_date, is_option=is_option)
+
+    def _replay_history(
+        self,
+        symbol: str,
+        exchange: str,
+        interval: str,
+        start_date: str,
+        end_date: str,
+        *,
+        is_option: bool,
+    ) -> pd.DataFrame:
         from trade_integrations.stock_simulator.catalog import ReplayCatalog
         from trade_integrations.stock_simulator.config import load_sim_config
-        from trade_integrations.stock_simulator.master_contract import parse_openalgo_option_symbol
 
         interval = (interval or "D").strip()
         catalog = ReplayCatalog(load_sim_config().data_root)
         start = str(start_date)[:10]
         end = str(end_date)[:10]
 
-        if exchange.upper() in {"NFO", "BFO"} or parse_openalgo_option_symbol(symbol):
+        if is_option:
             rows = self._history_options(symbol, exchange, start, end, interval)
         elif interval in _INTRADAY_MINUTES:
             rows = self._history_intraday(

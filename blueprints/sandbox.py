@@ -1219,10 +1219,13 @@ def api_simulator_status():
         from broker.stock_simulator.api._trade_path import ensure_trade_integrations_path
 
         ensure_trade_integrations_path()
+        from trade_integrations.stock_simulator.mode import effective_mode
         from trade_integrations.stock_simulator.replay import get_replay_service
 
         svc = get_replay_service()
-        return jsonify({"status": "success", "simulator": svc.status()})
+        payload = svc.status()
+        payload.update(effective_mode())
+        return jsonify({"status": "success", "simulator": payload})
     except Exception as e:
         logger.exception("simulator status failed: %s", e)
         return jsonify({"status": "error", "message": str(e)}), 500

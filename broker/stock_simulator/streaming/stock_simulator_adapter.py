@@ -102,6 +102,7 @@ class Stock_simulatorWebSocketAdapter(BaseBrokerWebSocketAdapter):
 
     def _replay_stream_loop(self) -> None:
         ensure_trade_integrations_path()
+        from trade_integrations.stock_simulator.mode import effective_mode
         from trade_integrations.stock_simulator.replay import get_replay_service
 
         while self.running:
@@ -113,16 +114,36 @@ class Stock_simulatorWebSocketAdapter(BaseBrokerWebSocketAdapter):
                     continue
 
                 svc = get_replay_service()
+                sim_mode_info = effective_mode()
+                live_service = None
+                if sim_mode_info["mode"] == "live":
+                    from trade_integrations.stock_simulator.live_quotes import get_live_quote_service
+
+                    live_service = get_live_quote_service()
+
                 for sub in subs:
                     symbol = sub["symbol"]
                     exchange = sub["exchange"]
                     mode = int(sub.get("mode") or 2)
                     sub_key = f"{exchange}_{symbol}"
+                    is_live = live_service is not None
                     try:
-                        quote = svc.get_quote(symbol, exchange)
+                        quote = live_service.get_quote(symbol, exchange) if is_live else svc.get_quote(symbol, exchange)
                     except Exception as exc:
-                        logger.debug("replay quote miss %s/%s: %s", symbol, exchange, exc)
-                        continue
+                        if is_live:
+                            # Live fetch failed (creds missing/expired, INDmoney
+                            # unreachable) — fall back to replay for this tick
+                            # rather than dropping the subscription silently.
+                            logger.debug("live quote miss %s/%s: %s; falling back to replay", symbol, exchange, exc)
+                            try:
+                                quote = svc.get_quote(symbol, exchange)
+                                is_live = False
+                            except Exception as replay_exc:
+                                logger.debug("replay quote miss %s/%s: %s", symbol, exchange, replay_exc)
+                                continue
+                        else:
+                            logger.debug("replay quote miss %s/%s: %s", symbol, exchange, exc)
+                            continue
 
                     ltp = float(quote.get("ltp") or 0)
                     if ltp <= 0:
@@ -147,7 +168,8 @@ class Stock_simulatorWebSocketAdapter(BaseBrokerWebSocketAdapter):
                         "timestamp": tick_ms,
                         "ltp": ltp,
                         "ltt": tick_ms,
-                        "simulated": True,
+                        "simulated": not is_live,
+                        "mode": "live" if is_live else "replay",
                         "sim_ts": quote.get("sim_ts"),
                     }
                     if mode >= 2:

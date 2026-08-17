@@ -12,6 +12,78 @@ import {
 } from '@/components/ui/dropdown-menu'
 import type { DrawStats, TradingTerminal } from '@/lib/trading/terminal'
 import { cn } from '@/lib/utils'
+import { useBrokerStore } from '@/stores/brokerStore'
+
+interface SimulatorModeState {
+  mode: 'live' | 'replay'
+  reason: string
+  replay_date: string | null
+}
+
+/** LIVE / REPLAY badge for the stock_simulator broker, polling the same
+ * status endpoint the Sandbox settings page uses so the trade view never
+ * shows unlabeled replay data as if it were live. */
+function SimulatorModeBadge() {
+  const { capabilities } = useBrokerStore()
+  const [state, setState] = useState<SimulatorModeState | null>(null)
+  const isSimulator = capabilities?.broker_name === 'stock_simulator'
+
+  useEffect(() => {
+    if (!isSimulator) {
+      setState(null)
+      return
+    }
+    let alive = true
+    const poll = async () => {
+      try {
+        const res = await fetch('/sandbox/api/simulator/status', { credentials: 'include' })
+        const data = await res.json()
+        if (!alive) return
+        if (data.status === 'success' && data.simulator) {
+          setState({
+            mode: data.simulator.mode,
+            reason: data.simulator.reason,
+            replay_date: data.simulator.replay_date ?? null,
+          })
+        }
+      } catch {
+        // Leave the last known state on a transient poll failure.
+      }
+    }
+    poll()
+    const id = setInterval(poll, 5000)
+    return () => {
+      alive = false
+      clearInterval(id)
+    }
+  }, [isSimulator])
+
+  if (!isSimulator || !state) return null
+
+  if (state.mode === 'live') {
+    return (
+      <span className="flex items-center gap-1.5 rounded border border-emerald-600/40 bg-emerald-600/10 px-2 py-0.5 text-xs font-medium text-emerald-500">
+        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+        LIVE
+      </span>
+    )
+  }
+
+  const title =
+    state.reason === 'market_closed_fallback'
+      ? 'Market is closed — showing the most recently recorded day'
+      : 'Replay explicitly started from Sandbox'
+
+  return (
+    <span
+      title={title}
+      className="flex items-center gap-1.5 rounded border border-amber-600/40 bg-amber-600/10 px-2 py-0.5 text-xs font-medium text-amber-500"
+    >
+      <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+      REPLAY{state.replay_date ? ` — ${state.replay_date}` : ''}
+    </span>
+  )
+}
 
 const NO_DRAW: DrawStats = {
   count: 0,
@@ -111,6 +183,7 @@ function LayoutIcon({ preset, className }: { preset: LayoutPreset; className?: s
 }
 
 export default function Trading() {
+  const { isLoaded: brokerLoaded, fetchCapabilities } = useBrokerStore()
   const [layoutId, setLayoutId] = useState(() => {
     const saved = localStorage.getItem(LAYOUT_KEY)
     return LAYOUTS.some((l) => l.id === saved) ? (saved as string) : 'single'
@@ -156,6 +229,10 @@ export default function Trading() {
   useEffect(() => {
     localStorage.setItem(LAYOUT_KEY, layoutId)
   }, [layoutId])
+
+  useEffect(() => {
+    if (!brokerLoaded) fetchCapabilities()
+  }, [brokerLoaded, fetchCapabilities])
 
   // Fetch the API key + WS URL once; every pane shares them.
   useEffect(() => {
@@ -220,6 +297,7 @@ export default function Trading() {
             </DropdownMenuContent>
           </DropdownMenu>
           <span className="text-xs text-muted-foreground">{layout.label}</span>
+          <SimulatorModeBadge />
         </div>
 
         {/* Rail + grid */}
