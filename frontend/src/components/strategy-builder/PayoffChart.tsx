@@ -119,22 +119,23 @@ export function PayoffChart({
 
   const colors = useMemo(
     () => ({
-      paper: isDark ? (isAnalyzer ? '#1a1530' : '#0f172a') : '#ffffff',
-      bg: isDark ? (isAnalyzer ? '#221a3a' : '#1e293b') : '#f8fafc',
-      text: isDark ? '#e2e8f0' : '#1e293b',
+      paper: isDark ? (isAnalyzer ? '#171226' : '#0b1220') : '#ffffff',
+      bg: isDark ? (isAnalyzer ? '#1f1936' : '#111827') : '#fafbfc',
+      text: isDark ? '#e5e7eb' : '#0f172a',
       mutedText: isDark ? '#94a3b8' : '#64748b',
-      grid: isDark ? 'rgba(148,163,184,0.18)' : 'rgba(15,23,42,0.08)',
-      profit: isDark ? 'rgba(34,197,94,0.22)' : 'rgba(34,197,94,0.18)',
-      loss: isDark ? 'rgba(239,68,68,0.22)' : 'rgba(239,68,68,0.18)',
-      expiryLine: isDark ? '#fb923c' : '#ea580c',
-      tplus0Line: isDark ? '#60a5fa' : '#2563eb',
-      zeroLine: isDark ? 'rgba(226,232,240,0.5)' : 'rgba(15,23,42,0.5)',
-      spotLine: isDark ? '#f472b6' : '#db2777',
+      grid: isDark ? 'rgba(148,163,184,0.10)' : 'rgba(15,23,42,0.06)',
+      profit: isDark ? 'rgba(16,185,129,0.20)' : 'rgba(16,185,129,0.14)', // Groww emerald #10b981
+      loss: isDark ? 'rgba(244,63,94,0.20)' : 'rgba(244,63,94,0.14)', // Groww rose #f43f5e
+      expiryLine: isDark ? '#10b981' : '#059669', // deeper emerald
+      tplus0Line: isDark ? '#60a5fa' : '#2563eb', // slate blue
+      zeroLine: isDark ? 'rgba(226,232,240,0.4)' : 'rgba(15,23,42,0.4)',
+      spotLine: isDark ? '#ec4899' : '#db2777', // groww-ish pink
       ceStrike: isDark ? '#4ade80' : '#16a34a',
       peStrike: isDark ? '#f87171' : '#dc2626',
-      sigma1Band: isDark ? 'rgba(148,163,184,0.22)' : 'rgba(100,116,139,0.16)',
-      sigma2Band: isDark ? 'rgba(148,163,184,0.10)' : 'rgba(100,116,139,0.07)',
-      sigmaTick: isDark ? 'rgba(226,232,240,0.35)' : 'rgba(15,23,42,0.3)',
+      sigma1Band: isDark ? 'rgba(148,163,184,0.18)' : 'rgba(100,116,139,0.10)',
+      sigma2Band: isDark ? 'rgba(148,163,184,0.07)' : 'rgba(100,116,139,0.04)',
+      sigmaTick: isDark ? 'rgba(148,163,184,0.30)' : 'rgba(15,23,42,0.18)',
+      cardBorder: isDark ? 'rgba(148,163,184,0.10)' : 'rgba(15,23,42,0.08)',
     }),
     [isDark, isAnalyzer]
   )
@@ -229,7 +230,7 @@ export function PayoffChart({
         type: 'scatter',
         mode: 'lines',
         name: terminalLabel,
-        line: { color: colors.expiryLine, width: 2.2 },
+        line: { color: colors.expiryLine, width: 2.6 },
         // customdata carries broker-aware price/P&L strings and percent change.
         customdata: hoverData(ysExpiry) as unknown as PlotlyTypes.Datum[],
         hovertemplate: hoverTemplate(terminalLabel),
@@ -243,7 +244,7 @@ export function PayoffChart({
         type: 'scatter',
         mode: 'lines',
         name: currentLabel,
-        line: { color: colors.tplus0Line, width: 2, dash: 'dash' },
+        line: { color: colors.tplus0Line, width: 1.8, dash: 'dash' },
         customdata: hoverData(ysT0) as unknown as PlotlyTypes.Datum[],
         hovertemplate: hoverTemplate(currentLabel),
       })
@@ -446,7 +447,7 @@ export function PayoffChart({
         x: 0.5,
         xanchor: 'center',
         y: -0.18,
-        font: { color: colors.text, size: 11 },
+        font: { color: colors.text, size: 12 },
       },
       xaxis: {
         title: { text: 'Underlying Price', font: { color: colors.text, size: 12 } },
