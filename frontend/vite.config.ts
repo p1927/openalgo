@@ -6,6 +6,18 @@ import path from 'path'
 
 // https://vite.dev/config/
 export default defineConfig({
+  // Serve this SPA under the gateway path /apps/openalgo/. Both the gateway
+  // (`http://127.0.0.1:8080/apps/openalgo/...`) and the Flask direct
+  // endpoint (`http://127.0.0.1:5001/apps/openalgo/...`) reach the SPA
+  // through a Flask middleware that strips `/apps/openalgo/` and serves
+  // the same routes that work today at root. Setting `base` here makes the
+  // emitted asset paths prefix-aware so the browser resolves them under
+  // either host. With default Vite base `/`, asset paths come out as
+  // `/assets/index-...js`; the browser then resolves them against the
+  // embedding origin, which is correct for a Flask-direct origin but
+  // 404s when served under the gateway because Caddy's strip-prefix
+  // route only matches `/apps/openalgo/*`, never bare `/assets/*`.
+  base: '/apps/openalgo/',
   plugins: [
     react(),
     tailwindcss(),

@@ -165,6 +165,16 @@ def create_app():
     # Initialize Flask application
     app = Flask(__name__)
 
+    # WSGI prefix middleware — see middleware.py for the rationale. We wrap
+    # the incoming WSGI app first so every subsequent extension (SocketIO,
+    # CSRF, CORS, blueprints) sees paths without /apps/openalgo even when
+    # the request arrived via the gateway under that prefix. This is the
+    # *only* point that knows about the prefix; everything downstream stays
+    # root-relative so the same code paths serve direct Flask access
+    # (127.0.0.1:5001) and gateway-proxied access (127.0.0.1:8080).
+    from middleware import strip_prefix_middleware
+    app.wsgi_app = strip_prefix_middleware(app.wsgi_app)
+
     # Initialize SocketIO
     socketio.init_app(app)  # Link SocketIO to the Flask app
 
