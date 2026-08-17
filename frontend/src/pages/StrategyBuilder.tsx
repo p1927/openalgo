@@ -1615,6 +1615,22 @@ export default function StrategyBuilder() {
   }, [])
 
   // Payoff
+  const perLegCharges = useMemo<Record<string, number> | undefined>(() => {
+    if (!planCharges?.per_leg?.length) return undefined
+    const out: Record<string, number> = {}
+    for (const row of planCharges.per_leg) {
+      if (!row?.symbol) continue
+      // Match a charge row to its leg by symbol + side. Per-leg entries that
+      // don't resolve to a current leg (closed leg / removed contract) are
+      // skipped — computePayoff then falls back to 0 for those charges, which
+      // honors the "no silent NaN" invariant from the plan.
+      const leg = legs.find((l) => l.symbol === row.symbol && l.side === row.side)
+      if (!leg) continue
+      out[leg.id] = Number(row.total_charges ?? 0)
+    }
+    return Object.keys(out).length > 0 ? out : undefined
+  }, [planCharges, legs])
+
   const payoff = useMemo(() => {
     if (scenario.spot <= 0) {
       return {
@@ -1641,9 +1657,10 @@ export default function StrategyBuilder() {
       240,
       ivShiftPct,
       atmIv ?? 0,
-      scenario.valuationTime
+      scenario.valuationTime,
+      perLegCharges ? { perLegCharges } : {}
     )
-  }, [legs, scenario, nearestDays, ivShiftPct, atmIv, simulatedYearsToNearExpiry])
+  }, [legs, scenario, nearestDays, ivShiftPct, atmIv, simulatedYearsToNearExpiry, perLegCharges])
 
   const pop = useMemo(() => {
     if (scenario.spot <= 0 || scenario.iv <= 0 || simulatedYearsToNearExpiry <= 0) return null
@@ -2282,6 +2299,7 @@ export default function StrategyBuilder() {
                       onStrikeChange={handleStrikeFromChart}
                       onResetStrikes={resetStrikesToBaseline}
                       canResetStrikes={canResetStrikes}
+                      perLegCharges={perLegCharges}
                     />
                   ) : (
                     <div className="flex h-[440px] items-center justify-center text-sm text-muted-foreground">

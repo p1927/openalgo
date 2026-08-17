@@ -398,4 +398,106 @@ describe('PayoffChart exact geometry', () => {
       '7 of 13 representative points shown'
     )
   })
+
+  it('rewrites the hover template and y-axis title when per-leg charges are wired', () => {
+    const payoff = computePayoff(
+      [leg('call', 'BUY', 'CE', 100, 2)],
+      100,
+      7,
+      0,
+      [80, 120],
+      7,
+      0,
+      20,
+      NOW
+    )
+
+    render(
+      <PayoffChart
+        title="Charged"
+        scenario={BASE_SCENARIO}
+        remainingYears={7 / 365}
+        payoff={payoff}
+        formatCurrency={formatCurrency}
+        perLegCharges={{ call: 12.5 }}
+      />
+    )
+
+    const expiry = (plotCapture.props?.data ?? []).find((t) => t.name === 'At Expiry') as
+      | (PlotlyTypes.Data & { hovertemplate?: string })
+      | undefined
+    expect(expiry?.hovertemplate).toContain('After charges')
+    expect(expiry?.hovertemplate).toContain('%{customdata[3]}')
+    expect(plotCapture.props?.layout.yaxis?.title?.text).toBe('Net P&L (after charges)')
+
+    // Cleanup so a follow-up test renders clean
+    plotCapture.props = null
+  })
+
+  it('keeps the y-axis title as Profit / Loss when no charges are supplied', () => {
+    const payoff = computePayoff(
+      [leg('call', 'BUY', 'CE', 100, 2)],
+      100,
+      7,
+      0,
+      [80, 120],
+      7,
+      0,
+      20,
+      NOW
+    )
+
+    render(
+      <PayoffChart
+        title="No charges"
+        scenario={BASE_SCENARIO}
+        remainingYears={7 / 365}
+        payoff={payoff}
+        formatCurrency={formatCurrency}
+      />
+    )
+
+    expect(plotCapture.props?.layout.yaxis?.title?.text).toBe('Profit / Loss')
+  })
+
+  it('renders strike markers as editable Plotly shapes when onStrikeChange is provided', () => {
+    const payoff = computePayoff(
+      [leg('call', 'BUY', 'CE', 100, 2)],
+      100,
+      7,
+      0,
+      [80, 120],
+      7,
+      0,
+      20,
+      NOW
+    )
+
+    render(
+      <PayoffChart
+        title="Straddle"
+        scenario={BASE_SCENARIO}
+        remainingYears={7 / 365}
+        payoff={payoff}
+        formatCurrency={formatCurrency}
+        legs={[leg('call', 'BUY', 'CE', 100, 2)]}
+        strikeStep={50}
+        onStrikeChange={() => {}}
+      />
+    )
+
+    const shapes = plotCapture.props?.layout.shapes ?? []
+    const strikeLine = shapes.find(
+      (s: any) => s.type === 'line' && s.editable === true && typeof s.name === 'string' && s.name.startsWith('strike:')
+    )
+    const handleDot = shapes.find(
+      (s: any) => s.type === 'circle' && s.editable === true && typeof s.name === 'string' && s.name.startsWith('handle:')
+    )
+    expect(strikeLine).toBeDefined()
+    expect(handleDot).toBeDefined()
+    expect((strikeLine as any).x0).toBe(100)
+
+    // No slider panel: the chart card must NOT contain any <input type="range">
+    expect(screen.queryByRole('slider')).toBeNull()
+  })
 })

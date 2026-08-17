@@ -1,6 +1,6 @@
 import type * as PlotlyTypes from 'plotly.js'
 import { RotateCcw } from 'lucide-react'
-import { useId, useMemo } from 'react'
+import { useId, useMemo, useRef } from 'react'
 import Plot from '@/lib/Plot2D'
 import { Button } from '@/components/ui/button'
 import {
@@ -9,7 +9,6 @@ import {
   type ScenarioState,
   type StrategyLeg,
 } from '@/lib/strategyMath'
-import { cn } from '@/lib/utils'
 import { useThemeStore } from '@/stores/themeStore'
 
 export interface PayoffChartProps {
@@ -30,6 +29,14 @@ export interface PayoffChartProps {
   onStrikeChange?: (legId: string, strike: number) => void
   onResetStrikes?: () => void
   canResetStrikes?: boolean
+  /**
+   * Per-leg round-trip charge totals (leg.id → total charges). When supplied,
+   * the hover tooltip gains an "After charges" row and the y-axis title is
+   * updated to "Net P&L (after charges)". The math is already netted upstream
+   * into the `payoff` samples — this prop only changes how the chart presents
+   * the "P&L after charges" number in the tooltip.
+   */
+  perLegCharges?: Record<string, number>
 }
 
 function legLabel(leg: StrategyLeg): string {
@@ -82,6 +89,7 @@ export function PayoffChart({
   onStrikeChange,
   onResetStrikes,
   canResetStrikes = false,
+  perLegCharges,
 }: PayoffChartProps) {
   const regionHeadingId = useId()
   const { mode, appMode } = useThemeStore()
@@ -99,6 +107,15 @@ export function PayoffChart({
       ),
     [legs]
   )
+
+  // Previous-strike cache used by `handleRelayout` to suppress duplicate
+  // onStrikeChange emissions. Plotly's plotly_relayout event fires per
+  // commit-not-per-pixel, but the handle circle shares its x with the line
+  // (both edits resolve to the same strike), and Plotly sometimes fires two
+  // relayout events for one drag — checking against the snapshot prevents
+  // back-to-back identical emits that would still trigger upstream
+  // setLegs(...) work.
+  const previousStrikesRef = useRef<Map<string, number>>(new Map())
 
   const colors = useMemo(
     () => ({
@@ -122,12 +139,6 @@ export function PayoffChart({
     [isDark, isAnalyzer]
   )
 
-  const xBounds = useMemo(() => {
-    const xs = payoff.samples.map((s) => s.underlying)
-    if (!xs.length) return { min: scenario.spot * 0.9, max: scenario.spot * 1.1 }
-    return { min: Math.min(...xs), max: Math.max(...xs) }
-  }, [payoff.samples, scenario.spot])
-
   const { data, layout, config } = useMemo(() => {
     const { spot, iv, daysElapsed } = scenario
     const { samples } = payoff
@@ -142,8 +153,6 @@ export function PayoffChart({
     const xs = samples.map((s) => s.underlying)
     const ysExpiry = samples.map((s) => s.expiry)
     const ysT0 = samples.map((s) => s.tplus0)
-    const yLo = Math.min(...ysExpiry, ...ysT0, 0) * 1.05
-    const yHi = Math.max(...ysExpiry, ...ysT0, 0) * 1.05
 
     const pctFromSpot = samples.map((s) => {
       const pct = ((s.underlying - spot) / spot) * 100
@@ -162,18 +171,34 @@ export function PayoffChart({
     const clipToDomain = (x: number) => Math.min(domainHi, Math.max(domainLo, x))
 
     const currentLabel = formatHorizon(daysElapsed)
+    // When `perLegCharges` is supplied, the tooltip gains an extra row at
+    // customdata[3] that surfaces the "After charges" P&L. The chart
+    // contract is fixed even when no charges are present (customdata length
+    // stays at 3 in that case so the hovertemplate keeps rendering).
+    const chargesRow = perLegCharges
+      ? '<br>After charges: %{customdata[3]}'
+      : ''
     const hoverTemplate = (label: string) =>
       `<b>${label}</b>` +
       '<br>Underlying: %{customdata[0]}' +
       '<br>Chg. from Scenario: %{customdata[1]}' +
       '<br>P&L: %{customdata[2]}' +
+      chargesRow +
       '<extra></extra>'
     const hoverData = (values: number[]) =>
-      samples.map((sample, index) => [
-        formatCurrency(sample.underlying),
-        pctFromSpot[index],
-        formatCurrency(values[index]),
-      ])
+      samples.map((sample, index) => {
+        const row: (string | number)[] = [
+          formatCurrency(sample.underlying),
+          pctFromSpot[index],
+          formatCurrency(values[index]),
+        ]
+        if (perLegCharges) {
+          // sample.expiry is already net-of-charges because StrategyBuilder
+          // threads perLegCharges into computePayoff() upstream of this chart.
+          row.push(formatCurrency(sample.expiry))
+        }
+        return row
+      })
 
     const traces: PlotlyTypes.Data[] = [
       {
@@ -224,39 +249,73 @@ export function PayoffChart({
       })
     }
 
-    // Bold vertical strike lines (always visible on chart)
-    for (const leg of strikeLegs) {
+    const shapes: Partial<PlotlyTypes.Shape>[] = []
+
+    // Vertical strike lines + on-line handle dots. When `onStrikeChange` is
+    // supplied the user can drag these on-chart affordances to change a leg's
+    // strike; see the `handleRelayout` callback wired below. When the callback
+    // is absent we still render a non-editable shape so the legend stays
+    // consistent — strike identity is meaningful even when interaction is off.
+    const strikeEditable = Boolean(onStrikeChange)
+    strikeLegs.forEach((leg, i) => {
       const strike = leg.strike ?? spot
       const isCe = leg.optionType === 'CE'
       const isSell = leg.side === 'SELL'
-      traces.push({
-        x: [strike, strike],
-        y: [yLo, yHi],
-        type: 'scatter',
-        mode: 'lines',
-        name: legLabel(leg),
+      const color = isCe ? colors.ceStrike : colors.peStrike
+      // 1) Vertical strike line
+      shapes.push({
+        type: 'line',
+        xref: 'x',
+        yref: 'paper',
+        x0: strike,
+        x1: strike,
+        y0: 0,
+        y1: 1,
         line: {
-          color: isCe ? colors.ceStrike : colors.peStrike,
+          color,
           width: isSell ? 2 : 3,
           dash: isSell ? 'dash' : 'solid',
         },
-        hovertemplate: `<b>${leg.side} ${leg.optionType}</b> @ %{x:,.0f}<extra></extra>`,
-        showlegend: true,
+        editable: strikeEditable,
+        // `name` is the round-trip key — handleRelayout parses `strike:<id>`
+        // back into a leg id and re-snaps the strike on commit.
+        name: `strike:${leg.id}`,
+        label: legLabel(leg),
+        legendgroup: `strike-${i}`,
+        legendwidth: 1.4,
       })
-    }
+      // 2) Small circle handle anchored just above the plot area
+      if (strikeEditable) {
+        shapes.push({
+          type: 'circle',
+          xref: 'x',
+          yref: 'paper',
+          // Width 12 px equivalents in data space; the chart handles hover+drag
+          // from the bounding box even if it isn't visually obvious.
+          x0: strike - 6,
+          x1: strike + 6,
+          y0: 0.985,
+          y1: 1.02,
+          fillcolor: color,
+          line: { color, width: 1.5 },
+          editable: true,
+          name: `handle:${leg.id}`,
+        })
+      }
+    })
 
-    const shapes: Partial<PlotlyTypes.Shape>[] = [
-      {
-        type: 'line',
-        xref: 'paper',
-        x0: 0,
-        x1: 1,
-        yref: 'y',
-        y0: 0,
-        y1: 0,
-        line: { color: colors.zeroLine, width: 1 },
-      },
-    ]
+    // Zero-line baseline (drawn under strikes so vertical strike marks
+    // remain visually prominent).
+    shapes.push({
+      type: 'line',
+      xref: 'paper',
+      x0: 0,
+      x1: 1,
+      yref: 'y',
+      y0: 0,
+      y1: 0,
+      line: { color: colors.zeroLine, width: 1 },
+    })
 
     // Stepped σ bands: the wider 2σ band is drawn first so the 1σ band
     // overlays on top of it, producing a visually distinct inner (darker)
@@ -397,7 +456,10 @@ export function PayoffChart({
         range: [xs[0], xs[xs.length - 1]],
       },
       yaxis: {
-        title: { text: 'Profit / Loss', font: { color: colors.text, size: 12 } },
+        title: {
+          text: perLegCharges ? 'Net P&L (after charges)' : 'Profit / Loss',
+          font: { color: colors.text, size: 12 },
+        },
         tickfont: { color: colors.text, size: 10 },
         gridcolor: colors.grid,
         zeroline: true,
@@ -430,6 +492,7 @@ export function PayoffChart({
     isDark,
     formatCurrency,
     strikeLegs,
+    perLegCharges,
   ])
 
   const representativeSelection = useMemo(() => {
@@ -486,6 +549,33 @@ export function PayoffChart({
     Number.isFinite(value) ? formatCurrency(value) : value > 0 ? 'Unlimited' : 'Unlimited loss'
   const currentLabel = formatHorizon(scenario.daysElapsed)
 
+  // re-plotly.js's `onRelayout` payload includes `layout.shapes` whenever a
+  // shape was dragged. We only react to lines whose `name` starts with
+  // "strike:" — the matching "handle:<id>" circle's edit resolves to the
+  // same strike and is ignored to avoid double-emit.
+  const handleRelayout = (gd: { layout?: { shapes?: PlotlyTypes.Shape[] } } | null | undefined) => {
+    if (!onStrikeChange) return
+    const shapes = gd?.layout?.shapes
+    if (!Array.isArray(shapes) || shapes.length === 0) return
+    for (const sh of shapes) {
+      const name = (sh as { name?: string }).name
+      if (typeof name !== 'string' || !name.startsWith('strike:')) continue
+      const legId = name.slice('strike:'.length)
+      const x = Number(sh.x0)
+      if (!Number.isFinite(x)) continue
+      const leg = strikeLegs.find((l) => l.id === legId)
+      if (!leg) continue
+      const snapped = snapStrike(x, strikeStep)
+      const prev = previousStrikesRef.current.get(legId)
+      if (prev === snapped) continue
+      // Emit first, then record — `handleStrikeFromChart` in StrategyBuilder
+      // mirrors `leg.strike` so on the next relayout (e.g. the handle's
+      // own drift back to the same x) `prev === snapped` will already hold.
+      onStrikeChange(legId, snapped)
+      previousStrikesRef.current.set(legId, snapped)
+    }
+  }
+
   return (
     <section aria-labelledby={regionHeadingId} className="min-w-0 max-w-full overflow-hidden">
       <h2 id={regionHeadingId} className="sr-only">
@@ -496,73 +586,22 @@ export function PayoffChart({
         layout={layout}
         config={config}
         useResizeHandler
+        onRelayout={handleRelayout}
         style={{ width: '100%', height }}
       />
-      {onStrikeChange && strikeLegs.length > 0 && (
-        <div className="space-y-2 rounded-lg border bg-muted/20 px-3 py-2.5">
-          <div className="flex items-center justify-between gap-2">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-              Adjust strikes (updates symbol, price &amp; charges)
-            </div>
-            {onResetStrikes && canResetStrikes && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-7 gap-1 text-[10px]"
-                onClick={onResetStrikes}
-              >
-                <RotateCcw className="h-3 w-3" />
-                Reset
-              </Button>
-            )}
-          </div>
-          {strikeLegs.map((leg) => {
-            const strike = leg.strike ?? scenario.spot
-            const isCe = leg.optionType === 'CE'
-            const isBuy = leg.side === 'BUY'
-            return (
-              <label key={leg.id} className="flex items-center gap-3 text-xs">
-                <span
-                  className={cn(
-                    'inline-flex w-[4.5rem] shrink-0 items-center gap-1 font-bold tabular-nums',
-                    isBuy ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400'
-                  )}
-                  title={`${leg.side} ${leg.optionType}`}
-                >
-                  <span
-                    className={cn(
-                      'inline-flex h-4 w-4 items-center justify-center rounded text-[9px]',
-                      isBuy ? 'bg-emerald-500/15' : 'bg-rose-500/15'
-                    )}
-                  >
-                    {isBuy ? 'B' : 'S'}
-                  </span>
-                  <span style={{ color: isCe ? colors.ceStrike : colors.peStrike }}>{leg.optionType}</span>
-                </span>
-                <input
-                  type="range"
-                  className="h-2 flex-1 cursor-pointer accent-current"
-                  style={{ accentColor: isCe ? colors.ceStrike : colors.peStrike }}
-                  min={xBounds.min}
-                  max={xBounds.max}
-                  step={strikeStep > 0 ? strikeStep : 1}
-                  value={strike}
-                  onChange={(e) => {
-                    const next = snapStrike(Number(e.target.value), strikeStep)
-                    if (next !== strike) onStrikeChange(leg.id, next)
-                  }}
-                />
-                <span className="w-16 shrink-0 text-right font-semibold tabular-nums">{strike}</span>
-                <span className="hidden w-24 shrink-0 truncate text-[10px] text-muted-foreground sm:inline">
-                  ₹{leg.price.toFixed(1)}
-                </span>
-              </label>
-            )
-          })}
+      {onStrikeChange && strikeLegs.length > 0 && onResetStrikes && canResetStrikes && (
+        <div className="flex items-center justify-end px-1 pb-1.5">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 gap-1 text-[10px]"
+            onClick={onResetStrikes}
+          >
+            <RotateCcw className="h-3 w-3" /> Reset strikes
+          </Button>
         </div>
       )}
-
       <div className="space-y-3 border-t px-3 py-3 text-xs">
         <output aria-live="polite" aria-atomic="true" className="block text-muted-foreground">
           Scenario spot <strong className="text-foreground">{formatCurrency(scenario.spot)}</strong>
