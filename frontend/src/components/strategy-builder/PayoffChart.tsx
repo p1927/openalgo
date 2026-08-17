@@ -39,13 +39,6 @@ export interface PayoffChartProps {
   perLegCharges?: Record<string, number>
 }
 
-function legLabel(leg: StrategyLeg): string {
-  const side = leg.side === 'SELL' ? 'S' : 'B'
-  const opt = leg.optionType ?? 'CE'
-  const strike = leg.strike ?? 0
-  return `${side} ${opt} ${strike}`
-}
-
 const MAX_REPRESENTATIVE_ROWS = 7
 const MAX_SUMMARY_BREAKEVENS = 4
 
@@ -250,7 +243,18 @@ export function PayoffChart({
       })
     }
 
-    const shapes: Partial<PlotlyTypes.Shape>[] = []
+    // Plotly's `Partial<Shape>` type is strict — it doesn't expose the
+    // `editable: true` flag (per Plotly docs, a shape-level flag that
+    // makes individual shapes draggable) or a string `name`/`legendwidth`
+    // used for round-tripping through `plotly_relayout`. Locally we extend
+    // Shape with the bits we actually drive; the runtime cast at render
+    // time is harmless because we hand the array back to Plotly unmodified.
+    type EditableShape = Partial<PlotlyTypes.Shape> & {
+      editable?: boolean
+      name?: string
+      legendwidth?: number
+    }
+    const shapes: EditableShape[] = []
 
     // Vertical strike lines + on-line handle dots. When `onStrikeChange` is
     // supplied the user can drag these on-chart affordances to change a leg's
@@ -281,7 +285,6 @@ export function PayoffChart({
         // `name` is the round-trip key — handleRelayout parses `strike:<id>`
         // back into a leg id and re-snaps the strike on commit.
         name: `strike:${leg.id}`,
-        label: legLabel(leg),
         legendgroup: `strike-${i}`,
         legendwidth: 1.4,
       })
