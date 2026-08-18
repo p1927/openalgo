@@ -189,6 +189,23 @@ class BrokerData:
         start = str(start_date)[:10]
         end = str(end_date)[:10]
 
+        # The chart client only knows the real wall-clock date and always
+        # requests a range anchored on it (e.g. "last 30 days from today"),
+        # not the day actually being replayed. The replay catalog's data
+        # root is the same directory the live recorder writes into, so a
+        # real "today" query can come back non-empty with genuine
+        # live-recorded candles even while a different day is armed for
+        # replay — silently showing the chart real-world dates instead of
+        # the simulator's simulated day. Whenever this broker is actually
+        # in replay mode, the active replay window is authoritative: source
+        # the query range from it instead of trusting the caller's dates,
+        # so real-today data in the same catalog can never masquerade as
+        # the requested replay window.
+        if is_option or self._mode()["mode"] != "live":
+            fallback_start, fallback_end = self._active_replay_window()
+            if fallback_start:
+                start, end = fallback_start, fallback_end
+
         if is_option:
             rows = self._history_options(symbol, exchange, start, end, interval)
         elif interval in _INTRADAY_MINUTES:
@@ -199,23 +216,6 @@ class BrokerData:
             rows = self._history_daily(catalog, symbol, exchange, start, end)
         else:
             rows = []
-
-        if not rows and not is_option:
-            # The chart requests a range anchored on the real wall-clock date
-            # (e.g. "last 30 days from today"), which the replay catalog has
-            # no coverage for — the catalog only holds the active replay
-            # window. Retry against that window instead of returning empty,
-            # so a replay day's chart isn't blank just because the caller
-            # didn't know which day is actually being replayed.
-            fallback_start, fallback_end = self._active_replay_window()
-            if fallback_start and (fallback_start, fallback_end) != (start, end):
-                if interval in _INTRADAY_MINUTES:
-                    rows = self._history_intraday(
-                        catalog, symbol, exchange, fallback_start, fallback_end,
-                        bar_minutes=_INTRADAY_MINUTES[interval],
-                    )
-                elif interval in {"D", "1d", "1day"}:
-                    rows = self._history_daily(catalog, symbol, exchange, fallback_start, fallback_end)
 
         if not rows:
             return pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume", "oi"])
@@ -305,6 +305,14 @@ class BrokerData:
         if frame.empty:
             return []
         day_frame = frame[(frame["day"] >= start) & (frame["day"] <= end)].copy()
+        if day_frame.empty:
+            return []
+        # Clip to the sim clock so a replay day's already-recorded but
+        # not-yet-reached minutes (the catalog may hold a full day even
+        # though sim_now is only partway through it) never render as
+        # "future" candles ahead of where the simulator actually is.
+        sim_now = self._replay.sim_now()
+        day_frame = day_frame[day_frame["ts_ist"] <= sim_now]
         if day_frame.empty:
             return []
 

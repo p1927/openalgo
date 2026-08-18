@@ -387,6 +387,28 @@ export class TradingTerminal {
     }
   }
 
+  /**
+   * "Now" for history-window anchoring, sourced from the selected broker
+   * rather than the browser clock. For most brokers this is the same as
+   * `nowSec()` (marketcontext's `context_generation` is real wall-clock
+   * time), but for `stock_simulator` it's the replay clock's `sim_now` —
+   * which can be a different date entirely and doesn't advance at
+   * wall-clock speed. Falls back to `nowSec()` if the call fails so a
+   * transient marketcontext error never blocks a history load.
+   */
+  async serverNowSec(): Promise<number> {
+    try {
+      const j = await this.api<{
+        data?: { context_generation?: string; simulator?: { active?: boolean; sim_now?: string } }
+      }>('marketcontext', {})
+      const iso = (j.data?.simulator?.active && j.data.simulator.sim_now) || j.data?.context_generation
+      const t = iso ? Math.floor(Date.parse(iso) / 1000) : NaN
+      return Number.isFinite(t) ? t : nowSec()
+    } catch {
+      return nowSec()
+    }
+  }
+
   /* ── trader-facing error text (technical chain stripped; full to console) */
   private cleanError(e: unknown): string {
     console.error('[trading]', e)
@@ -1520,7 +1542,7 @@ export class TradingTerminal {
       async () => {
         try {
           if (this.sym && this.rest) {
-            const to = nowSec()
+            const to = await this.serverNowSec()
             const fresh = await this.rest.getBars({
               symbol: this.sym.symbol,
               exchange: this.sym.exchange,
@@ -1609,7 +1631,7 @@ export class TradingTerminal {
     this.lsSet('symbol', JSON.stringify({ symbol: this.sym.symbol, exchange: this.sym.exchange }))
 
     // history
-    const to = nowSec()
+    const to = await this.serverNowSec()
     this.lastLtp = null
     this.prevClose = null
     this.liveBucket = null
