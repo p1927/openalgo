@@ -1,6 +1,6 @@
 import type * as PlotlyTypes from 'plotly.js'
-import { RotateCcw } from 'lucide-react'
-import { useId, useMemo, useRef } from 'react'
+import { MoveHorizontal, RotateCcw } from 'lucide-react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import Plot from '@/lib/Plot2D'
 import { Button } from '@/components/ui/button'
 import {
@@ -267,7 +267,8 @@ export function PayoffChart({
       const isCe = leg.optionType === 'CE'
       const isSell = leg.side === 'SELL'
       const color = isCe ? colors.ceStrike : colors.peStrike
-      // 1) Vertical strike line
+      // 1) Vertical strike line — drawn above plots but below annotations
+      //    so the handles render on top of it.
       shapes.push({
         type: 'line',
         xref: 'x',
@@ -287,21 +288,22 @@ export function PayoffChart({
         name: `strike:${leg.id}`,
         legendgroup: `strike-${i}`,
         legendwidth: 1.4,
+        layer: 'below',
       })
-      // 2) Small circle handle anchored just above the plot area
+      // 2) Small circle handle anchored just above the plot area so it
+      //    doesn't fight with the strike-line for clicks/hover. Width 18 px
+      //    for a bigger hit target than the previous 12 px.
       if (strikeEditable) {
         shapes.push({
           type: 'circle',
           xref: 'x',
           yref: 'paper',
-          // Width 12 px equivalents in data space; the chart handles hover+drag
-          // from the bounding box even if it isn't visually obvious.
-          x0: strike - 6,
-          x1: strike + 6,
+          x0: strike - 9,
+          x1: strike + 9,
           y0: 0.985,
-          y1: 1.02,
+          y1: 1.025,
           fillcolor: color,
-          line: { color, width: 1.5 },
+          line: { color, width: 2 },
           editable: true,
           name: `handle:${leg.id}`,
         })
@@ -376,18 +378,34 @@ export function PayoffChart({
       line: { color: colors.spotLine, width: 1.5, dash: 'dot' },
     })
 
-    const annotations: Partial<PlotlyTypes.Annotations>[] = [
-      {
-        x: spot,
-        y: 1.06,
-        xref: 'x',
-        yref: 'paper',
-        text: `<b>${spot.toFixed(2)}</b>`,
-        showarrow: false,
-        yanchor: 'bottom',
-        font: { size: 12, color: colors.spotLine },
-      },
-    ]
+    const annotations: Partial<PlotlyTypes.Annotations>[] = []
+
+    // Spot label — anchored at spot x but on `y: 1.06 (paper)` just like
+    // the σ labels. When a strike is within ~3% of spot, push the spot
+    // label left/right of the strike to avoid overlap; otherwise it sits
+    // directly above spot.
+    const strikeXValues = strikeLegs.map((l) => l.strike ?? scenario.spot)
+    const minStrikeDistance = strikeXValues.reduce((acc, x) => {
+      const d = Math.abs(x - scenario.spot)
+      return d > 0 && (acc === 0 || d < acc) ? d : acc
+    }, 0)
+    const spotXAnchor: 'left' | 'right' | 'center' =
+      minStrikeDistance > 0 && minStrikeDistance < (xs[xs.length - 1] - xs[0]) * 0.05
+        ? strikeXValues.some((x) => x > spot)
+          ? 'left'
+          : 'right'
+        : 'center'
+    annotations.push({
+      x: spot,
+      y: 1.06,
+      xref: 'x',
+      yref: 'paper',
+      text: `<b>${spot.toFixed(2)}</b>`,
+      showarrow: false,
+      xanchor: spotXAnchor,
+      yanchor: 'bottom',
+      font: { size: 12, color: colors.spotLine },
+    })
 
     if (b1 && b2) {
       const sigmaLabels: Array<{ x: number; text: string }> = [
@@ -410,6 +428,34 @@ export function PayoffChart({
         })
       }
     }
+
+    // Per-leg strike annotations — same y row as the σ / spot labels. Each
+    // bold S/B + currency + CE/PE identifies the leg and current strike at
+    // a glance. Annotations are pushed AFTER σ and spot so Plotly's renderer
+    // lays them last (annotations paint on top of shapes by default).
+    strikeLegs.forEach((leg) => {
+      const strike = leg.strike ?? spot
+      const isCe = leg.optionType === 'CE'
+      const isSell = leg.side === 'SELL'
+      const color = isCe ? colors.ceStrike : colors.peStrike
+      const sideMark = isSell ? 'S' : 'B'
+      const optMark = leg.optionType ?? ''
+      annotations.push({
+        x: strike,
+        y: 1.045,
+        xref: 'x',
+        yref: 'paper',
+        text: `<b>${sideMark}</b> ${formatCurrency(strike)} <b>${optMark}</b>`,
+        showarrow: false,
+        xanchor: 'center',
+        yanchor: 'bottom',
+        font: {
+          size: 10,
+          color,
+          family: 'system-ui, sans-serif',
+        },
+      })
+    })
 
     annotations.push({
       x: 1,
@@ -590,6 +636,12 @@ export function PayoffChart({
       const snapped = snapStrike(x, strikeStep)
       const prev = previousStrikesRef.current.get(legId)
       if (prev === snapped) continue
+      // First drag ever — flip the local "seen-drag" toggle so the chart
+      // header drops its one-time "drag any strike line" hint callout.
+      if (!hasInteractedRef.current) {
+        hasInteractedRef.current = true
+        setHintVisible(false)
+      }
       // Emit first, then record — `handleStrikeFromChart` in StrategyBuilder
       // mirrors `leg.strike` so on the next relayout (e.g. the handle's
       // own drift back to the same x) `prev === snapped` will already hold.
@@ -597,6 +649,23 @@ export function PayoffChart({
       previousStrikesRef.current.set(legId, snapped)
     }
   }
+
+  // Track whether the user has dragged a strike at least once. The
+  // local hint callout disappears the moment they've touched a strike —
+  // it's a discovery aid, not a permanent label. `strikeEditable` and
+  // `strikeLegs` are read from the chart's render closure; we can't
+  // capture them outside the useMemo without re-deriving, so declare a
+  // tiny memo here for the same gate the hint uses.
+  const dragHintEligible = Boolean(onStrikeChange) && strikeLegs.length > 0
+  const hasInteractedRef = useRef(false)
+  const [hintVisible, setHintVisible] = useState(dragHintEligible)
+  // Keep hintVisible in sync with the gate: re-enable it if a future flag
+  // flips editability back on for a populated chart.
+  useEffect(() => {
+    if (!hasInteractedRef.current) {
+      setHintVisible(dragHintEligible)
+    }
+  }, [dragHintEligible])
 
   return (
     <section aria-labelledby={regionHeadingId} className="min-w-0 max-w-full overflow-hidden">
@@ -622,6 +691,15 @@ export function PayoffChart({
           >
             <RotateCcw className="h-3 w-3" /> Reset strikes
           </Button>
+        </div>
+      )}
+      {hintVisible && (
+        <div
+          className="flex items-center justify-center gap-1.5 -mt-2 pb-1.5 text-[10px] font-medium text-muted-foreground"
+          aria-live="polite"
+        >
+          <MoveHorizontal className="h-3 w-3" aria-hidden="true" />
+          Drag any strike line on the chart to adjust its value
         </div>
       )}
       <div className="space-y-3 border-t px-3 py-3 text-xs">
