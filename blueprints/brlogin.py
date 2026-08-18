@@ -62,9 +62,18 @@ def broker_callback(broker, para=None):
             logger.warning(f"User not in session for {broker} callback, redirecting to login")
             return redirect(url_for("auth.login"))
 
-    if session.get("logged_in"):
-        # Store broker in session and g
-        session["broker"] = broker
+    if session.get("logged_in") and session.get("broker") == broker:
+        # Re-entrant callback for the SAME broker the session already holds
+        # (e.g. duplicate OAuth redirect) -- safe to skip re-auth. Switching
+        # to a DIFFERENT broker while logged in (e.g. real broker ->
+        # stock_simulator, or vice versa) must fall through to the auth
+        # dispatch below: it's what calls handle_auth_success, which is the
+        # only place that stores a token for the newly-selected broker.
+        # Without this guard the old code path here just flipped
+        # session["broker"] and skipped straight to the dashboard, leaving
+        # the DB token for the PREVIOUS broker (or none at all) -- the
+        # dashboard then reports "broker session expired" for a broker that
+        # was never actually logged into.
         return redirect(url_for("dashboard_bp.dashboard"))
 
     broker_auth_functions = app.broker_auth_functions
