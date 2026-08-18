@@ -171,6 +171,52 @@ def resume_replay():
     return jsonify({"status": "ok", **service.status()})
 
 
+@stock_simulator_control_bp.route("/replay/seek", methods=["POST"])
+@limiter.limit(API_RATE_LIMIT)
+def seek_replay():
+    """Scrub the simulator's replay clock to an arbitrary point in the armed day."""
+    unauthorized = _require_control_token()
+    if unauthorized is not None:
+        return unauthorized
+
+    body = request.get_json(silent=True) or {}
+    time_str = str(body.get("time") or "").strip()
+    if not time_str:
+        return jsonify({"status": "error", "message": "time is required"}), 400
+
+    try:
+        service = _get_replay_service()
+    except Exception as exc:
+        logger.exception("failed to load replay service for seek")
+        return jsonify({"status": "error", "message": str(exc)}), 500
+
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    ist = ZoneInfo("Asia/Kolkata")
+    replay_date = service.clock.replay_date
+    try:
+        if len(time_str) <= 8 and ":" in time_str and "T" not in time_str:
+            # HH:MM or HH:MM:SS on the currently armed replay date.
+            parts = time_str.split(":")
+            hour, minute = int(parts[0]), int(parts[1])
+            second = int(parts[2]) if len(parts) > 2 else 0
+            target = datetime.strptime(replay_date, "%Y-%m-%d").replace(
+                hour=hour, minute=minute, second=second, microsecond=0, tzinfo=ist
+            )
+        else:
+            target = datetime.fromisoformat(time_str)
+            if target.tzinfo is None:
+                target = target.replace(tzinfo=ist)
+    except (ValueError, IndexError):
+        return jsonify(
+            {"status": "error", "message": "time must be HH:MM[:SS] or an ISO datetime"}
+        ), 400
+
+    service.seek(target)
+    return jsonify({"status": "ok", **service.status()})
+
+
 @stock_simulator_control_bp.route("/replay/stop", methods=["POST"])
 @limiter.limit(API_RATE_LIMIT)
 def stop_replay():

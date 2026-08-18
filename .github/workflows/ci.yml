@@ -150,35 +150,6 @@ jobs:
         run: uv run pip-audit
         continue-on-error: true
 
-  # Auto-commit built frontend dist (main branch only)
-  commit-dist:
-    runs-on: ubuntu-latest
-    needs: [frontend-build, frontend-lint, frontend-test]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: actions/setup-node@v7
-        with:
-          node-version: '22'
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
-      - name: Build frontend
-        working-directory: frontend
-        run: |
-          npm ci
-          npm run build
-      - name: Commit and push dist
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -f frontend/dist/
-          git diff --staged --quiet || git commit -m "chore: auto-build frontend dist [skip ci]"
-          git push
-
   # Docker build, scan, and push to Docker Hub (main branch only).
   #
   # Multi-arch (issue #1205): builds linux/amd64 and linux/arm64 natively on
