@@ -199,6 +199,148 @@ def test_start_without_end_date_clears_stale_range_env(
     assert "NSE_REPLAY_END_DATE" not in os.environ
 
 
+def _spy_mc_download(monkeypatch):
+    """Replace ``async_master_contract_download`` with a no-op spy.
+
+    The endpoint does a lazy ``from utils.auth_utils import
+    async_master_contract_download`` inside the new MC-rebuild block,
+    so we patch the symbol in the source module's namespace — same
+    trick the override tests use. Returns the spy list; append
+    inspection lets the test assert whether (and when) the download
+    was kicked off.
+
+    Why a no-op (not a recording stub that calls the real function):
+    the real ``async_master_contract_download`` spawns a daemon
+    thread that imports trade_integrations and writes to the master
+    contract status DB. Letting it run in tests would race with
+    subsequent tests (the calendar test would see a transient
+    "downloading" status and hit a half-initialized import). The
+    spy records the call but does nothing, so the thread exits
+    immediately and the test environment stays clean.
+    """
+    calls: list[tuple[str, ...]] = []
+    from utils import auth_utils
+
+    def _spy(broker: str) -> None:
+        calls.append((broker,))
+        # No-op: do NOT call the real function. The real function
+        # spawns a daemon thread that touches the MC status DB and
+        # imports trade_integrations, which races with the rest of
+        # the test suite. The endpoint under test only cares that
+        # ``async_master_contract_download`` was called with the
+        # right argument; the body of the download is exercised by
+        # ``test_stock_simulator_master_contract.py`` separately.
+        return None
+
+    monkeypatch.setattr(auth_utils, "async_master_contract_download", _spy)
+    return calls
+
+
+def test_start_triggers_mc_rebuild_when_replay_date_changes(
+    control_app, control_token, monkeypatch
+) -> None:
+    """Arming a NEW replay day kicks off async MC download in a thread.
+
+    Regression test for the bug where the server-to-server control
+    endpoint didn't rebuild the symtoken table when the user moved
+    from one replay day to another. The Sandbox UI path already
+    did this; this test pins the control endpoint to the same
+    behaviour so the two arm-replay paths can't drift.
+    """
+    import os
+
+    from database import sandbox_db
+
+    monkeypatch.setattr(sandbox_db, "set_config", lambda *a, **kw: True)
+    monkeypatch.setenv("NSE_REPLAY_DATE", "2024-04-10")  # prior day
+    calls = _spy_mc_download(monkeypatch)
+
+    client = control_app.test_client()
+    res = client.post(
+        "/stock_simulator/control/replay/start",
+        json={"date": "2024-04-15"},  # NEW day
+        headers={"X-Simulator-Control-Token": control_token},
+    )
+
+    assert res.status_code == 200
+    body = res.get_json()
+    assert body.get("master_contract_refresh") == "started"
+    assert os.environ["NSE_REPLAY_DATE"] == "2024-04-15"
+    # The spy runs synchronously in the endpoint's daemon thread
+    # wrapper; no polling needed (the spy is a no-op, so the thread
+    # exits the moment it's called). Give it a brief moment anyway
+    # to land the append in case the scheduler interleaves.
+    import time
+
+    time.sleep(0.05)
+    assert calls == [("stock_simulator",)]
+
+
+def test_start_skips_mc_rebuild_when_replay_date_unchanged(
+    control_app, control_token, monkeypatch
+) -> None:
+    """Re-arming the SAME day does NOT trigger an MC rebuild.
+
+    Rebuilding on every start call would be wasteful and would race
+    with any in-flight download from a previous arm. The trigger
+    only fires when the date actually changes, matching the Sandbox
+    UI's convention.
+    """
+    from database import sandbox_db
+
+    monkeypatch.setattr(sandbox_db, "set_config", lambda *a, **kw: True)
+    monkeypatch.setenv("NSE_REPLAY_DATE", "2024-04-15")  # same as new
+    calls = _spy_mc_download(monkeypatch)
+
+    client = control_app.test_client()
+    res = client.post(
+        "/stock_simulator/control/replay/start",
+        json={"date": "2024-04-15"},
+        headers={"X-Simulator-Control-Token": control_token},
+    )
+
+    assert res.status_code == 200
+    body = res.get_json()
+    assert "master_contract_refresh" not in body
+    assert calls == []
+
+
+def test_start_triggers_mc_rebuild_on_first_arm(
+    control_app, control_token, monkeypatch
+) -> None:
+    """The very first arm (no prior ``NSE_REPLAY_DATE`` in env) DOES
+    trigger an MC rebuild.
+
+    Rationale: the symtoken table is empty, the new dropdown will
+    show expiries from the bundle, and the chain call needs the
+    matching (strike, expiry) rows. The sentinel default of
+    ``"2021-03-25"`` in the prior-date read makes the
+    ``new != prior`` check fire on first arm too. This mirrors the
+    behaviour of the Sandbox UI's arm-replay path.
+    """
+    from database import sandbox_db
+
+    monkeypatch.setattr(sandbox_db, "set_config", lambda *a, **kw: True)
+    monkeypatch.delenv("NSE_REPLAY_DATE", raising=False)
+    calls = _spy_mc_download(monkeypatch)
+
+    client = control_app.test_client()
+    res = client.post(
+        "/stock_simulator/control/replay/start",
+        json={"date": "2024-04-15"},
+        headers={"X-Simulator-Control-Token": control_token},
+    )
+
+    assert res.status_code == 200
+    body = res.get_json()
+    assert body.get("master_contract_refresh") == "started"
+    # Spy is a no-op, so the daemon thread exits immediately.
+    import time
+
+    time.sleep(0.05)
+    assert calls == [("stock_simulator",)]
+
+
 def test_pause_returns_200_when_armed(control_app, control_token, fake_service) -> None:
     client = control_app.test_client()
     res = client.post(

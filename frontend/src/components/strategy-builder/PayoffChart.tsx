@@ -78,6 +78,18 @@ function snapStrike(value: number, step: number): number {
 // given chart container size.
 const HANDLE_WIDTH_PCT_OF_DOMAIN = 0.03
 
+/**
+ * When two or more legs share (or nearly share) a strike, their lines and
+ * drag-handles would otherwise render exactly on top of each other —
+ * visually indistinguishable, and only the topmost shape in Plotly's
+ * z-order actually receives drag/click events. `offset` nudges the leg's
+ * line + handle apart from its strike-mates along the x-axis by a small,
+ * scale-invariant amount so every leg in the cluster stays independently
+ * visible and draggable; `handleRelayout` subtracts it back out before
+ * resolving the dragged x-position to a real strike.
+ */
+type StrikeOffsetInfo = { offset: number; groupSize: number; groupIndex: number }
+
 export function PayoffChart({
   title,
   chartIdentity = title,
@@ -121,6 +133,12 @@ export function PayoffChart({
   // setLegs(...) work.
   const previousStrikesRef = useRef<Map<string, number>>(new Map())
 
+  // Populated each render from the useMemo below (see the sync effect further
+  // down) so `handleRelayout` — which runs outside the memo, in response to a
+  // user drag — can undo the anti-overlap offset before resolving the real
+  // strike.
+  const strikeOffsetsRef = useRef<Map<string, StrikeOffsetInfo>>(new Map())
+
   const colors = useMemo(
     () => ({
       paper: isDark ? (isAnalyzer ? '#171226' : '#0b1220') : '#ffffff',
@@ -144,7 +162,7 @@ export function PayoffChart({
     [isDark, isAnalyzer]
   )
 
-  const { data, layout, config } = useMemo(() => {
+  const { data, layout, config, strikeOffsetByLegId } = useMemo(() => {
     const { spot, iv, daysElapsed } = scenario
     const { samples } = payoff
     if (samples.length === 0) {
@@ -152,6 +170,7 @@ export function PayoffChart({
         data: [] as PlotlyTypes.Data[],
         layout: {} as Partial<PlotlyTypes.Layout>,
         config: {},
+        strikeOffsetByLegId: new Map<string, StrikeOffsetInfo>(),
       }
     }
 
@@ -285,6 +304,41 @@ export function PayoffChart({
     }
     const shapes: EditableShape[] = []
 
+    // Cluster legs whose strikes fall within one handle-width of each other
+    // (e.g. a straddle/strangle collapsed to one strike, or a calendar
+    // spread) and assign each a small deterministic x-offset so their lines
+    // and handles don't stack exactly on top of one another. See
+    // `StrikeOffsetInfo` above for why this exists.
+    const strikeOffsetByLegId = new Map<string, StrikeOffsetInfo>()
+    {
+      const collisionThreshold = handleHalfWidth * 2.2
+      const offsetStep = handleHalfWidth * 2.4
+      const sortedByStrike = [...strikeLegs]
+        .map((leg) => ({ leg, strike: leg.strike ?? spot }))
+        .sort((a, b) => a.strike - b.strike)
+      let clusterStart = 0
+      for (let idx = 1; idx <= sortedByStrike.length; idx++) {
+        const atEnd = idx === sortedByStrike.length
+        const gapExceeded =
+          !atEnd &&
+          sortedByStrike[idx].strike - sortedByStrike[idx - 1].strike >= collisionThreshold
+        if (atEnd || gapExceeded) {
+          const cluster = sortedByStrike.slice(clusterStart, idx)
+          if (cluster.length > 1) {
+            const n = cluster.length
+            cluster.forEach(({ leg }, i) => {
+              strikeOffsetByLegId.set(leg.id, {
+                offset: (i - (n - 1) / 2) * offsetStep,
+                groupSize: n,
+                groupIndex: i,
+              })
+            })
+          }
+          clusterStart = idx
+        }
+      }
+    }
+
     // Vertical strike lines + on-line handle dots. When `onStrikeChange` is
     // supplied the user can drag these on-chart affordances to change a leg's
     // strike; see the `handleRelayout` callback wired below. When the callback
@@ -293,6 +347,7 @@ export function PayoffChart({
     const strikeEditable = Boolean(onStrikeChange)
     strikeLegs.forEach((leg, i) => {
       const strike = leg.strike ?? spot
+      const renderX = strike + (strikeOffsetByLegId.get(leg.id)?.offset ?? 0)
       const isCe = leg.optionType === 'CE'
       const isSell = leg.side === 'SELL'
       const color = isCe ? colors.ceStrike : colors.peStrike
@@ -302,8 +357,8 @@ export function PayoffChart({
         type: 'line',
         xref: 'x',
         yref: 'paper',
-        x0: strike,
-        x1: strike,
+        x0: renderX,
+        x1: renderX,
         y0: 0,
         y1: 1,
         line: {
@@ -329,8 +384,8 @@ export function PayoffChart({
           type: 'circle',
           xref: 'x',
           yref: 'paper',
-          x0: strike - handleHalfWidth,
-          x1: strike + handleHalfWidth,
+          x0: renderX - handleHalfWidth,
+          x1: renderX + handleHalfWidth,
           y0: 0.985,
           y1: 1.025,
           fillcolor: color,
@@ -466,14 +521,21 @@ export function PayoffChart({
     // lays them last (annotations paint on top of shapes by default).
     strikeLegs.forEach((leg) => {
       const strike = leg.strike ?? spot
+      const offsetInfo = strikeOffsetByLegId.get(leg.id)
+      const renderX = strike + (offsetInfo?.offset ?? 0)
       const isCe = leg.optionType === 'CE'
       const isSell = leg.side === 'SELL'
       const color = isCe ? colors.ceStrike : colors.peStrike
       const sideMark = isSell ? 'S' : 'B'
       const optMark = leg.optionType ?? ''
       annotations.push({
-        x: strike,
-        y: 1.045,
+        x: renderX,
+        // Labels for a colliding cluster are additionally staggered
+        // vertically (on top of the x-offset shared with their line/handle)
+        // so overlapping strike text doesn't collapse into an unreadable
+        // blur — mirrors the anti-overlap treatment already used for the
+        // spot label above.
+        y: 1.045 + (offsetInfo ? offsetInfo.groupIndex * 0.02 : 0),
         xref: 'x',
         yref: 'paper',
         text: `<b>${sideMark}</b> ${formatCurrency(strike)} <b>${optMark}</b>`,
@@ -578,6 +640,7 @@ export function PayoffChart({
         modeBarButtonsToRemove: ['pan2d', 'select2d', 'lasso2d', 'autoScale2d', 'toggleSpikelines'],
         responsive: true,
       } as Partial<PlotlyTypes.Config>,
+      strikeOffsetByLegId,
     }
   }, [
     payoff,
@@ -633,6 +696,14 @@ export function PayoffChart({
     return { samples: selected, candidateCount: candidates.length }
   }, [payoff, scenario.spot])
 
+  // Keep the ref in sync with the latest per-leg anti-overlap offsets so
+  // `handleRelayout` (which fires from a Plotly event outside this render,
+  // not from the memo above) can undo the right offset for whichever leg
+  // was dragged.
+  useEffect(() => {
+    strikeOffsetsRef.current = strikeOffsetByLegId
+  }, [strikeOffsetByLegId])
+
   const summaryBreakevens = selectEvenly(payoff.breakevens, MAX_SUMMARY_BREAKEVENS)
 
   const scenarioSample = useMemo(() => {
@@ -664,7 +735,11 @@ export function PayoffChart({
       if (!Number.isFinite(x)) continue
       const leg = strikeLegs.find((l) => l.id === legId)
       if (!leg) continue
-      const snapped = snapStrike(x, strikeStep)
+      // Undo the anti-overlap offset (see StrikeOffsetInfo) before snapping
+      // — the shape's rendered x is nudged away from the true strike when
+      // it shares one with another leg.
+      const offset = strikeOffsetsRef.current.get(legId)?.offset ?? 0
+      const snapped = snapStrike(x - offset, strikeStep)
       const prev = previousStrikesRef.current.get(legId)
       if (prev === snapped) continue
       // First drag ever — flip the local "seen-drag" toggle so the chart

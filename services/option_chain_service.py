@@ -359,6 +359,20 @@ def get_option_chain(
         if not final_expiry:
             return False, {"status": "error", "message": "Expiry date is required."}, 400
 
+        # Resolve the active broker for this request. The chain call
+        # needs to know whether to attempt a lazy master-contract
+        # extension (stock_simulator only) when the symtoken table
+        # has no rows for the requested (underlying, expiry). The
+        # call is cheap (in-memory cache) and only fires on the
+        # stock_simulator path; for any other broker the variable
+        # is unused.
+        try:
+            _, _, active_broker = get_auth_token_broker(
+                api_key, include_feed_token=True
+            )
+        except Exception:
+            active_broker = None
+
         # Step 2: Determine quote exchange for underlying LTP
         quote_exchange = exchange
         if exchange.upper() in ["NFO", "BFO"]:
@@ -476,6 +490,70 @@ def get_option_chain(
 
         # Get strikes for CE (same strikes will work for PE)
         available_strikes = get_available_strikes(base_symbol, final_expiry, "CE", options_exchange)
+
+        if not available_strikes:
+            # --- BEGIN lazy MC extension (stock_simulator only) -------
+            # The symtoken table is missing rows for this (underlying,
+            # expiry) pair. For real brokers this is a real 404 — the
+            # broker doesn't have the contract. For stock_simulator
+            # the on-disk HF replay bundle may have the data even
+            # though the bulk MC build hasn't covered it yet (e.g. the
+            # user is mid-replay-arm and the async MC rebuild thread
+            # hasn't completed, or the bundle was updated after the
+            # last MC build). Try to extend the MC lazily from the
+            # bundle; if it works, the chain call can proceed.
+            #
+            # Modularity: the extension lives in
+            # ``openalgo/broker/stock_simulator/api/mc_extend.py`` so
+            # the chain service doesn't grow any simulator-specific
+            # knowledge beyond the active_broker check. To remove:
+            # delete mc_extend.py and this block.
+            # ------------------------------------------------------------
+            if active_broker == "stock_simulator":
+                try:
+                    from broker.stock_simulator.api._trade_path import (
+                        ensure_trade_integrations_path,
+                    )
+
+                    ensure_trade_integrations_path()
+
+                    from broker.stock_simulator.api.mc_extend import (
+                        extend_master_contract_for_expiry,
+                    )
+                    from trade_integrations.stock_simulator.replay import (
+                        get_replay_service,
+                    )
+
+                    replay_service = get_replay_service()
+                    extend_master_contract_for_expiry(
+                        base_symbol=base_symbol,
+                        expiry_date=final_expiry,
+                        options_exchange=options_exchange,
+                        replay_service=replay_service,
+                    )
+                    # The strikes cache in option_symbol_service holds
+                    # the empty result from the first call above.
+                    # Without invalidation, the retry would just read
+                    # the cached [] and the lazy extension would be
+                    # a no-op. ``clear_strikes_cache`` is the
+                    # documented entry point for "master contract was
+                    # updated" — see option_symbol_service.py:70.
+                    from services.option_symbol_service import (
+                        clear_strikes_cache,
+                    )
+
+                    clear_strikes_cache()
+                    available_strikes = get_available_strikes(
+                        base_symbol, final_expiry, "CE", options_exchange
+                    )
+                except Exception:
+                    logger.exception(
+                        "lazy MC extension failed for %s expiring %s; "
+                        "falling through to 404",
+                        base_symbol,
+                        final_expiry,
+                    )
+            # --- END lazy MC extension ---------------------------------
 
         if not available_strikes:
             return (

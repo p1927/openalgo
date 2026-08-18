@@ -26,6 +26,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useAuthStore } from '@/stores/authStore'
+import { copyToClipboard } from '@/utils/clipboard'
 import { showToast } from '@/utils/toast'
 
 async function fetchCSRFToken(): Promise<string> {
@@ -84,13 +85,12 @@ export default function ApiKey() {
   }
 
   const handleCopyApiKey = async () => {
-    if (apiKey) {
-      try {
-        await navigator.clipboard.writeText(apiKey)
-        showToast.success('API key copied to clipboard', 'clipboard')
-      } catch {
-        showToast.error('Failed to copy API key', 'clipboard')
-      }
+    if (!apiKey) return
+    const succeeded = await copyToClipboard(apiKey)
+    if (succeeded) {
+      showToast.success('API key copied to clipboard', 'clipboard')
+    } else {
+      showToast.error('Failed to copy API key', 'clipboard')
     }
   }
 

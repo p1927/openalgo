@@ -238,6 +238,33 @@ def api_expiries():
         f"Fetching expiries: exchange={exchange}, underlying={underlying}, "
         f"instrumenttype={instrumenttype}"
     )
+
+    # --- BEGIN simulator-aware expiry override -----------------------------
+    # Modular seam: when the active broker is stock_simulator, let the
+    # simulator answer "what expiries are available right now" using the
+    # replay clock instead of the symtoken table (which is frozen at
+    # master-contract build time). The actual logic lives in:
+    #   openalgo/broker/stock_simulator/api/expiry_overrides.py
+    #   integrations/trade_integrations/stock_simulator/options/expiry_query.py
+    # To REMOVE this feature: delete both files above and this block.
+    # Default behaviour for every other broker is unchanged.
+    # ----------------------------------------------------------------------
+    if session.get("broker") == "stock_simulator":
+        try:
+            from broker.stock_simulator.api.expiry_overrides import (
+                get_expiries_override,
+            )
+
+            override = get_expiries_override(underlying or "", exchange or "")
+        except Exception:
+            logger.exception(
+                "simulator expiry override import/call failed; using default path"
+            )
+            override = None
+        if override is not None:
+            return jsonify(override)
+    # --- END simulator-aware expiry override -------------------------------
+
     expiries = get_distinct_expiries(
         exchange=exchange, underlying=underlying, instrumenttype=instrumenttype
     )

@@ -743,6 +743,107 @@ describe('PayoffChart exact geometry', () => {
     expect(lowWidth / lowDomain).toBeCloseTo(highWidth / highDomain, 6)
   })
 
+  it('offsets strike lines/handles apart when two legs share the same strike, and resolves drags back to the true strike', () => {
+    // A straddle (long CE + long PE, both struck at 100) used to render its
+    // two strike lines and handles exactly on top of each other — only the
+    // topmost shape in Plotly's z-order could actually be dragged. Both
+    // legs must now get distinct x-positions for their line+handle pair.
+    const payoff = computePayoff(
+      [leg('c', 'BUY', 'CE', 100, 5), leg('p', 'BUY', 'PE', 100, 5)],
+      100,
+      7,
+      0,
+      [80, 120],
+      7,
+      0,
+      20,
+      NOW
+    )
+
+    render(
+      <PayoffChart
+        title="Straddle"
+        scenario={BASE_SCENARIO}
+        remainingYears={7 / 365}
+        payoff={payoff}
+        formatCurrency={formatCurrency}
+        legs={[leg('c', 'BUY', 'CE', 100, 5), leg('p', 'BUY', 'PE', 100, 5)]}
+        strikeStep={5}
+        onStrikeChange={() => {}}
+      />
+    )
+
+    const shapes = (plotCapture.props?.layout.shapes ?? []) as any[]
+    const callLine = shapes.find((s) => s.name === 'strike:c')
+    const putLine = shapes.find((s) => s.name === 'strike:p')
+    const callHandle = shapes.find((s) => s.name === 'handle:c')
+    const putHandle = shapes.find((s) => s.name === 'handle:p')
+    expect(callLine).toBeDefined()
+    expect(putLine).toBeDefined()
+    expect(callHandle).toBeDefined()
+    expect(putHandle).toBeDefined()
+
+    // Both legs' true strike is 100, but their rendered x-positions must
+    // differ so neither shape's hit region fully swallows the other's.
+    expect(callLine.x0).not.toBe(putLine.x0)
+    expect(callHandle.x0).not.toBe(putHandle.x0)
+    // The offset is small and symmetric around the true strike.
+    expect((callLine.x0 + putLine.x0) / 2).toBeCloseTo(100, 6)
+
+    // Per-leg annotations should also separate onto distinct positions.
+    const annotations = (plotCapture.props?.layout.annotations ?? []) as any[]
+    const callAnnotation = annotations.find((a) => a.xref === 'x' && String(a.text).includes('CE'))
+    const putAnnotation = annotations.find((a) => a.xref === 'x' && String(a.text).includes('PE'))
+    expect(callAnnotation.x).not.toBe(putAnnotation.x)
+  })
+
+  it('resolves a dragged strike-line offset back to the true (non-offset) strike on relayout', () => {
+    const payoff = computePayoff(
+      [leg('c', 'BUY', 'CE', 100, 5), leg('p', 'BUY', 'PE', 100, 5)],
+      100,
+      7,
+      0,
+      [80, 120],
+      7,
+      0,
+      20,
+      NOW
+    )
+    const onStrikeChange = vi.fn()
+
+    render(
+      <PayoffChart
+        title="Straddle"
+        scenario={BASE_SCENARIO}
+        remainingYears={7 / 365}
+        payoff={payoff}
+        formatCurrency={formatCurrency}
+        legs={[leg('c', 'BUY', 'CE', 100, 5), leg('p', 'BUY', 'PE', 100, 5)]}
+        strikeStep={5}
+        onStrikeChange={onStrikeChange}
+      />
+    )
+
+    const onRelayout = (plotCapture.props as any)?.onRelayout as (gd: unknown) => void
+    const shapes = (plotCapture.props?.layout.shapes ?? []) as any[]
+    const callLine = shapes.find((s) => s.name === 'strike:c')
+    // Simulate dragging the call's rendered (offset) line 10 rupees to the
+    // right of wherever it was rendered.
+    const draggedX = callLine.x0 + 10
+    onRelayout({
+      layout: {
+        shapes: [{ ...callLine, x0: draggedX, x1: draggedX }],
+      },
+    })
+
+    expect(onStrikeChange).toHaveBeenCalledTimes(1)
+    // The emitted strike must be relative to the true strike (100), not the
+    // rendered/offset position — snapped to the 5-rupee step.
+    const [legId, newStrike] = onStrikeChange.mock.calls[0]
+    expect(legId).toBe('c')
+    expect(newStrike).toBe(110)
+  })
+
   it('keeps the spot price at the horizontal midpoint of the axis even when strikes only extend one side', () => {
     // A single call struck well above spot with nothing on the downside
     // used to leave the sampled domain (and thus the axis) skewed right,

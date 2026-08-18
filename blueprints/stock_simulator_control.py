@@ -112,6 +112,17 @@ def start_replay():
     except Exception:
         logger.exception("failed to persist simulator replay settings to sandbox_db")
 
+    # Capture the prior replay date BEFORE we mutate os.environ so the
+    # MC-rebuild trigger below can decide whether the user actually
+    # armed a new day. The default ``"2021-03-25"`` is a sentinel shared
+    # with ``sandbox.api_simulator_config`` and ``utils.auth_utils`` —
+    # on a truly first arm (env unset) the sentinel forces the
+    # ``new != prior`` check to fire, which kicks off the MC rebuild.
+    # Without the sentinel the first arm would skip the rebuild and
+    # leave the user staring at a dropdown whose expiries the chain
+    # call can't honour (the symtoken table would be empty).
+    prior_replay_date = os.getenv("NSE_REPLAY_DATE", "2021-03-25").strip()[:10]
+
     os.environ["NSE_REPLAY_DATE"] = replay_date
     if end_date:
         os.environ["NSE_REPLAY_END_DATE"] = end_date
@@ -132,7 +143,39 @@ def start_replay():
         logger.exception("failed to reload replay service")
         return jsonify({"status": "error", "message": str(exc)}), 500
 
-    return jsonify({"status": "ok", **service.status()})
+    # --- BEGIN MC auto-rebuild (mirror sandbox.api_simulator_config) -----
+    # When the user arms a different replay day, the symtoken table
+    # (built by ``master_contract_download``) is now anchored to the
+    # old day. Without a rebuild, the option-chain endpoint would
+    # 404 on any (strike, expiry) the new day introduced. The Sandbox
+    # UI's arm-replay path already does this; the server-to-server
+    # control endpoint (used by the Vibe agent) didn't, which is a
+    # real bug now that the expiry dropdown surfaces bundle-driven
+    # expiries the user can actually pick.
+    #
+    # Match sandbox's pattern: only kick off a rebuild when the
+    # replay date actually changed. ``async_master_contract_download``
+    # runs in a daemon thread so the HTTP response is not blocked.
+    # ----------------------------------------------------------------------
+    mc_refresh = None
+    new_replay_date = os.getenv("NSE_REPLAY_DATE", "").strip()[:10]
+    if prior_replay_date and new_replay_date and new_replay_date != prior_replay_date:
+        from threading import Thread
+
+        from utils.auth_utils import async_master_contract_download
+
+        Thread(
+            target=async_master_contract_download,
+            args=("stock_simulator",),
+            daemon=True,
+        ).start()
+        mc_refresh = "started"
+    # --- END MC auto-rebuild --------------------------------------------
+
+    payload = {"status": "ok", **service.status()}
+    if mc_refresh:
+        payload["master_contract_refresh"] = mc_refresh
+    return jsonify(payload)
 
 
 @stock_simulator_control_bp.route("/replay/pause", methods=["POST"])
