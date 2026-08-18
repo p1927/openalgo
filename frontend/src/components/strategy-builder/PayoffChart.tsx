@@ -67,16 +67,47 @@ function snapStrike(value: number, step: number): number {
   return Math.round(value / step) * step
 }
 
-// The drag handle's hit target used to be a fixed ±9 data-space (price)
-// units regardless of the chart's price scale. That's a comfortable ~18px
-// target on a low-priced instrument's chart but shrinks to a couple of
-// pixels on NIFTY/BANKNIFTY-scale charts, where the visible x-axis spans
-// thousands of rupees over the same pixel width — making the handle nearly
-// unclickable. Sizing the handle as a percentage of the *visible domain
-// width* instead keeps its rendered pixel size roughly constant across
-// price scales, since domain-width-to-pixel-width is roughly constant for a
-// given chart container size.
-const HANDLE_WIDTH_PCT_OF_DOMAIN = 0.03
+// Fixed layout margins (see `chartLayout.margin` further down) — needed up
+// front to convert a target handle size in *pixels* into data-space /
+// paper-space units (see `handleHalfWidth`/`handleHalfHeightPaper` below).
+const CHART_MARGIN = { l: 70, r: 30, t: 80, b: 50 }
+// Target on-screen diameter of the draggable strike handle. Previously this
+// was sized as a flat 3% of the visible axis width with a hardcoded paper-
+// space height (0.985–1.025) — two independent unit systems (price for x,
+// figure-fraction for y) that happen to agree only by coincidence, so the
+// handle rendered as a stretched ellipse rather than a circle, and was
+// oversized on typical desktop widths (~24x18px blob). Sizing both axes
+// from the same pixel target keeps it a small, genuinely round dot.
+const HANDLE_DIAMETER_PX = 14
+
+/**
+ * Extends a piecewise-linear payoff series flat-out to the visible axis
+ * edges by linearly extrapolating the outermost segment's slope. Needed
+ * because the *visible* x-axis window is often wider than the *sampled*
+ * data domain (see `axisLo`/`axisHi` further down, which re-center the
+ * window on spot) — without this, the P&L line/fill simply stops short of
+ * the axis edge, leaving a blank void. Expiry payoffs are exactly linear
+ * beyond the outermost strike/breakeven that bounded the sample domain, so
+ * this is exact for the expiry curve and a close approximation for the
+ * curved T+0 curve over the (typically modest) extra margin.
+ */
+function extendToAxis(xs: number[], ys: number[], axisLo: number, axisHi: number) {
+  if (xs.length < 2) return { xs, ys }
+  const outXs = [...xs]
+  const outYs = [...ys]
+  if (axisLo < xs[0]) {
+    const slope = (ys[1] - ys[0]) / (xs[1] - xs[0])
+    outXs.unshift(axisLo)
+    outYs.unshift(ys[0] + slope * (axisLo - xs[0]))
+  }
+  const lastIdx = xs.length - 1
+  if (axisHi > xs[lastIdx]) {
+    const slope = (ys[lastIdx] - ys[lastIdx - 1]) / (xs[lastIdx] - xs[lastIdx - 1])
+    outXs.push(axisHi)
+    outYs.push(ys[lastIdx] + slope * (axisHi - xs[lastIdx]))
+  }
+  return { xs: outXs, ys: outYs }
+}
 
 /**
  * When two or more legs share (or nearly share) a strike, their lines and
@@ -111,6 +142,24 @@ export function PayoffChart({
   const { mode, appMode } = useThemeStore()
   const isAnalyzer = appMode === 'analyzer'
   const isDark = mode === 'dark' || isAnalyzer
+
+  // Measures the actual rendered plot width so the strike handle (below) can
+  // be sized to a fixed pixel diameter instead of a fraction of the price
+  // domain. Falls back to a sane desktop-card width before the first layout
+  // pass; `useResizeHandler` on <Plot> already keeps Plotly itself in sync
+  // with the container, this just mirrors that width into React state.
+  const plotContainerRef = useRef<HTMLDivElement>(null)
+  const [plotWidthPx, setPlotWidthPx] = useState(600)
+  useEffect(() => {
+    const el = plotContainerRef.current
+    if (!el) return
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width
+      if (width && width > 0) setPlotWidthPx(width)
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
 
   const strikeLegs = useMemo(
     () =>
@@ -154,8 +203,6 @@ export function PayoffChart({
       spotLine: isDark ? '#ec4899' : '#db2777', // groww-ish pink
       ceStrike: isDark ? '#4ade80' : '#16a34a',
       peStrike: isDark ? '#f87171' : '#dc2626',
-      sigma1Band: isDark ? 'rgba(148,163,184,0.18)' : 'rgba(100,116,139,0.10)',
-      sigma2Band: isDark ? 'rgba(148,163,184,0.07)' : 'rgba(100,116,139,0.04)',
       sigmaTick: isDark ? 'rgba(148,163,184,0.30)' : 'rgba(15,23,42,0.18)',
       cardBorder: isDark ? 'rgba(148,163,184,0.10)' : 'rgba(15,23,42,0.08)',
     }),
@@ -174,25 +221,15 @@ export function PayoffChart({
       }
     }
 
-    const xs = samples.map((s) => s.underlying)
-    const ysExpiry = samples.map((s) => s.expiry)
-    const ysT0 = samples.map((s) => s.tplus0)
-
-    const pctFromSpot = samples.map((s) => {
-      const pct = ((s.underlying - spot) / spot) * 100
-      const sign = pct >= 0 ? '+' : ''
-      return `${sign}${pct.toFixed(2)}%`
-    })
-
-    const profitFill = samples.map((s) => (s.expiry >= 0 ? s.expiry : 0))
-    const lossFill = samples.map((s) => (s.expiry < 0 ? s.expiry : 0))
+    const rawXs = samples.map((s) => s.underlying)
+    const rawYsExpiry = samples.map((s) => s.expiry)
+    const rawYsT0 = samples.map((s) => s.tplus0)
 
     const b1 = lognormalPriceBand(spot, iv, remainingYears, 1)
     const b2 = lognormalPriceBand(spot, iv, remainingYears, 2)
-    const domainLo = xs[0]
-    const domainHi = xs[xs.length - 1]
+    const domainLo = rawXs[0]
+    const domainHi = rawXs[rawXs.length - 1]
     const inDomain = (x: number) => x >= domainLo && x <= domainHi
-    const clipToDomain = (x: number) => Math.min(domainHi, Math.max(domainLo, x))
 
     // The sampled data domain (domainLo/domainHi above) is whatever
     // payoffPriceRange/computePayoff needed to cover every strike and
@@ -209,8 +246,32 @@ export function PayoffChart({
     const axisLo = Math.max(0, spot - axisHalfWidth)
     const axisHi = spot + axisHalfWidth
     const axisWidth = axisHi - axisLo
-    // Scale-invariant hit target: see HANDLE_WIDTH_PCT_OF_DOMAIN above.
-    const handleHalfWidth = (axisWidth * HANDLE_WIDTH_PCT_OF_DOMAIN) / 2
+
+    // Stretch the P&L line/fill out to the visible axis edges (see the
+    // widening comment above — one side of the axis is often wider than the
+    // sampled domain) instead of leaving a blank void past the last real
+    // sample. `xs` below is shared by every y-series since the widening is
+    // x-only and identical for all of them.
+    const { xs, ys: ysExpiry } = extendToAxis(rawXs, rawYsExpiry, axisLo, axisHi)
+    const { ys: ysT0 } = extendToAxis(rawXs, rawYsT0, axisLo, axisHi)
+    const profitFill = ysExpiry.map((y) => (y >= 0 ? y : 0))
+    const lossFill = ysExpiry.map((y) => (y < 0 ? y : 0))
+
+    const pctFromSpot = xs.map((x) => {
+      const pct = ((x - spot) / spot) * 100
+      const sign = pct >= 0 ? '+' : ''
+      return `${sign}${pct.toFixed(2)}%`
+    })
+
+    // Plot-area pixel dimensions, used to size the strike handle as a fixed
+    // on-screen circle (see HANDLE_DIAMETER_PX above) instead of a fraction
+    // of the price domain, which rendered as a stretched ellipse.
+    const plotPixelWidth = Math.max(1, plotWidthPx - CHART_MARGIN.l - CHART_MARGIN.r)
+    const handleHalfWidth = (HANDLE_DIAMETER_PX / 2 / plotPixelWidth) * axisWidth
+    // `paper` y spans the *entire* figure height, not just the plot area —
+    // Plotly shapes with yref:'paper' measure fraction-of-figure, so convert
+    // against `height` (the figure height) rather than `plotPixelHeight`.
+    const handleHalfHeightPaper = HANDLE_DIAMETER_PX / 2 / height
 
     const currentLabel = formatHorizon(daysElapsed)
     // When `perLegCharges` is supplied, the tooltip gains an extra row at
@@ -228,16 +289,18 @@ export function PayoffChart({
       chargesRow +
       '<extra></extra>'
     const hoverData = (values: number[]) =>
-      samples.map((sample, index) => {
+      xs.map((x, index) => {
         const row: (string | number)[] = [
-          formatCurrency(sample.underlying),
+          formatCurrency(x),
           pctFromSpot[index],
           formatCurrency(values[index]),
         ]
         if (perLegCharges) {
-          // sample.expiry is already net-of-charges because StrategyBuilder
-          // threads perLegCharges into computePayoff() upstream of this chart.
-          row.push(formatCurrency(sample.expiry))
+          // ysExpiry is already net-of-charges because StrategyBuilder
+          // threads perLegCharges into computePayoff() upstream of this
+          // chart; the two axis-edge points added by extendToAxis carry
+          // that same charges-netted value forward via linear extrapolation.
+          row.push(formatCurrency(ysExpiry[index]))
         }
         return row
       })
@@ -375,21 +438,23 @@ export function PayoffChart({
         layer: 'below',
       })
       // 2) Small circle handle anchored just above the plot area so it
-      //    doesn't fight with the strike-line for clicks/hover. Sized as a
-      //    percentage of the visible axis width (see HANDLE_WIDTH_PCT_OF_DOMAIN)
-      //    so the rendered hit target stays comfortably clickable whether
-      //    the underlying trades at 100 or 24,000.
+      //    doesn't fight with the strike-line for clicks/hover. Sized to a
+      //    fixed on-screen diameter (see HANDLE_DIAMETER_PX above) so it
+      //    renders as a true circle — not a stretched ellipse — and stays a
+      //    comfortably clickable, unobtrusive dot whether the underlying
+      //    trades at 100 or 24,000.
       if (strikeEditable) {
+        const handleCenterY = 1.005
         shapes.push({
           type: 'circle',
           xref: 'x',
           yref: 'paper',
           x0: renderX - handleHalfWidth,
           x1: renderX + handleHalfWidth,
-          y0: 0.985,
-          y1: 1.025,
+          y0: handleCenterY - handleHalfHeightPaper,
+          y1: handleCenterY + handleHalfHeightPaper,
           fillcolor: color,
-          line: { color, width: 2 },
+          line: { color, width: 1.5 },
           editable: true,
           name: `handle:${leg.id}`,
         })
@@ -409,34 +474,13 @@ export function PayoffChart({
       line: { color: colors.zeroLine, width: 1 },
     })
 
-    // Stepped σ bands: the wider 2σ band is drawn first so the 1σ band
-    // overlays on top of it, producing a visually distinct inner (darker)
-    // and outer (lighter) zone rather than one uniform wash.
+    // σ boundaries: previously drawn as full-height, full-width filled
+    // rectangles (stacked 1σ-over-2σ for a "stepped" look). Layered below
+    // the translucent profit/loss fill, those rects blended into a muddy
+    // wash that dominated the whole chart. A thin dotted tick line per
+    // boundary (plus the existing σ label) marks the same information
+    // without competing with the P&L fill for attention.
     if (b1 && b2) {
-      const pushBand = (x0: number, x1: number, fillcolor: string) => {
-        const clippedX0 = clipToDomain(x0)
-        const clippedX1 = clipToDomain(x1)
-        if (clippedX1 <= clippedX0) return
-        shapes.push({
-          type: 'rect',
-          xref: 'x',
-          x0: clippedX0,
-          x1: clippedX1,
-          yref: 'paper',
-          y0: 0,
-          y1: 1,
-          fillcolor,
-          line: { width: 0 },
-          layer: 'below',
-        })
-      }
-      // Left outer band: from -2σ to -1σ
-      pushBand(b2.lower, b1.lower, colors.sigma2Band)
-      // Right outer band: from +1σ to +2σ
-      pushBand(b1.upper, b2.upper, colors.sigma2Band)
-      // Inner 1σ band
-      pushBand(b1.lower, b1.upper, colors.sigma1Band)
-      // Thin vertical ticks at each σ boundary
       for (const x of [b2.lower, b1.lower, b1.upper, b2.upper]) {
         if (!inDomain(x)) continue
         shapes.push({
@@ -600,7 +644,7 @@ export function PayoffChart({
         font: { color: colors.text, size: 12 },
         bordercolor: colors.mutedText,
       },
-      margin: { l: 70, r: 30, t: 80, b: 50 },
+      margin: CHART_MARGIN,
       showlegend: true,
       legend: {
         orientation: 'h',
@@ -655,6 +699,8 @@ export function PayoffChart({
     formatCurrency,
     strikeLegs,
     perLegCharges,
+    plotWidthPx,
+    height,
   ])
 
   const representativeSelection = useMemo(() => {
@@ -778,14 +824,16 @@ export function PayoffChart({
       <h2 id={regionHeadingId} className="sr-only">
         {title} payoff analysis
       </h2>
-      <Plot
-        data={data}
-        layout={layout}
-        config={config}
-        useResizeHandler
-        onRelayout={handleRelayout}
-        style={{ width: '100%', height }}
-      />
+      <div ref={plotContainerRef}>
+        <Plot
+          data={data}
+          layout={layout}
+          config={config}
+          useResizeHandler
+          onRelayout={handleRelayout}
+          style={{ width: '100%', height }}
+        />
+      </div>
       {onStrikeChange && strikeLegs.length > 0 && onResetStrikes && canResetStrikes && (
         <div className="flex items-center justify-end px-1 pb-1.5">
           <Button
