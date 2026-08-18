@@ -663,11 +663,16 @@ describe('PayoffChart exact geometry', () => {
     expect(queryByText(/drag any strike line/i)).toBeNull()
   })
 
-  it('increases the drag handle radius from 6 to 9 data-space units for a bigger hit target', () => {
-    // Pixel-perfect assertion on the handle shape. Bumping from x0±6 to
-    // x0±9 widens the hit area by 50% — meaningful on touch devices and on
-    // dense multi-leg strategies where 4–6 strikes cluster within 5%.
-    const payoff = computePayoff(
+  it('sizes the drag handle as a percentage of the visible axis width, not a fixed price amount', () => {
+    // A fixed data-space handle width (e.g. always ±9 rupees) renders as a
+    // comfortable target on a low-priced instrument but shrinks to a
+    // couple of pixels once the axis spans thousands of rupees (NIFTY/
+    // BANKNIFTY scale) over the same chart width. The handle must instead
+    // track the *visible axis width* so its rendered pixel size — and thus
+    // how easy it is to grab and drag — stays roughly constant regardless
+    // of the underlying's price scale.
+    const lowScenario: ScenarioState = { ...BASE_SCENARIO, spot: 100 }
+    const lowPayoff = computePayoff(
       [leg('call', 'BUY', 'CE', 100, 2)],
       100,
       7,
@@ -678,26 +683,97 @@ describe('PayoffChart exact geometry', () => {
       20,
       NOW
     )
-
-    render(
+    const { unmount } = render(
       <PayoffChart
-        title="Hit target"
-        scenario={BASE_SCENARIO}
+        title="Low price"
+        scenario={lowScenario}
         remainingYears={7 / 365}
-        payoff={payoff}
+        payoff={lowPayoff}
         formatCurrency={formatCurrency}
         legs={[leg('call', 'BUY', 'CE', 100, 2)]}
+        strikeStep={5}
+        onStrikeChange={() => {}}
+      />
+    )
+    const lowShapes = plotCapture.props?.layout.shapes ?? []
+    const lowRange = plotCapture.props?.layout.xaxis?.range as [number, number]
+    const lowHandle = lowShapes.find(
+      (s: any) => s.type === 'circle' && typeof s.name === 'string' && s.name.startsWith('handle:')
+    ) as any
+    expect(lowHandle).toBeDefined()
+    const lowWidth = lowHandle.x1 - lowHandle.x0
+    const lowDomain = lowRange[1] - lowRange[0]
+    unmount()
+
+    const highScenario: ScenarioState = { ...BASE_SCENARIO, spot: 24000 }
+    const highPayoff = computePayoff(
+      [leg('call', 'BUY', 'CE', 24000, 200)],
+      24000,
+      7,
+      0,
+      [21600, 26400],
+      7,
+      0,
+      20,
+      NOW
+    )
+    render(
+      <PayoffChart
+        title="High price"
+        scenario={highScenario}
+        remainingYears={7 / 365}
+        payoff={highPayoff}
+        formatCurrency={formatCurrency}
+        legs={[leg('call', 'BUY', 'CE', 24000, 200)]}
         strikeStep={50}
         onStrikeChange={() => {}}
       />
     )
-
-    const shapes = plotCapture.props?.layout.shapes ?? []
-    const handle = shapes.find(
+    const highShapes = plotCapture.props?.layout.shapes ?? []
+    const highRange = plotCapture.props?.layout.xaxis?.range as [number, number]
+    const highHandle = highShapes.find(
       (s: any) => s.type === 'circle' && typeof s.name === 'string' && s.name.startsWith('handle:')
+    ) as any
+    expect(highHandle).toBeDefined()
+    const highWidth = highHandle.x1 - highHandle.x0
+    const highDomain = highRange[1] - highRange[0]
+
+    // Both scales should reserve the same fraction of the visible axis
+    // for the handle, even though the raw rupee widths differ by ~240x.
+    expect(lowWidth / lowDomain).toBeCloseTo(highWidth / highDomain, 6)
+  })
+
+  it('keeps the spot price at the horizontal midpoint of the axis even when strikes only extend one side', () => {
+    // A single call struck well above spot with nothing on the downside
+    // used to leave the sampled domain (and thus the axis) skewed right,
+    // putting the spot line off-center — unlike Groww's payoff chart,
+    // which always keeps spot in the visual middle.
+    const payoff = computePayoff(
+      [leg('call', 'BUY', 'CE', 150, 2)],
+      100,
+      7,
+      0,
+      [90, 200],
+      7,
+      0,
+      20,
+      NOW
     )
-    expect(handle).toBeDefined()
-    // x1 - x0 must equal 18 (nine below strike + nine above).
-    expect((handle as any).x1 - (handle as any).x0).toBeCloseTo(18, 6)
+
+    render(
+      <PayoffChart
+        title="Skewed strikes"
+        scenario={BASE_SCENARIO}
+        remainingYears={7 / 365}
+        payoff={payoff}
+        formatCurrency={formatCurrency}
+        legs={[leg('call', 'BUY', 'CE', 150, 2)]}
+        strikeStep={5}
+        onStrikeChange={() => {}}
+      />
+    )
+
+    const range = plotCapture.props?.layout.xaxis?.range as [number, number]
+    expect(range[1] - 100).toBeCloseTo(100 - range[0], 6)
   })
 })

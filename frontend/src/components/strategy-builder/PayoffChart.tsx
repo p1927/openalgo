@@ -67,6 +67,17 @@ function snapStrike(value: number, step: number): number {
   return Math.round(value / step) * step
 }
 
+// The drag handle's hit target used to be a fixed ±9 data-space (price)
+// units regardless of the chart's price scale. That's a comfortable ~18px
+// target on a low-priced instrument's chart but shrinks to a couple of
+// pixels on NIFTY/BANKNIFTY-scale charts, where the visible x-axis spans
+// thousands of rupees over the same pixel width — making the handle nearly
+// unclickable. Sizing the handle as a percentage of the *visible domain
+// width* instead keeps its rendered pixel size roughly constant across
+// price scales, since domain-width-to-pixel-width is roughly constant for a
+// given chart container size.
+const HANDLE_WIDTH_PCT_OF_DOMAIN = 0.03
+
 export function PayoffChart({
   title,
   chartIdentity = title,
@@ -163,6 +174,24 @@ export function PayoffChart({
     const domainHi = xs[xs.length - 1]
     const inDomain = (x: number) => x >= domainLo && x <= domainHi
     const clipToDomain = (x: number) => Math.min(domainHi, Math.max(domainLo, x))
+
+    // The sampled data domain (domainLo/domainHi above) is whatever
+    // payoffPriceRange/computePayoff needed to cover every strike and
+    // breakeven — it's frequently NOT symmetric around spot (e.g. a single
+    // naked call struck well above spot pulls the domain rightward with
+    // nothing to balance it on the left). Left as-is, that puts the spot
+    // line off-center, unlike Groww's payoff chart which always keeps spot
+    // in the visual middle. Widen the shorter side of the *visible axis
+    // window* (not the sampled data — the P&L curve itself is untouched) so
+    // spot sits at the horizontal midpoint; the shorter side simply gets a
+    // blank margin past its last real sample, same as the longer side
+    // already has past its most extreme relevant strike.
+    const axisHalfWidth = Math.max(spot - domainLo, domainHi - spot)
+    const axisLo = Math.max(0, spot - axisHalfWidth)
+    const axisHi = spot + axisHalfWidth
+    const axisWidth = axisHi - axisLo
+    // Scale-invariant hit target: see HANDLE_WIDTH_PCT_OF_DOMAIN above.
+    const handleHalfWidth = (axisWidth * HANDLE_WIDTH_PCT_OF_DOMAIN) / 2
 
     const currentLabel = formatHorizon(daysElapsed)
     // When `perLegCharges` is supplied, the tooltip gains an extra row at
@@ -291,15 +320,17 @@ export function PayoffChart({
         layer: 'below',
       })
       // 2) Small circle handle anchored just above the plot area so it
-      //    doesn't fight with the strike-line for clicks/hover. Width 18 px
-      //    for a bigger hit target than the previous 12 px.
+      //    doesn't fight with the strike-line for clicks/hover. Sized as a
+      //    percentage of the visible axis width (see HANDLE_WIDTH_PCT_OF_DOMAIN)
+      //    so the rendered hit target stays comfortably clickable whether
+      //    the underlying trades at 100 or 24,000.
       if (strikeEditable) {
         shapes.push({
           type: 'circle',
           xref: 'x',
           yref: 'paper',
-          x0: strike - 9,
-          x1: strike + 9,
+          x0: strike - handleHalfWidth,
+          x1: strike + handleHalfWidth,
           y0: 0.985,
           y1: 1.025,
           fillcolor: color,
@@ -521,7 +552,7 @@ export function PayoffChart({
         tickfont: { color: colors.text, size: 10 },
         gridcolor: colors.grid,
         zeroline: false,
-        range: [xs[0], xs[xs.length - 1]],
+        range: [axisLo, axisHi],
       },
       yaxis: {
         title: {
