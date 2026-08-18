@@ -105,6 +105,32 @@ changed** (real login, ~3 AM rollover, logout/revoke).
 - **Gate the teardown on a real token change.** `upsert_auth` compares the new token / feed-token / broker / revoke flag against the stored row using **decrypted plaintext** — Fernet ciphertext is non-deterministic, so never compare encrypted blobs. If nothing material changed, clear the cheap in-process caches and return early, leaving the live feed up. Only a genuine change (or `revoke=True`) runs the ZMQ-publish + `cleanup_pools_for_user` path.
 - **Why:** without the gate, a same-day 2nd-device login kills the 1st device's stream until it refreshes (Shoonya), and on single-active-session Finvasia/Noren brokers the disconnect churn drops the broker token entirely (Flattrade "broker session expired"). See issue #1591. The teardown itself is the #1394/#765/#851 fix — keep it, just keep it gated. Broker-agnostic.
 
+### `stock_simulator` broker never reaches a real broker, and never shares INDmoney credentials with the recorder
+
+Two independent things both talk to INDmoney's data and must stay
+independent: the **recorder** (`trade_integrations/stock_simulator/recorder/`,
+`live_quotes.py`) reads live market data through its own standalone
+`IndClient` (own credentials, own token, own rate limiter — see that
+module's docstring for why it must never call `database.auth_db.upsert_auth`:
+doing so would trip the teardown hazard above). The **`stock_simulator`
+broker plugin** (`broker/stock_simulator/`) is what Nautilus/MCP/Vibe/
+autonomous agents select in place of a real broker to trade against
+recorded/replayed data — it has no INDmoney credentials at all
+(`api/auth_api.py` is a no-op login) and its `order_api.place_order_api`
+unconditionally refuses ("Use Analyzer mode"); the only order path when
+this broker is selected is OpenAlgo's Analyzer/sandbox paper-fill engine.
+
+- **Never give `stock_simulator`'s plugin code a real INDmoney token or a
+  live order-placement path.** Its `data.py` only reads from
+  `ReplayService` (recorded parquet/Timescale) or, in live-market-hours
+  mode, delegates to the recorder's own `live_quotes` module — it must
+  never open a second direct broker session.
+- **Why:** this is what makes "select stock_simulator as the broker"
+  safe to do on the same OpenAlgo instance that also holds a real
+  broker session — the simulator has no channel to place a real order or
+  acquire a real broker token, by construction, not by convention.
+  Full design: `docs/superpowers/plans/2026-08-18-stock-simulator-openalgo-broker-design.md`.
+
 ### SQLite uses NullPool, never StaticPool
 
 All SQLite engines are created via `database.engine_factory.create_db_engine()`,

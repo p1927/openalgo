@@ -5,19 +5,30 @@ import { compression } from 'vite-plugin-compression2'
 import path from 'path'
 
 // https://vite.dev/config/
-export default defineConfig({
-  // Serve this SPA under the gateway path /apps/openalgo/. Both the gateway
-  // (`http://127.0.0.1:8080/apps/openalgo/...`) and the Flask direct
-  // endpoint (`http://127.0.0.1:5001/apps/openalgo/...`) reach the SPA
-  // through a Flask middleware that strips `/apps/openalgo/` and serves
-  // the same routes that work today at root. Setting `base` here makes the
+export default defineConfig(({ command }) => ({
+  // Serve this SPA under the gateway path /apps/openalgo/ — but only for the
+  // BUILD (`vite build`, `command === 'build'`). The prebuilt dist/ bundle
+  // is served by Flask at both the bare origin (`:5001/`) and the gateway
+  // prefix (`:8080/apps/openalgo/...`) via a Flask middleware that strips
+  // `/apps/openalgo/` server-side before routing — but that stripping only
+  // rewrites what Flask sees, not the browser's actual URL, so the SPA's
+  // `<BrowserRouter>` (no `basename` set — it assumes it always runs at
+  // root) only works because Flask always serves the *document* at root
+  // and merely serves *assets* under the prefix. Setting `base` makes the
   // emitted asset paths prefix-aware so the browser resolves them under
-  // either host. With default Vite base `/`, asset paths come out as
-  // `/assets/index-...js`; the browser then resolves them against the
-  // embedding origin, which is correct for a Flask-direct origin but
-  // 404s when served under the gateway because Caddy's strip-prefix
-  // route only matches `/apps/openalgo/*`, never bare `/assets/*`.
-  base: '/apps/openalgo/',
+  // either host: with default Vite base `/`, asset paths come out as
+  // `/assets/index-...js`, which 404s when served under the gateway.
+  //
+  // The dev server (`vite`/`vite dev`, `command === 'serve'`, launched by
+  // stack_start_openalgo_ui in scripts/stack_lib.sh for `trade dev`) has no
+  // build-time asset-prefix problem to solve — it serves modules on demand.
+  // But it DOES enforce `base` on the document itself: hitting bare `/`
+  // 302-redirects to `/apps/openalgo/`, which breaks the same basename-less
+  // router (the SPA's own NotFound route renders, since `BrowserRouter`
+  // doesn't recognize `/apps/openalgo/` as a known path). Keeping `base: '/'`
+  // in dev serves the document at root, matching how Flask already does it,
+  // so `trade dev`'s Vite server can be embedded the same way Flask is.
+  base: command === 'build' ? '/apps/openalgo/' : '/',
   plugins: [
     react(),
     tailwindcss(),
@@ -82,4 +93,4 @@ export default defineConfig({
       },
     },
   },
-})
+}))
