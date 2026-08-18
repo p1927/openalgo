@@ -566,4 +566,138 @@ describe('PayoffChart exact geometry', () => {
     expect((plotCapture.props?.layout as any).editable).toBeFalsy()
     expect(plotCapture.props?.layout.dragmode).toBe('zoom')
   })
+
+  it('renders one annotation per strike leg with the side (B/S), strike and option type', () => {
+    // Each strike line should have a matching annotation that calls out
+    // which leg it belongs to — without this the chart shows coloured
+    // vertical lines but the user can't tell which leg is which.
+    const payoff = computePayoff(
+      [leg('lc', 'BUY', 'CE', 100, 5), leg('sp', 'SELL', 'PE', 110, 8)],
+      105,
+      7,
+      0,
+      [80, 140],
+      7,
+      0,
+      20,
+      NOW
+    )
+
+    render(
+      <PayoffChart
+        title="Annotated"
+        scenario={BASE_SCENARIO}
+        remainingYears={7 / 365}
+        payoff={payoff}
+        formatCurrency={formatCurrency}
+        legs={[
+          leg('lc', 'BUY', 'CE', 100, 5),
+          leg('sp', 'SELL', 'PE', 110, 8),
+        ]}
+        strikeStep={50}
+        onStrikeChange={() => {}}
+      />
+    )
+
+    const annotations = plotCapture.props?.layout.annotations ?? []
+    const ceAnnotations = annotations.filter(
+      (a: any) => a.xref === 'x' && a.x === 100 && String(a.text).includes('CE')
+    )
+    const peAnnotations = annotations.filter(
+      (a: any) => a.xref === 'x' && a.x === 110 && String(a.text).includes('PE')
+    )
+    expect(ceAnnotations.length).toBeGreaterThan(0)
+    expect(peAnnotations.length).toBeGreaterThan(0)
+    // Side mark (B or S) must be present in the text body so the user
+    // can distinguish a long call from a short put at the same strike.
+    const ceText = String(ceAnnotations[0].text)
+    expect(ceText).toContain('<b>B</b>')
+    const peText = String(peAnnotations[0].text)
+    expect(peText).toContain('<b>S</b>')
+  })
+
+  it('renders a drag-any-strike-line callout only when strikes are editable', () => {
+    // With onStrikeChange + at least one strike leg, the chart shows a
+    // one-line "Drag any strike line" hint so the user knows strikes are
+    // interactive. Without onStrikeChange the hint is hidden, and without
+    // any legs there is nothing to drag.
+    const payoff = computePayoff(
+      [leg('call', 'BUY', 'CE', 100, 2)],
+      100,
+      7,
+      0,
+      [80, 120],
+      7,
+      0,
+      20,
+      NOW
+    )
+
+    const { rerender, queryByText } = render(
+      <PayoffChart
+        title="With hint"
+        scenario={BASE_SCENARIO}
+        remainingYears={7 / 365}
+        payoff={payoff}
+        formatCurrency={formatCurrency}
+        legs={[leg('call', 'BUY', 'CE', 100, 2)]}
+        strikeStep={50}
+        onStrikeChange={() => {}}
+      />
+    )
+
+    expect(queryByText(/drag any strike line/i)).toBeTruthy()
+
+    rerender(
+      <PayoffChart
+        title="Read-only"
+        scenario={BASE_SCENARIO}
+        remainingYears={7 / 365}
+        payoff={payoff}
+        formatCurrency={formatCurrency}
+        legs={[leg('call', 'BUY', 'CE', 100, 2)]}
+        strikeStep={50}
+      />
+    )
+
+    expect(queryByText(/drag any strike line/i)).toBeNull()
+  })
+
+  it('increases the drag handle radius from 6 to 9 data-space units for a bigger hit target', () => {
+    // Pixel-perfect assertion on the handle shape. Bumping from x0±6 to
+    // x0±9 widens the hit area by 50% — meaningful on touch devices and on
+    // dense multi-leg strategies where 4–6 strikes cluster within 5%.
+    const payoff = computePayoff(
+      [leg('call', 'BUY', 'CE', 100, 2)],
+      100,
+      7,
+      0,
+      [80, 120],
+      7,
+      0,
+      20,
+      NOW
+    )
+
+    render(
+      <PayoffChart
+        title="Hit target"
+        scenario={BASE_SCENARIO}
+        remainingYears={7 / 365}
+        payoff={payoff}
+        formatCurrency={formatCurrency}
+        legs={[leg('call', 'BUY', 'CE', 100, 2)]}
+        strikeStep={50}
+        onStrikeChange={() => {}}
+      />
+    )
+
+    const shapes = plotCapture.props?.layout.shapes ?? []
+    const handle = shapes.find(
+      (s: any) => s.type === 'circle' && typeof s.name === 'string' && s.name.startsWith('handle:')
+    )
+    expect(handle).toBeDefined()
+    // x1 - x0 must equal 18 (nine below strike + nine above).
+    expect((handle as any).x1 - (handle as any).x0).toBeCloseTo(18, 6)
+  })
 })
