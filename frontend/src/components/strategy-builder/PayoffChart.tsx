@@ -306,6 +306,32 @@ export function PayoffChart({
     const profitFill = ysExpiry.map((y) => (y >= 0 ? y : 0))
     const lossFill = ysExpiry.map((y) => (y < 0 ? y : 0))
 
+    // Plotly's default y-autorange looks at every point in a trace, not just
+    // the ones inside the visible xaxis window. `xs`/`ysExpiry` above still
+    // carry the *full* sampled domain (only ever widened, never trimmed, by
+    // extendToAxis) — for an unbounded-risk leg that domain can run tens of
+    // thousands of rupees past the visible window (see the axisHalfWidth
+    // comment above), so those far-off-screen extreme P&L values were
+    // stretching the y-axis out to fit them, squashing the actually-visible
+    // curve into a sliver near the middle. Computing the range explicitly
+    // from only the on-screen points — the same treatment xaxis.range
+    // already gets — makes the y-axis fit the graph that's actually drawn.
+    let yLo = 0
+    let yHi = 0
+    for (let i = 0; i < xs.length; i++) {
+      if (xs[i] < axisLo - 1e-6 || xs[i] > axisHi + 1e-6) continue
+      if (ysExpiry[i] < yLo) yLo = ysExpiry[i]
+      if (ysExpiry[i] > yHi) yHi = ysExpiry[i]
+      if (ysT0[i] < yLo) yLo = ysT0[i]
+      if (ysT0[i] > yHi) yHi = ysT0[i]
+    }
+    if (yLo === yHi) {
+      yLo -= 1
+      yHi += 1
+    }
+    const yPad = (yHi - yLo) * 0.12
+    const yAxisRange: [number, number] = [yLo - yPad, yHi + yPad]
+
     const pctFromSpot = xs.map((x) => {
       const pct = ((x - spot) / spot) * 100
       const sign = pct >= 0 ? '+' : ''
@@ -578,6 +604,7 @@ export function PayoffChart({
         zeroline: true,
         zerolinecolor: colors.zeroLine,
         zerolinewidth: 1,
+        range: yAxisRange,
       },
       shapes,
       annotations,

@@ -2386,7 +2386,13 @@ export default function StrategyBuilder() {
                           </button>
                         </div>
                       </div>
-                      {payoffMode === 'adjust' ? (
+                      {/* Both modes stay mounted and are toggled with `hidden`
+                          rather than a ternary. DrawTargetPayoff owns real
+                          in-progress work (drawn points, search results) in
+                          its own local state; unmounting it every time the
+                          user flips back to Adjust threw that away the moment
+                          they flipped back to Draw Target. */}
+                      <div className={payoffMode === 'adjust' ? undefined : 'hidden'}>
                         <PayoffChart
                           title={`${selectedUnderlying} — ${selectedExpiry || '—'}`}
                           chartIdentity={chainIdentity(
@@ -2412,18 +2418,17 @@ export default function StrategyBuilder() {
                             />
                           }
                         />
-                      ) : (
-                        <div className="px-2 pb-2">
-                          <DrawTargetPayoff
-                            underlying={selectedUnderlying}
-                            exchange={underlyingExchangeFor(selectedExchange, selectedUnderlying)}
-                            expiry={normalizeExpiryCode(selectedExpiry)}
-                            strikes={availableStrikes}
-                            resolveContract={resolveLegContract}
-                            onAdd={handleAddLegFromDraw}
-                          />
-                        </div>
-                      )}
+                      </div>
+                      <div className={cn('px-2 pb-2', payoffMode === 'draw' ? undefined : 'hidden')}>
+                        <DrawTargetPayoff
+                          underlying={selectedUnderlying}
+                          exchange={underlyingExchangeFor(selectedExchange, selectedUnderlying)}
+                          expiry={normalizeExpiryCode(selectedExpiry)}
+                          strikes={availableStrikes}
+                          resolveContract={resolveLegContract}
+                          onAdd={handleAddLegFromDraw}
+                        />
+                      </div>
                     </>
                   ) : (
                     <div className="flex h-[440px] items-center justify-center text-sm text-muted-foreground">
