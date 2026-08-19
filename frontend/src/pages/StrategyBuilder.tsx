@@ -2,6 +2,7 @@ import {
   Activity,
   BarChart3,
   Briefcase,
+  Gem,
   Layers,
   LineChart,
   PenTool,
@@ -17,6 +18,7 @@ import { optionChainApi } from '@/api/option-chain'
 import { scalpingApi } from '@/api/scalping'
 import { type PortfolioEntry, strategyPortfolioApi, type Watchlist } from '@/api/strategy-portfolio'
 import { tradingApi } from '@/api/trading'
+import { CheeseTab } from '@/components/strategy-builder/CheeseTab'
 import DrawTargetPayoff from '@/components/strategy-builder/DrawTargetPayoff'
 import { EditLegDialog } from '@/components/strategy-builder/EditLegDialog'
 import {
@@ -78,6 +80,7 @@ import {
   useOptionChainLive,
 } from '@/hooks/useOptionChainLive'
 import { useSupportedExchanges } from '@/hooks/useSupportedExchanges'
+import { yearsToExpiry } from '@/lib/optionGreeks'
 import {
   type ChainIdentity,
   chainIdentity,
@@ -834,6 +837,12 @@ export default function StrategyBuilder() {
     const atmRow = activeChain.chain.find((s) => s.strike === activeChain.atm_strike)
     return atmRow?.ce?.lotsize ?? atmRow?.pe?.lotsize ?? null
   }, [activeChain])
+  // Time to expiry for the currently loaded chain, used by the Cheese tab's
+  // fair-value pricing — independent from the payoff simulator's what-if clock.
+  const chainYears = useMemo(
+    () => yearsToExpiry(activeChain?.expiry_ts, clockOffsetMs),
+    [activeChain?.expiry_ts, clockOffsetMs]
+  )
 
   // The resolver is passed to child effects. Keep its identity stable across
   // live chain object refreshes while reading one coherent request snapshot at
@@ -2312,6 +2321,13 @@ export default function StrategyBuilder() {
                       <Layers className="mr-1.5 h-3.5 w-3.5" />
                       Multi Strike OI
                     </TabsTrigger>
+                    <TabsTrigger
+                      value="cheese"
+                      className="rounded-lg px-4 text-xs font-semibold data-[state=active]:bg-gradient-to-br data-[state=active]:from-background data-[state=active]:to-muted/60 data-[state=active]:shadow-sm"
+                    >
+                      <Gem className="mr-1.5 h-3.5 w-3.5" />
+                      Find the Cheese
+                    </TabsTrigger>
                   </TabsList>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
@@ -2371,30 +2387,31 @@ export default function StrategyBuilder() {
                         </div>
                       </div>
                       {payoffMode === 'adjust' ? (
-                        <>
-                          <PayoffChart
-                            title={`${selectedUnderlying} — ${selectedExpiry || '—'}`}
-                            chartIdentity={chainIdentity(
-                              selectedExchange,
-                              selectedUnderlying,
-                              selectedExpiry
-                            )}
-                            scenario={scenario}
-                            remainingYears={simulatedYearsToNearExpiry}
-                            terminalLabel={terminalCurveLabel}
-                            payoff={payoff}
-                            formatCurrency={formatCurrency}
-                            legs={legs}
-                            perLegCharges={perLegCharges}
-                          />
-                          <StrikeSliderRail
-                            legs={legs}
-                            chain={chainData?.chain}
-                            onStrikeChange={handleStrikeFromChart}
-                            onResetStrikes={resetStrikesToBaseline}
-                            canResetStrikes={canResetStrikes}
-                          />
-                        </>
+                        <PayoffChart
+                          title={`${selectedUnderlying} — ${selectedExpiry || '—'}`}
+                          chartIdentity={chainIdentity(
+                            selectedExchange,
+                            selectedUnderlying,
+                            selectedExpiry
+                          )}
+                          scenario={scenario}
+                          remainingYears={simulatedYearsToNearExpiry}
+                          terminalLabel={terminalCurveLabel}
+                          payoff={payoff}
+                          formatCurrency={formatCurrency}
+                          legs={legs}
+                          perLegCharges={perLegCharges}
+                          underlyingSymbol={selectedUnderlying}
+                          belowChart={
+                            <StrikeSliderRail
+                              legs={legs}
+                              chain={chainData?.chain}
+                              onStrikeChange={handleStrikeFromChart}
+                              onResetStrikes={resetStrikesToBaseline}
+                              canResetStrikes={canResetStrikes}
+                            />
+                          }
+                        />
                       ) : (
                         <div className="px-2 pb-2">
                           <DrawTargetPayoff
@@ -2465,6 +2482,25 @@ export default function StrategyBuilder() {
                     Resolving the underlying market-data reference...
                   </div>
                 )}
+              </TabsContent>
+              <TabsContent value="cheese" className="pt-4">
+                <CheeseTab
+                  chain={activeChain?.chain ?? null}
+                  forwardPrice={futuresPrice}
+                  years={chainYears}
+                  atmStrike={atmStrike}
+                  underlyingLtp={spotPrice}
+                  underlyingPrevClose={activeChain?.underlying_prev_close ?? null}
+                  selectedExpiry={selectedExpiry}
+                  underlyings={underlyings}
+                  selectedUnderlying={selectedUnderlying}
+                  onUnderlyingChange={handleUnderlyingChange}
+                  expiries={expiries}
+                  onExpiryChange={handleExpiryChange}
+                  resolveContract={resolveLegContract}
+                  onAdd={handleAddManualLeg}
+                  formatCurrency={formatCurrency}
+                />
               </TabsContent>
             </Tabs>
 

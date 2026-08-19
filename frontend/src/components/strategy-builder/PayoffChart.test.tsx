@@ -136,6 +136,91 @@ describe('PayoffChart exact geometry', () => {
     )
   })
 
+  it('caps the x-axis to NIFTY/SENSEX typical daily move when underlyingSymbol is recognized', () => {
+    const spot = 24000
+    const payoff = computePayoff(
+      [leg('call', 'BUY', 'CE', spot, 200)],
+      spot,
+      7,
+      0,
+      [10000, 38000],
+      12,
+      0,
+      50,
+      NOW
+    )
+
+    const uncapped = render(
+      <PayoffChart
+        title="Long Call"
+        scenario={{ ...BASE_SCENARIO, spot, iv: 50 }}
+        remainingYears={1}
+        payoff={payoff}
+        formatCurrency={formatCurrency}
+      />
+    )
+    const uncappedRange = plotCapture.props?.layout.xaxis?.range as [number, number]
+    expect(uncappedRange[1] - spot).toBeGreaterThan(800)
+    uncapped.unmount()
+    plotCapture.props = null
+
+    render(
+      <PayoffChart
+        title="Long Call"
+        scenario={{ ...BASE_SCENARIO, spot, iv: 50 }}
+        remainingYears={1}
+        payoff={payoff}
+        formatCurrency={formatCurrency}
+        underlyingSymbol="NIFTY"
+      />
+    )
+    expect(plotCapture.props?.layout.xaxis?.range).toEqual([spot - 600, spot + 600])
+    plotCapture.props = null
+
+    render(
+      <PayoffChart
+        title="Sensex Call"
+        scenario={{ ...BASE_SCENARIO, spot, iv: 50 }}
+        remainingYears={1}
+        payoff={payoff}
+        formatCurrency={formatCurrency}
+        underlyingSymbol="sensex"
+      />
+    )
+    expect(plotCapture.props?.layout.xaxis?.range).toEqual([spot - 800, spot + 800])
+  })
+
+  it('never crops a real strike even when it lies beyond the underlying move cap', () => {
+    const spot = 24000
+    const farStrike = spot + 1500
+    const payoff = computePayoff(
+      [leg('call', 'BUY', 'CE', farStrike, 5)],
+      spot,
+      7,
+      0,
+      [22000, 26000],
+      12,
+      0,
+      20,
+      NOW
+    )
+
+    render(
+      <PayoffChart
+        title="Far strike"
+        scenario={{ ...BASE_SCENARIO, spot }}
+        remainingYears={7 / 365}
+        payoff={payoff}
+        formatCurrency={formatCurrency}
+        legs={[leg('call', 'BUY', 'CE', farStrike, 5)]}
+        underlyingSymbol="NIFTY"
+      />
+    )
+
+    const range = plotCapture.props?.layout.xaxis?.range as [number, number]
+    expect(range[1]).toBeGreaterThanOrEqual(farStrike)
+  })
+
   it('PG-06 omits physically invalid negative sigma markers', () => {
     const payoff = computePayoff(
       [leg('call', 'BUY', 'CE', 100, 2)],
@@ -208,14 +293,6 @@ describe('PayoffChart exact geometry', () => {
           shape.type === 'line' && shape.xref === 'x' && shape.x0 === 110 && shape.x1 === 110
       )
     ).toBe(true)
-
-    // σ boundaries render as thin dotted tick lines, not filled bands (see
-    // PayoffChart.tsx's module comment on why the earlier filled-rect bands
-    // were retired — they blended into a muddy wash with the P&L fill).
-    const sigmaTicks =
-      layout?.shapes?.filter((shape) => shape.type === 'line' && shape.line?.dash === 'dot') ?? []
-    expect(sigmaTicks.some((shape) => Math.abs(Number(shape.x0) - 80.5783792325) < 1e-4)).toBe(true)
-    expect(sigmaTicks.some((shape) => Math.abs(Number(shape.x0) - 93.6187202159) < 1e-4)).toBe(true)
   })
 
   it('keeps zoom for live updates but resets it when the strategy identity changes', () => {
@@ -536,10 +613,12 @@ describe('PayoffChart exact geometry', () => {
     expect(plotCapture.props?.layout.dragmode).toBe('zoom')
   })
 
-  it('renders one annotation per strike leg with the side (B/S), strike and option type', () => {
-    // Each strike line should have a matching annotation that calls out
-    // which leg it belongs to — without this the chart shows coloured
-    // vertical lines but the user can't tell which leg is which.
+  it('renders a strike line per leg (labelling now lives in StrikeSliderRail, not on the chart)', () => {
+    // The chart used to draw a text annotation per strike leg calling out
+    // side/strike/option type. That label row moved off the chart entirely
+    // (into StrikeSliderRail, rendered below) so the plot itself stays
+    // uncluttered — see the reference-image redesign. The vertical strike
+    // *lines* still render; only their text annotations are gone.
     const payoff = computePayoff(
       [leg('lc', 'BUY', 'CE', 100, 5), leg('sp', 'SELL', 'PE', 110, 8)],
       105,
@@ -563,21 +642,20 @@ describe('PayoffChart exact geometry', () => {
       />
     )
 
+    const shapes = plotCapture.props?.layout.shapes ?? []
+    const ceLine = shapes.find(
+      (s: any) => s.type === 'line' && s.xref === 'x' && s.x0 === 100 && s.line?.dash === 'dash'
+    )
+    const peLine = shapes.find(
+      (s: any) => s.type === 'line' && s.xref === 'x' && s.x0 === 110 && s.line?.dash === 'dash'
+    )
+    expect(ceLine).toBeDefined()
+    expect(peLine).toBeDefined()
+
     const annotations = plotCapture.props?.layout.annotations ?? []
-    const ceAnnotations = annotations.filter(
-      (a: any) => a.xref === 'x' && a.x === 100 && String(a.text).includes('CE')
-    )
-    const peAnnotations = annotations.filter(
-      (a: any) => a.xref === 'x' && a.x === 110 && String(a.text).includes('PE')
-    )
-    expect(ceAnnotations.length).toBeGreaterThan(0)
-    expect(peAnnotations.length).toBeGreaterThan(0)
-    // Side mark (B or S) must be present in the text body so the user
-    // can distinguish a long call from a short put at the same strike.
-    const ceText = String(ceAnnotations[0].text)
-    expect(ceText).toContain('<b>B</b>')
-    const peText = String(peAnnotations[0].text)
-    expect(peText).toContain('<b>S</b>')
+    expect(
+      annotations.some((a: any) => String(a.text).includes('CE') || String(a.text).includes('PE'))
+    ).toBe(false)
   })
 
   it('offsets strike lines apart when two legs share the same strike', () => {
@@ -618,12 +696,6 @@ describe('PayoffChart exact geometry', () => {
     expect(new Set(xPositions).size).toBeGreaterThanOrEqual(2)
     // The offset is small and symmetric around the true strike.
     expect((xPositions[0] + xPositions[1]) / 2).toBeCloseTo(100, 6)
-
-    // Per-leg annotations should also separate onto distinct positions.
-    const annotations = (plotCapture.props?.layout.annotations ?? []) as any[]
-    const callAnnotation = annotations.find((a) => a.xref === 'x' && String(a.text).includes('CE'))
-    const putAnnotation = annotations.find((a) => a.xref === 'x' && String(a.text).includes('PE'))
-    expect(callAnnotation.x).not.toBe(putAnnotation.x)
   })
 
   it('keeps the spot price at the horizontal midpoint of the axis even when strikes only extend one side', () => {

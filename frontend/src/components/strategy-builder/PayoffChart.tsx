@@ -1,5 +1,6 @@
 import type * as PlotlyTypes from 'plotly.js'
-import { useId, useMemo } from 'react'
+import type { ReactNode } from 'react'
+import { useCallback, useId, useMemo, useRef, useState } from 'react'
 import Plot from '@/lib/Plot2D'
 import {
   lognormalPriceBand,
@@ -24,6 +25,14 @@ export interface PayoffChartProps {
   formatCurrency: (value: number) => string
   legs?: StrategyLeg[]
   /**
+   * The selected underlying's symbol (e.g. "NIFTY", "SENSEX"), used only to
+   * cap the x-axis to that index's typical daily move — see
+   * `MAX_AXIS_HALF_WIDTH_BY_UNDERLYING`. Unrecognized/omitted symbols (any
+   * equity, or an index not in that table) fall back to the existing
+   * strike/σ-driven axis sizing.
+   */
+  underlyingSymbol?: string
+  /**
    * Per-leg round-trip charge totals (leg.id → total charges). When supplied,
    * the hover tooltip gains an "After charges" row and the y-axis title is
    * updated to "Net P&L (after charges)". The math is already netted upstream
@@ -31,17 +40,41 @@ export interface PayoffChartProps {
    * the "P&L after charges" number in the tooltip.
    */
   perLegCharges?: Record<string, number>
+  /**
+   * Rendered between the chart and the scenario/summary section below it —
+   * used to place `StrikeSliderRail` right under the plot, ahead of the
+   * scenario-spot text and the max profit/loss/breakeven cards, rather than
+   * after all of that.
+   */
+  belowChart?: ReactNode
 }
 
 const MAX_REPRESENTATIVE_ROWS = 7
 const MAX_SUMMARY_BREAKEVENS = 4
 
-// Fixed layout margins (see `chartLayout.margin` below).
-const CHART_MARGIN = { l: 70, r: 30, t: 80, b: 50 }
+// Fixed layout margins (see `chartLayout.margin` below). `t` clears both the
+// title (container coords, near the very top of the figure) and the
+// spot-price label (axis "paper" coords, floating above the plot area) —
+// give it enough room that the two never collide, now that the σ tick/label
+// row and the per-leg strike text row have moved off the chart (strikes are
+// labelled in StrikeSliderRail below instead — see the class doc comment).
+const CHART_MARGIN = { l: 70, r: 30, t: 68, b: 50 }
 // Anti-overlap offset step for strike lines/labels sharing (or nearly
 // sharing) a strike — sized as a percentage of the visible axis width so it
 // stays scale-invariant whether the underlying trades at 100 or 24,000.
 const CLUSTER_OFFSET_PCT_OF_AXIS = 0.015
+
+// Index-specific cap on the x-axis half-width (points either side of spot),
+// set from the typical maximum daily move for that index rather than derived
+// from IV/strikes — a stray far-OTM strike or a high-IV scenario would
+// otherwise stretch the axis well past what these indices realistically move
+// in a session, flattening the payoff curve into an unreadable sliver.
+// A real strike beyond the cap is still never cropped (see the
+// `rawStrikeHalfWidth` guard below) — this only tightens the *default* zoom.
+const MAX_AXIS_HALF_WIDTH_BY_UNDERLYING: Record<string, number> = {
+  NIFTY: 600,
+  SENSEX: 800,
+}
 
 function formatHorizon(elapsedDays: number) {
   if (elapsedDays <= 0) return 'T+0'
@@ -102,6 +135,23 @@ function extendToAxis(xs: number[], ys: number[], axisLo: number, axisHi: number
 type StrikeOffsetInfo = { offset: number; groupSize: number; groupIndex: number }
 
 /**
+ * State for the custom crosshair overlay drawn on hover — a dashed vertical
+ * line plus a floating price/P&L card, positioned with plain CSS instead of
+ * Plotly's own hover box (which we hide via the `.hoverlayer` CSS override
+ * below). Plotly still needs to be the thing that fires hover events (that's
+ * what gives us the exact snapped underlying/P&L values from `customdata`) —
+ * only the *rendering* of the hover box is replaced.
+ */
+interface CrosshairInfo {
+  /** Cursor position, relative to the chart container. */
+  xPixel: number
+  yPixel: number
+  underlying: number
+  pnl: number
+  pctText: string
+}
+
+/**
  * Read-only payoff diagram. Strike adjustment lives entirely in
  * `StrikeSliderRail` (rendered separately, below this chart) — this
  * component only draws the current legs' strike lines, it doesn't handle
@@ -125,8 +175,13 @@ export function PayoffChart({
   formatCurrency,
   legs = [],
   perLegCharges,
+  underlyingSymbol,
+  belowChart,
 }: PayoffChartProps) {
   const regionHeadingId = useId()
+  const chartScopeId = useId().replace(/:/g, '')
+  const chartContainerRef = useRef<HTMLDivElement>(null)
+  const [crosshair, setCrosshair] = useState<CrosshairInfo | null>(null)
   const { mode, appMode } = useThemeStore()
   const isAnalyzer = appMode === 'analyzer'
   const isDark = mode === 'dark' || isAnalyzer
@@ -179,11 +234,9 @@ export function PayoffChart({
     const rawYsExpiry = samples.map((s) => s.expiry)
     const rawYsT0 = samples.map((s) => s.tplus0)
 
-    const b1 = lognormalPriceBand(spot, iv, remainingYears, 1)
     const b2 = lognormalPriceBand(spot, iv, remainingYears, 2)
     const domainLo = rawXs[0]
     const domainHi = rawXs[rawXs.length - 1]
-    const inDomain = (x: number) => x >= domainLo && x <= domainHi
 
     // The sampled data domain (domainLo/domainHi above) is whatever
     // payoffPriceRange/computePayoff needed to cover every strike and
@@ -206,20 +259,39 @@ export function PayoffChart({
     // goes flat. `Math.min` against the raw domain means a strategy whose
     // natural domain is already tighter than this window (the common case)
     // is left alone — this only kicks in for the wide-domain outlier.
+    // 1.4x rather than a tighter pad keeps the strikes from sitting right at
+    // the axis edges — with less padding the curve's slope near the strikes
+    // reads as steep and the T+0/expiry lines look clubbed together instead
+    // of legibly separated.
     const strikeHalfWidth =
       strikeLegs.length > 0
-        ? Math.max(...strikeLegs.map((l) => Math.abs((l.strike ?? spot) - spot))) * 1.15
+        ? Math.max(...strikeLegs.map((l) => Math.abs((l.strike ?? spot) - spot))) * 1.4
         : 0
     const sigmaHalfWidth = b2 ? Math.max(spot - b2.lower, b2.upper - spot) : 0
     const rawHalfWidth = Math.max(spot - domainLo, domainHi - spot)
-    const MAX_AXIS_HALF_WIDTH_PCT = 0.5
+    const MAX_AXIS_HALF_WIDTH_PCT = 0.55
     const cappedHalfWidth = Math.min(
       rawHalfWidth,
       Math.max(sigmaHalfWidth, strikeHalfWidth, spot * MAX_AXIS_HALF_WIDTH_PCT)
     )
     // Never let the cap crop a strike itself, however extreme the cap ends
     // up relative to it.
-    const axisHalfWidth = Math.max(cappedHalfWidth, strikeHalfWidth)
+    let axisHalfWidth = Math.max(cappedHalfWidth, strikeHalfWidth)
+    // Index-specific override: NIFTY/SENSEX rarely move beyond their typical
+    // daily range, so default to that instead of letting IV/σ stretch the
+    // axis out. A real strike further out than the cap still isn't cropped
+    // (compared against the *unpadded* strike distance, not strikeHalfWidth's
+    // 1.4x-padded version, so this only relaxes the cap exactly as far as it
+    // needs to).
+    const underlyingMaxMove =
+      MAX_AXIS_HALF_WIDTH_BY_UNDERLYING[underlyingSymbol?.trim().toUpperCase() ?? '']
+    if (underlyingMaxMove !== undefined) {
+      const rawStrikeHalfWidth =
+        strikeLegs.length > 0
+          ? Math.max(...strikeLegs.map((l) => Math.abs((l.strike ?? spot) - spot)))
+          : 0
+      axisHalfWidth = Math.max(Math.min(axisHalfWidth, underlyingMaxMove), rawStrikeHalfWidth)
+    }
     const axisLo = Math.max(0, spot - axisHalfWidth)
     const axisHi = spot + axisHalfWidth
     const axisWidth = axisHi - axisLo
@@ -400,26 +472,6 @@ export function PayoffChart({
       line: { color: colors.zeroLine, width: 1 },
     })
 
-    // σ boundaries: a thin dotted tick line per boundary (plus the σ
-    // label further down) marks the statistically-likely price range
-    // without a full-height filled band competing with the P&L fill.
-    if (b1 && b2) {
-      for (const x of [b2.lower, b1.lower, b1.upper, b2.upper]) {
-        if (!inDomain(x)) continue
-        shapes.push({
-          type: 'line',
-          xref: 'x',
-          x0: x,
-          x1: x,
-          yref: 'paper',
-          y0: 0,
-          y1: 1,
-          line: { color: colors.sigmaTick, width: 1, dash: 'dot' },
-          layer: 'below',
-        })
-      }
-    }
-
     shapes.push({
       type: 'line',
       xref: 'x',
@@ -433,10 +485,13 @@ export function PayoffChart({
 
     const annotations: Partial<PlotlyTypes.Annotations>[] = []
 
-    // Spot label — anchored at spot x but on `y: 1.08 (paper)` just like
-    // the σ labels. When a strike is within ~3% of spot, push the spot
-    // label left/right of the strike to avoid overlap; otherwise it sits
-    // directly above spot.
+    // Spot label — anchored at spot x, sitting just above the plot area in
+    // axis "paper" coords. Kept close (`y: 1.05`) rather than pushed further
+    // up, since the title above it lives in a separate coordinate system
+    // (container coords, near the very top of the whole figure) — CHART_MARGIN.t
+    // is sized to keep clearance between the two regardless. When a strike is
+    // within ~3% of spot, push the spot label left/right of the strike to
+    // avoid overlap; otherwise it sits directly above spot.
     const strikeXValues = strikeLegs.map((l) => l.strike ?? scenario.spot)
     const minStrikeDistance = strikeXValues.reduce((acc, x) => {
       const d = Math.abs(x - scenario.spot)
@@ -450,7 +505,7 @@ export function PayoffChart({
         : 'center'
     annotations.push({
       x: spot,
-      y: 1.08,
+      y: 1.05,
       xref: 'x',
       yref: 'paper',
       text: `<b>${spot.toFixed(2)}</b>`,
@@ -458,76 +513,6 @@ export function PayoffChart({
       xanchor: spotXAnchor,
       yanchor: 'bottom',
       font: { size: 12, color: colors.spotLine },
-    })
-
-    if (b1 && b2) {
-      // A σ boundary landing within ~4% of the axis width of any strike (or
-      // spot, which already has its own label) would collide with that
-      // strike's label below — the two rows sit close together on purpose,
-      // and text needs real clearance. Rather than fight for space, drop
-      // the σ *text* in that case; the dotted tick line stays, so the
-      // boundary is still marked, just not double-labeled on top of a
-      // strike.
-      const collisionZoneX = axisWidth * 0.04
-      const nearAnyStrikeOrSpot = (x: number) =>
-        Math.abs(x - spot) < collisionZoneX ||
-        strikeLegs.some((l) => Math.abs((l.strike ?? spot) - x) < collisionZoneX)
-      const sigmaLabels: Array<{ x: number; text: string }> = [
-        { x: b2.lower, text: '-2σ' },
-        { x: b1.lower, text: '-1σ' },
-        { x: b1.upper, text: '+1σ' },
-        { x: b2.upper, text: '+2σ' },
-      ]
-      for (const s of sigmaLabels) {
-        if (!inDomain(s.x) || nearAnyStrikeOrSpot(s.x)) continue
-        annotations.push({
-          x: s.x,
-          y: 1.08,
-          xref: 'x',
-          yref: 'paper',
-          text: s.text,
-          showarrow: false,
-          yanchor: 'bottom',
-          font: { size: 11, color: colors.mutedText },
-        })
-      }
-    }
-
-    // Per-leg strike annotations, on their own row below the σ / spot row
-    // (see the y values above/below — 1.08 vs 1.03 leaves real clearance
-    // between the two, rather than sharing one cramped row). Each bold
-    // S/B + currency + CE/PE identifies the leg and current strike at a
-    // glance. Annotations are pushed AFTER σ and spot so Plotly's renderer
-    // lays them last (annotations paint on top of shapes by default).
-    strikeLegs.forEach((leg) => {
-      const strike = leg.strike ?? spot
-      const offsetInfo = strikeOffsetByLegId.get(leg.id)
-      const renderX = strike + (offsetInfo?.offset ?? 0)
-      const isCe = leg.optionType === 'CE'
-      const isSell = leg.side === 'SELL'
-      const color = isCe ? colors.ceStrike : colors.peStrike
-      const sideMark = isSell ? 'S' : 'B'
-      const optMark = leg.optionType ?? ''
-      annotations.push({
-        x: renderX,
-        // Labels for a colliding cluster are additionally staggered
-        // vertically (on top of the x-offset shared with their line) — a
-        // 0.045 step is sized against actual label text height, so stacked
-        // labels in a cluster read as a legible list rather than an
-        // overlapping blur.
-        y: 1.03 + (offsetInfo ? offsetInfo.groupIndex * 0.045 : 0),
-        xref: 'x',
-        yref: 'paper',
-        text: `<b>${sideMark}</b> ${formatCurrency(strike)} <b>${optMark}</b>`,
-        showarrow: false,
-        xanchor: 'center',
-        yanchor: 'bottom',
-        font: {
-          size: 10,
-          color,
-          family: 'system-ui, sans-serif',
-        },
-      })
     })
 
     annotations.push({
@@ -578,6 +563,10 @@ export function PayoffChart({
         gridcolor: colors.grid,
         zeroline: false,
         range: [axisLo, axisHi],
+        // Caps how many gridlines/labels Plotly packs in — without this it
+        // can pick a small dtick that crowds ticks together on a narrow
+        // strike spread, which is also what made the curves look clubbed up.
+        nticks: 7,
       },
       yaxis: {
         title: {
@@ -617,6 +606,7 @@ export function PayoffChart({
     formatCurrency,
     strikeLegs,
     perLegCharges,
+    underlyingSymbol,
     height,
   ])
 
@@ -674,18 +664,86 @@ export function PayoffChart({
     Number.isFinite(value) ? formatCurrency(value) : value > 0 ? 'Unlimited' : 'Unlimited loss'
   const currentLabel = formatHorizon(scenario.daysElapsed)
 
+  const handlePlotHover = useCallback(
+    (event: PlotlyTypes.PlotHoverEvent) => {
+      const container = chartContainerRef.current
+      if (!container || event.points.length === 0) return
+      const point = event.points.find((p) => p.data.name === terminalLabel) ?? event.points[0]
+      const underlying = Number(point.x)
+      const pnl = Number(point.y)
+      if (!Number.isFinite(underlying) || !Number.isFinite(pnl)) return
+      const rect = container.getBoundingClientRect()
+      const pct = ((underlying - scenario.spot) / scenario.spot) * 100
+      const sign = pct >= 0 ? '+' : ''
+      setCrosshair({
+        xPixel: event.event.clientX - rect.left,
+        yPixel: event.event.clientY - rect.top,
+        underlying,
+        pnl,
+        pctText: `${sign}${pct.toFixed(2)}%`,
+      })
+    },
+    [terminalLabel, scenario.spot]
+  )
+
+  const handlePlotUnhover = useCallback(() => setCrosshair(null), [])
+
   return (
     <section aria-labelledby={regionHeadingId} className="min-w-0 max-w-full overflow-hidden">
       <h2 id={regionHeadingId} className="sr-only">
         {title} payoff analysis
       </h2>
-      <Plot
-        data={data}
-        layout={layout}
-        config={config}
-        useResizeHandler
-        style={{ width: '100%', height }}
-      />
+      <div
+        ref={chartContainerRef}
+        data-payoff-chart-scope={chartScopeId}
+        className="relative"
+        onMouseLeave={handlePlotUnhover}
+      >
+        {/* Plotly's own hover box is disabled visually so the custom
+            crosshair below is the only thing drawn on hover — Plotly still
+            fires the hover events that drive it. Scoped to this instance so
+            it doesn't affect other Plotly charts on the page. */}
+        <style>{`[data-payoff-chart-scope="${chartScopeId}"] .hoverlayer { display: none; }`}</style>
+        <Plot
+          data={data}
+          layout={layout}
+          config={config}
+          useResizeHandler
+          style={{ width: '100%', height }}
+          onHover={handlePlotHover}
+          onUnhover={handlePlotUnhover}
+        />
+        {crosshair && (
+          <div className="pointer-events-none absolute inset-0 overflow-hidden">
+            <div
+              className="absolute top-0 bottom-0 border-l border-dashed"
+              style={{ left: crosshair.xPixel, borderColor: colors.spotLine }}
+            />
+            <div
+              className="absolute -translate-x-1/2 whitespace-nowrap rounded-md border px-2 py-1.5 text-xs shadow-sm"
+              style={{
+                left: crosshair.xPixel,
+                top: Math.min(Math.max(crosshair.yPixel, 34), height - 60),
+                backgroundColor: colors.paper,
+                borderColor: colors.cardBorder,
+                color: colors.text,
+              }}
+            >
+              <div className="tabular-nums">
+                {formatCurrency(crosshair.underlying)} ({crosshair.pctText})
+              </div>
+              <div
+                className="font-semibold tabular-nums"
+                style={{ color: crosshair.pnl >= 0 ? colors.expiryLine : colors.peStrike }}
+              >
+                {terminalLabel}: {crosshair.pnl >= 0 ? '+' : ''}
+                {formatCurrency(crosshair.pnl)}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+      {belowChart && <div className="px-3 pt-3">{belowChart}</div>}
       <div className="space-y-3 border-t px-3 py-3 text-xs">
         <output aria-live="polite" aria-atomic="true" className="block text-muted-foreground">
           Scenario spot <strong className="text-foreground">{formatCurrency(scenario.spot)}</strong>
