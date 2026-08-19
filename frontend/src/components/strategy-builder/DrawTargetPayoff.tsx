@@ -22,13 +22,27 @@ export interface DrawTargetPayoffProps {
 interface DrawPoint {
   /** A real listed strike — not an arbitrary price. See the module comment below for why. */
   strike: number
-  /** 0..1 fraction up the canvas height (0 = bottom/loss, 1 = top/profit). Never sent as a real number. */
-  y: number
+  /** A row index into the P&L grid (0 = bottom/loss, ROW_COUNT-1 = top/profit) — not a
+   * continuous height. See ROW_COUNT below for why the Y axis is discretized the same
+   * way the X axis (strikes) already is. */
+  row: number
 }
 
 const CANVAS_HEIGHT = 220
 const MAX_POINTS = 12
 const DEFAULT_MAX_LEGS = 3
+// How many discrete P&L levels the canvas offers. The X axis was already
+// restricted to real strikes (you can only place a point where an option
+// actually exists) — the Y axis used to stay a free continuous height,
+// which meant half the canvas still looked like "click anywhere" even
+// though the other half didn't. Discretizing Y into a fixed row count and
+// drawing every (strike x row) intersection as a small dot makes the whole
+// canvas honestly show its full set of selectable points up front, rather
+// than only revealing the X constraint after the first click. 15 rows is a
+// middle ground: fine enough to shape a real curve, coarse enough that the
+// dot matrix reads as texture rather than clutter next to 20-40 strike
+// columns.
+const ROW_COUNT = 15
 // On-screen diameter of a placed point. Drawn in real measured pixels (see
 // `canvasWidth` below) rather than viewBox units scaled by `preserveAspectRatio`
 // — a square viewBox stretched to fill a non-square container (100x100 into
@@ -38,6 +52,7 @@ const DEFAULT_MAX_LEGS = 3
 // makes 1 viewBox unit = 1 real pixel in both axes, so a fixed-radius circle
 // is a circle regardless of how wide the container ends up.
 const POINT_DIAMETER_PX = 10
+const GRID_DOT_DIAMETER_PX = 3
 
 // Points snap to real listed strikes, not an arbitrary continuous price —
 // two reasons, one cosmetic and one a correctness fix:
@@ -56,8 +71,13 @@ const POINT_DIAMETER_PX = 10
 //   was silently comparing candidates outside their real domain entirely.
 //   Sending real strikes as x fixes that: the price grid now actually
 //   spans the region where the candidates' payoffs vary.
+// Row index -> the -1..1 P&L value sent to the backend (row 0 = -1, top row = +1).
+function rowToValue(row: number): number {
+  return (row / (ROW_COUNT - 1)) * 2 - 1
+}
+
 function pointsToTargetPairs(points: DrawPoint[]): [number, number][] {
-  return [...points].sort((a, b) => a.strike - b.strike).map((p) => [p.strike, p.y * 2 - 1])
+  return [...points].sort((a, b) => a.strike - b.strike).map((p) => [p.strike, rowToValue(p.row)])
 }
 
 function nearestStrike(strikes: number[], price: number): number {
@@ -71,6 +91,11 @@ function nearestStrike(strikes: number[], price: number): number {
     }
   }
   return closest
+}
+
+function nearestRow(yFraction: number): number {
+  // yFraction is 0 (bottom) .. 1 (top); row 0 is the bottom, ROW_COUNT-1 the top.
+  return Math.min(ROW_COUNT - 1, Math.max(0, Math.round(yFraction * (ROW_COUNT - 1))))
 }
 
 export default function DrawTargetPayoff({
@@ -115,6 +140,9 @@ export default function DrawTargetPayoff({
     const span = hi - lo || 1
     return ((strike - lo) / span) * canvasWidth
   }
+  // Row 0 is the bottom of the canvas, ROW_COUNT-1 the top — inverted from
+  // pixel-Y, which grows downward.
+  const yForRow = (row: number) => (1 - row / (ROW_COUNT - 1)) * CANVAS_HEIGHT
 
   const canSearch = points.length >= 2 && Boolean(underlying) && Boolean(expiry) && !loading
 
@@ -124,8 +152,9 @@ export default function DrawTargetPayoff({
     const [lo, hi] = strikeRange
     const span = hi - lo || 1
     const xFor = (strike: number) => ((strike - lo) / span) * canvasWidth
+    const yFor = (row: number) => (1 - row / (ROW_COUNT - 1)) * CANVAS_HEIGHT
     return sortedPoints
-      .map((p, i) => `${i === 0 ? 'M' : 'L'} ${xFor(p.strike)} ${(1 - p.y) * CANVAS_HEIGHT}`)
+      .map((p, i) => `${i === 0 ? 'M' : 'L'} ${xFor(p.strike)} ${yFor(p.row)}`)
       .join(' ')
   }, [sortedPoints, canvasWidth, strikeRange])
 
@@ -133,10 +162,10 @@ export default function DrawTargetPayoff({
     const rect = svgRef.current?.getBoundingClientRect()
     if (!rect || !hasStrikes) return null
     const xFraction = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width))
-    const y = Math.min(1, Math.max(0, 1 - (e.clientY - rect.top) / rect.height))
+    const yFraction = Math.min(1, Math.max(0, 1 - (e.clientY - rect.top) / rect.height))
     const [lo, hi] = strikeRange
     const rawPrice = lo + xFraction * (hi - lo)
-    return { strike: nearestStrike(sortedStrikes, rawPrice), y }
+    return { strike: nearestStrike(sortedStrikes, rawPrice), row: nearestRow(yFraction) }
   }
 
   const handleCanvasClick = (e: React.MouseEvent<SVGSVGElement>) => {

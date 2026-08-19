@@ -1,5 +1,6 @@
 import { Github, Monitor } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { API_BASE_URL } from '@/api/client'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -16,7 +17,7 @@ export function Footer({ className }: FooterProps) {
   useEffect(() => {
     const fetchVersion = async () => {
       try {
-        const response = await fetch('/auth/app-info')
+        const response = await fetch(`${API_BASE_URL}/auth/app-info`)
         const data = await response.json()
         if (data.status === 'success') {
           setVersion(data.version)

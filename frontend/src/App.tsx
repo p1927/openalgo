@@ -159,7 +159,7 @@ function PageTitleUpdater() {
 function App() {
   return (
     <Providers>
-      <BrowserRouter>
+      <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/$/, '')}>
         <PageTitleUpdater />
         <AuthSync>
           <Suspense fallback={<PageLoader />}>

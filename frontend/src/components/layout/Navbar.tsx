@@ -94,7 +94,7 @@ export function Navbar() {
                 className="flex items-center gap-2 px-2"
                 onClick={() => setMobileOpen(false)}
               >
-                <img src="/logo.png" alt="OpenAlgo" className="h-8 w-8" />
+                <img src={`${import.meta.env.BASE_URL}logo.png`} alt="OpenAlgo" className="h-8 w-8" />
                 <span className="font-semibold">OpenAlgo</span>
               </Link>
 
@@ -176,7 +176,7 @@ export function Navbar() {
 
         {/* Logo */}
         <Link to="/dashboard" className="flex items-center gap-2 mr-6">
-          <img src="/logo.png" alt="OpenAlgo" className="h-8 w-8" />
+          <img src={`${import.meta.env.BASE_URL}logo.png`} alt="OpenAlgo" className="h-8 w-8" />
           <span className="hidden font-semibold sm:inline-block">OpenAlgo</span>
         </Link>
 

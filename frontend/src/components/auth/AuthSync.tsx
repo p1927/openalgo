@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { API_BASE_URL } from '@/api/client'
 import { useAuthStore } from '@/stores/authStore'
 import { useBrokerStore } from '@/stores/brokerStore'
 import { useSessionStore } from '@/stores/sessionStore'
@@ -23,7 +24,7 @@ export function AuthSync({ children }: AuthSyncProps) {
   useEffect(() => {
     const syncSession = async () => {
       try {
-        const response = await fetch('/auth/session-status', {
+        const response = await fetch(`${API_BASE_URL}/auth/session-status`, {
           credentials: 'include',
         })
 
