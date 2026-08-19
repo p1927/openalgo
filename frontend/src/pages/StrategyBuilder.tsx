@@ -4,6 +4,7 @@ import {
   Briefcase,
   Layers,
   LineChart,
+  PenTool,
   Sparkles,
   TrendingUp,
 } from 'lucide-react'
@@ -24,6 +25,7 @@ import {
   type ResolveLegContract,
   type ResolveOptionChain,
 } from '@/components/strategy-builder/ManualLegBuilder'
+import DrawTargetPayoff from '@/components/strategy-builder/DrawTargetPayoff'
 import MultiStrikeOITab from '@/components/strategy-builder/MultiStrikeOITab'
 import { PayoffChart } from '@/components/strategy-builder/PayoffChart'
 import {
@@ -2265,6 +2267,13 @@ export default function StrategyBuilder() {
                     <Layers className="mr-1.5 h-3.5 w-3.5" />
                     Multi Strike OI
                   </TabsTrigger>
+                  <TabsTrigger
+                    value="drawtarget"
+                    className="rounded-lg px-4 text-xs font-semibold data-[state=active]:bg-gradient-to-br data-[state=active]:from-background data-[state=active]:to-muted/60 data-[state=active]:shadow-sm"
+                  >
+                    <PenTool className="mr-1.5 h-3.5 w-3.5" />
+                    Draw Target
+                  </TabsTrigger>
                   </TabsList>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
@@ -2356,6 +2365,23 @@ export default function StrategyBuilder() {
                 ) : (
                   <div className="rounded-xl border bg-card p-8 text-center text-sm text-muted-foreground shadow-sm">
                     Resolving the underlying market-data reference...
+                  </div>
+                )}
+              </TabsContent>
+              <TabsContent value="drawtarget" className="pt-4">
+                {selectedUnderlying && selectedExpiry ? (
+                  <div className="overflow-hidden rounded-xl border bg-card p-4 shadow-sm">
+                    <DrawTargetPayoff
+                      underlying={selectedUnderlying}
+                      exchange={underlyingExchangeFor(selectedExchange, selectedUnderlying)}
+                      expiry={normalizeExpiryCode(selectedExpiry)}
+                      resolveContract={resolveLegContract}
+                      onAdd={handleAddManualLeg}
+                    />
+                  </div>
+                ) : (
+                  <div className="rounded-xl border bg-card p-8 text-center text-sm text-muted-foreground shadow-sm">
+                    Select an underlying and expiry to draw a target payoff.
                   </div>
                 )}
               </TabsContent>

@@ -152,6 +152,7 @@ dependencies = [
   "zmq==0.0.0",
   "opengreeks>=0.2.0",
   "openstatz==0.4.1",
+  "watchdog==6.0.0",
 ]
 
 [build-system]

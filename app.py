@@ -1,9 +1,22 @@
+import os
+
+# Snapshot FLASK_DEBUG from the process's launch environment before any
+# import below gets a chance to run its own `load_dotenv(override=True)` —
+# utils/env_check.py (imported on the next line), utils/config.py, and
+# utils/broker_env_sync.py all reload .env with override=True during
+# startup, and .env normally pins FLASK_DEBUG=False. Without this snapshot,
+# a launcher that starts OpenAlgo as `env FLASK_DEBUG=1 python app.py` (see
+# scripts/stack_lib.sh::stack_start_openalgo, used by `trade dev` for
+# backend auto-reload) has that value silently clobbered before it's ever
+# read at the bottom of this file, so the reloader never starts and code
+# edits stop taking effect with no visible error.
+_FLASK_DEBUG_PRESET = os.environ.get("FLASK_DEBUG")
+
 # Load and check environment variables before anything else
 from utils.env_check import load_and_check_env_variables  # Import the environment check function
 
 load_and_check_env_variables()
 
-import os
 import re
 import sys
 
@@ -31,7 +44,9 @@ _ensure_db_directory()
 # Show loading indicator early (before heavy imports) so user sees immediate feedback.
 # The full banner with "Ready" status prints later, right before the server accepts connections.
 if __name__ == "__main__":
-    _debug = os.getenv("FLASK_DEBUG", "False").lower() in ("true", "1", "t")
+    _debug = (_FLASK_DEBUG_PRESET if _FLASK_DEBUG_PRESET is not None else os.getenv("FLASK_DEBUG", "False")).lower() in (
+        "true", "1", "t",
+    )
     _is_reloader_parent = _debug and os.environ.get("WERKZEUG_RUN_MAIN") != "true"
     if not _is_reloader_parent:
         print("\033[93mStarting OpenAlgo...\033[0m", flush=True)
@@ -1072,7 +1087,9 @@ else:
 if __name__ == "__main__":
     host_ip = os.getenv("FLASK_HOST_IP", "127.0.0.1")
     port = int(os.getenv("FLASK_PORT", 5000))
-    debug = os.getenv("FLASK_DEBUG", "False").lower() in ("true", "1", "t")
+    debug = (_FLASK_DEBUG_PRESET if _FLASK_DEBUG_PRESET is not None else os.getenv("FLASK_DEBUG", "False")).lower() in (
+        "true", "1", "t",
+    )
 
     # Refuse to run the Werkzeug debugger on a non-loopback interface.
     # Werkzeug's interactive debugger is an RCE primitive — exposing it on a
@@ -1115,13 +1132,21 @@ if __name__ == "__main__":
 
         start_ngrok_tunnel(port)
 
-    # Exclude strategies and logs directories from reloader
+    # Exclude strategies, logs, and the venv from the reloader's watch scan.
+    # Werkzeug's stat reloader walks every entry on sys.path looking for
+    # .py/.pyc files to watch, and the venv's site-packages (thousands of
+    # installed-dependency files, none of which change during dev) is on
+    # sys.path. Without this exclusion a single scan pass can take far
+    # longer than the poll interval, so a real code edit is still detected
+    # eventually but only after a long, unpredictable delay — indistinguishable
+    # from the reloader being broken.
     reloader_options = {
         "exclude_patterns": [
             "*/strategies/*",
             "*/log/*",
             "*.log",
             "*.bak",
+            "*/.venv/*",
         ]
     }
     # Suppress Flask/Werkzeug's default startup banner — our banner replaces it
@@ -1221,3 +1246,4 @@ if __name__ == "__main__":
         reloader_options=reloader_options,
         allow_unsafe_werkzeug=True,
     )
+# hotreload test Wed Aug 19 15:00:16 IST 2026

@@ -138,7 +138,9 @@ def test_synthesize_recovers_known_bull_call_spread():
 
 def test_synthesize_respects_max_legs():
     candidates = [
-        LegCandidate(strike=k, option_type=t, premium=5) for k in (90, 95, 100, 105, 110) for t in ("CE", "PE")
+        LegCandidate(strike=k, option_type=t, premium=5)
+        for k in (90, 95, 100, 105, 110)
+        for t in ("CE", "PE")
     ]
     target_points = [(80.0, -3.0), (100.0, -3.0), (110.0, 7.0), (140.0, 7.0)]
 
@@ -160,6 +162,36 @@ def test_synthesize_invalid_weights_raise():
         synthesize(target_points=target_points, candidates=candidates, max_legs=1, shape_weight=0.0)
     with pytest.raises(ValueError):
         synthesize(target_points=target_points, candidates=candidates, max_legs=1, risk_weight=-0.1)
+
+
+def test_synthesize_does_not_let_unbounded_profit_beat_a_clearly_better_shape_match():
+    # Regression test for a real bug found during development: a naive
+    # ~50/50 shape/risk blend let an unbounded-upside combo (two long
+    # calls, which never caps like the drawn shape does) outrank a bounded
+    # spread whose shape fit was almost perfect, purely because "unlimited
+    # profit" saturates the risk score. The drawn target has a flat top,
+    # meaning the user wants a *capped* payoff there — the ranking must
+    # prefer the combo that actually respects that cap.
+    candidates = [
+        LegCandidate(strike=k, option_type="CE", premium=p)
+        for k, p in [(90, 12), (95, 9), (100, 6), (105, 4), (110, 2.5), (115, 1.5), (120, 1)]
+    ]
+    true_legs = [
+        SynthesizedLeg(strike=100, option_type="CE", side="BUY", premium=6),
+        SynthesizedLeg(strike=115, option_type="CE", side="SELL", premium=1.5),
+    ]
+    prices = np.linspace(80, 140, 121)
+    target_payoff = combo_payoff(prices, true_legs, LOT_SIZE)
+    target_points = list(zip(prices.tolist(), target_payoff.tolist(), strict=True))
+
+    results = synthesize(
+        target_points=target_points, candidates=candidates, max_legs=2, min_legs=2, top_n=5
+    )
+
+    assert results
+    top_legs = {(leg.strike, leg.option_type, leg.side) for leg in results[0].legs}
+    assert top_legs == {(100, "CE", "BUY"), (115, "CE", "SELL")}
+    assert math.isfinite(results[0].risk.max_loss)
 
 
 def test_synthesize_falls_back_to_greedy_for_large_candidate_pools():

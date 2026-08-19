@@ -82,7 +82,9 @@ def _greedy(
     for _ in range(_LOCAL_SEARCH_PASSES):
         improved = False
         for i in range(len(chosen)):
-            current_score = score_combo(prices, target, chosen, lot_size, shape_weight, risk_weight).score
+            current_score = score_combo(
+                prices, target, chosen, lot_size, shape_weight, risk_weight
+            ).score
             for candidate_leg in list(remaining):
                 trial_legs = chosen[:i] + [candidate_leg] + chosen[i + 1 :]
                 trial = score_combo(prices, target, trial_legs, lot_size, shape_weight, risk_weight)
@@ -108,8 +110,8 @@ def synthesize(
     min_legs: int = 1,
     top_n: int = 5,
     allow_sides: tuple[str, ...] = ("BUY", "SELL"),
-    shape_weight: float = 0.65,
-    risk_weight: float = 0.35,
+    shape_weight: float = 0.8,
+    risk_weight: float = 0.2,
     grid_points: int = 120,
 ) -> list[ScoredCombo]:
     """
@@ -122,6 +124,16 @@ def synthesize(
     `service.py`). This function itself has no I/O and is deterministic
     given its inputs, which is what makes it unit-testable without a
     broker connection.
+
+    The default `shape_weight`/`risk_weight` split (0.8/0.2) is deliberately
+    lopsided toward shape: `objective._risk_score` gives an unbounded-profit
+    combo close to its maximum score regardless of how it actually looks, so
+    a near-even blend lets "technically unlimited upside" outscore a combo
+    that matches the user's drawn shape almost exactly but happens to be
+    capped — which is backwards, since a flat top in the drawing means the
+    user *wants* a capped payoff there. Risk/reward should only decide
+    between candidates whose shape fit is already comparable, not override
+    a clearly better shape match.
     """
     if not target_points or not candidates or max_legs < 1:
         return []
@@ -145,7 +157,9 @@ def synthesize(
             continue
         if combos_possible <= _MAX_EXHAUSTIVE_COMBINATIONS:
             all_results.extend(
-                _exhaustive(templates, leg_count, prices, target, lot_size, shape_weight, risk_weight)
+                _exhaustive(
+                    templates, leg_count, prices, target, lot_size, shape_weight, risk_weight
+                )
             )
         else:
             all_results.extend(

@@ -53,6 +53,11 @@ def synthesize_from_option_chain(
         return False, chain_response, status_code
 
     candidates: list[LegCandidate] = []
+    # The synthesis core only deals in (strike, option_type, premium) — it
+    # has no notion of a broker symbol. Keep a side lookup here so the
+    # response can still hand the frontend a real, orderable symbol per
+    # chosen leg without threading broker concerns into the pure package.
+    symbol_lookup: dict[tuple[float, str], str] = {}
     for row in chain_response.get("chain", []):
         strike = row.get("strike")
         if strike is None:
@@ -62,10 +67,17 @@ def synthesize_from_option_chain(
             ltp = leg_data.get("ltp")
             if ltp is None or ltp <= 0:
                 continue
-            candidates.append(LegCandidate(strike=float(strike), option_type=option_type, premium=float(ltp)))
+            candidates.append(
+                LegCandidate(strike=float(strike), option_type=option_type, premium=float(ltp))
+            )
+            symbol = leg_data.get("symbol")
+            if symbol:
+                symbol_lookup[(float(strike), option_type)] = symbol
 
     if not candidates:
-        logger.warning("strategy_synthesis: no tradable strikes with quotes for %s %s", underlying, expiry_date)
+        logger.warning(
+            "strategy_synthesis: no tradable strikes with quotes for %s %s", underlying, expiry_date
+        )
         return False, {"status": "error", "message": "No tradable strikes with quotes found"}, 404
 
     results = synthesize(
@@ -79,20 +91,26 @@ def synthesize_from_option_chain(
         True,
         {
             "status": "success",
-            "underlying_ltp": chain_response.get("underlying_ltp"),
-            "results": [_serialize(r) for r in results],
+            "data": {
+                "underlying_ltp": chain_response.get("underlying_ltp"),
+                "results": [_serialize(r, symbol_lookup) for r in results],
+            },
         },
         200,
     )
 
 
-def _serialize(result: ScoredCombo) -> dict[str, Any]:
+def _serialize(result: ScoredCombo, symbol_lookup: dict[tuple[float, str], str]) -> dict[str, Any]:
     return {
         "score": round(result.score, 4),
         "shape_score": round(result.shape_score, 4),
         "risk_score": round(result.risk_score, 4),
-        "max_profit": None if result.risk.max_profit == float("inf") else round(result.risk.max_profit, 2),
-        "max_loss": None if result.risk.max_loss == float("-inf") else round(result.risk.max_loss, 2),
+        "max_profit": None
+        if result.risk.max_profit == float("inf")
+        else round(result.risk.max_profit, 2),
+        "max_loss": None
+        if result.risk.max_loss == float("-inf")
+        else round(result.risk.max_loss, 2),
         "breakevens": [round(b, 2) for b in result.risk.breakevens],
         "legs": [
             {
@@ -101,6 +119,7 @@ def _serialize(result: ScoredCombo) -> dict[str, Any]:
                 "side": leg.side,
                 "premium": leg.premium,
                 "qty": leg.qty,
+                "symbol": symbol_lookup.get((leg.strike, leg.option_type)),
             }
             for leg in result.legs
         ],

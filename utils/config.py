@@ -4,8 +4,20 @@ import os
 
 from dotenv import load_dotenv
 
-# Load environment variables from .env file with override=True to ensure values are updated
+# Load environment variables from .env file with override=True to ensure values are updated.
+#
+# FLASK_DEBUG is deliberately exempted: `trade dev` starts OpenAlgo as
+# `env FLASK_DEBUG=1 python app.py` specifically so Werkzeug's auto-reloader
+# picks up code changes (see scripts/stack_lib.sh::stack_start_openalgo).
+# This module is imported (via blueprints.auth / blueprints.brlogin) before
+# app.py reads FLASK_DEBUG in its `__main__` block, so an unconditional
+# override=True here silently stomps that pre-set value with .env's usual
+# `FLASK_DEBUG=False` — the process still starts, but with no reloader and
+# no error, so edits stop taking effect with no visible symptom.
+_preset_flask_debug = os.environ.get("FLASK_DEBUG")
 load_dotenv(override=True)
+if _preset_flask_debug is not None:
+    os.environ["FLASK_DEBUG"] = _preset_flask_debug
 
 
 def _active_broker() -> str:
@@ -100,3 +112,4 @@ def build_external_url(path: str) -> str:
     if not path.startswith("/"):
         path = f"/{path}"
     return f"{base}{path}"
+

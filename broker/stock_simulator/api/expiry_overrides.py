@@ -102,6 +102,45 @@ def _is_master_contract_ready() -> bool:
     return bool(status.get("is_ready"))
 
 
+def _live_expiries_override(underlying: str) -> dict[str, Any] | None:
+    """Live-mode counterpart of the replay-bundle path below.
+
+    Queries INDmoney's real F&O scrip master (via
+    ``LiveQuoteService.list_expiries``, which shares the recorder's
+    ``IndClient``/rate limiter) for ``underlying``'s live expiries, so
+    the dropdown has something to show even though the symtoken table
+    is only ever populated by the replay-anchored master-contract
+    build. Returns ``None`` (opt out to the — likely empty — symtoken
+    path) on any failure or an empty result, never raises.
+    """
+    try:
+        from broker.stock_simulator.api._trade_path import (
+            ensure_trade_integrations_path,
+        )
+
+        ensure_trade_integrations_path()
+
+        from trade_integrations.stock_simulator.live_quotes import get_live_quote_service
+    except Exception:
+        logger.exception("simulator expiry override: live import/setup failed; opting out")
+        return None
+
+    try:
+        expiries = get_live_quote_service().list_expiries(underlying)
+    except Exception:
+        logger.exception("simulator expiry override: live expiry fetch failed; opting out")
+        return None
+
+    if not expiries:
+        return None
+
+    return {
+        "status": "success",
+        "expiries": expiries,
+        "source": "simulator_live",
+    }
+
+
 def get_expiries_override(underlying: str, exchange: str) -> dict[str, Any] | None:
     """Return a simulator-aware expiry list, or ``None`` to opt out.
 
@@ -117,13 +156,15 @@ def get_expiries_override(underlying: str, exchange: str) -> dict[str, Any] | No
         ``None`` when:
           * the replay service cannot be loaded (no env config, no
             bundle on disk, import error inside the simulator package),
-          * no replay date is armed,
+          * no replay date is armed AND the live INDmoney expiry fetch
+            also fails or returns nothing (see ``_live_expiries_override``),
           * the underlying does not map to a known bundle slug,
           * the master contract is not in a ready state (mid-download
             or error) — see ``_is_master_contract_ready``.
         Otherwise a dict matching OpenAlgo's expiry endpoint response,
-        augmented with ``source: "simulator_replay"`` so the frontend
-        can label the dropdown as simulator-driven.
+        augmented with ``source: "simulator_replay"`` or
+        ``source: "simulator_live"`` so the frontend can label the
+        dropdown as simulator-driven.
     """
     del exchange  # See docstring.
 
@@ -152,9 +193,12 @@ def get_expiries_override(underlying: str, exchange: str) -> dict[str, Any] | No
 
     replay_date = getattr(getattr(service, "config", None), "replay_date", None)
     if not replay_date:
-        # No replay armed: the simulator is in live mode, the
-        # symtoken table is the right answer. Opt out cleanly.
-        return None
+        # No replay armed: the simulator is in live mode. The symtoken
+        # table is only ever refreshed by the replay-anchored
+        # master-contract build, so it has no reliable answer for
+        # today's live expiries — ask INDmoney directly instead of
+        # opting out into an empty/stale dropdown.
+        return _live_expiries_override(underlying)
 
     try:
         sim_now = service.sim_now()

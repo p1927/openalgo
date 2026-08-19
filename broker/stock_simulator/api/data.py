@@ -109,6 +109,23 @@ class BrokerData:
         spot_exchange = underlying_exchange or exchange
         if exchange in {"NFO", "BFO"} and spot_exchange == exchange:
             spot_exchange = "NSE_INDEX" if exchange == "NFO" else "BSE_INDEX"
+
+        if self._mode()["mode"] == "live":
+            try:
+                from trade_integrations.stock_simulator.live_quotes import get_live_quote_service
+
+                return get_live_quote_service().get_option_chain(
+                    symbol,
+                    spot_exchange,
+                    expiry_date=expiry_date,
+                    strike_count=strike_count,
+                )
+            except Exception:
+                logger.warning(
+                    "live option chain fetch failed for %s/%s; falling back to replay",
+                    symbol, exchange, exc_info=True,
+                )
+
         return self._replay.get_option_chain(
             symbol,
             spot_exchange,
@@ -346,3 +363,6 @@ class BrokerData:
                 }
             )
         return rows
+
+
+# hotreload watchdog test Wed Aug 19 15:05:39 IST 2026

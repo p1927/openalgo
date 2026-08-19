@@ -6,13 +6,16 @@ The option-chain service consults the ``symtoken`` master-contract
 table for per-strike and per-expiry lookups via
 ``get_available_strikes``. When the symtoken table is missing rows
 for the user's selected (base_symbol, expiry), the chain call 404s
-even though the on-disk HF replay bundle has the data.
+even though the on-disk HF replay bundle has the data — or, in live
+mode (no replay armed), even though INDmoney's real option chain has
+the data right now.
 
 This module is the last-resort safety net for that case: when the
 chain call lands and the symtoken table has no rows for the
-requested expiry, scan the bundle's per-expiry parquet and
-insert the missing (strike, expiry) rows. Idempotent — safe to
-call multiple times, no-ops if the rows are already there.
+requested expiry, scan the bundle's per-expiry parquet (replay mode)
+or fetch the live INDmoney chain (``_legs_from_live``, live mode) and
+insert the missing (strike, expiry) rows. Idempotent — safe to call
+multiple times, no-ops if the rows are already there.
 
 What this file is NOT
 ---------------------
@@ -43,6 +46,55 @@ import logging
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+def _legs_from_live(
+    *, base_symbol: str, expiry_iso: str, options_exchange: str
+) -> set[tuple[float, str]] | None:
+    """Live-mode counterpart to the parquet read below.
+
+    When there is no replay bundle file for this expiry (the simulator
+    is genuinely live, not replaying), pull real strikes/legs from
+    INDmoney's live option chain via ``LiveQuoteService`` instead of
+    opting out. Returns ``None`` on any failure so the caller falls
+    through to its existing no-op behaviour; returns an empty set if
+    the live call succeeded but had no legs.
+    """
+    try:
+        from trade_integrations.stock_simulator.live_quotes import (
+            get_live_quote_service,
+        )
+    except Exception:
+        logger.exception("lazy MC extend: live import failed; opting out")
+        return None
+
+    spot_exchange = "NSE_INDEX" if options_exchange.upper() == "NFO" else "BSE_INDEX"
+
+    try:
+        response = get_live_quote_service().get_raw_option_chain(
+            base_symbol, spot_exchange, expiry=expiry_iso, strike_count=40
+        )
+    except Exception:
+        logger.exception("lazy MC extend: live option chain fetch failed; opting out")
+        return None
+
+    data = response.get("data") if isinstance(response, dict) else None
+    strikes = (data or {}).get("strikes")
+    if not isinstance(strikes, dict):
+        return None
+
+    legs: set[tuple[float, str]] = set()
+    for strike_str, entry in strikes.items():
+        try:
+            strike = float(strike_str)
+        except (TypeError, ValueError):
+            continue
+        entry = entry or {}
+        if entry.get("ce") is not None:
+            legs.add((strike, "CE"))
+        if entry.get("pe") is not None:
+            legs.add((strike, "PE"))
+    return legs
 
 
 def _resolve_expiry_iso(expiry_date: str) -> str | None:
@@ -127,30 +179,38 @@ def extend_master_contract_for_expiry(
         return 0
 
     bundle_file = options_dir(data_root, slug) / f"{expiry_iso}.parquet"
-    if not bundle_file.is_file():
-        return 0
-
-    try:
-        import pandas as pd
-        raw = pd.read_parquet(
-            bundle_file, columns=["strike", "option_type"]
-        )
-    except Exception:
-        logger.exception(
-            "lazy MC extend: failed to read bundle parquet %s; opting out",
-            bundle_file,
-        )
-        return 0
-
-    if raw.empty:
-        return 0
-
     legs: set[tuple[float, str]] = set()
-    for _, row in raw.drop_duplicates(subset=["strike", "option_type"]).iterrows():
-        strike = float(row["strike"])
-        opt_type = str(row["option_type"]).upper()
-        if opt_type in {"CE", "PE"}:
-            legs.add((strike, opt_type))
+    if bundle_file.is_file():
+        try:
+            import pandas as pd
+            raw = pd.read_parquet(
+                bundle_file, columns=["strike", "option_type"]
+            )
+        except Exception:
+            logger.exception(
+                "lazy MC extend: failed to read bundle parquet %s; opting out",
+                bundle_file,
+            )
+            return 0
+
+        if raw.empty:
+            return 0
+
+        for _, row in raw.drop_duplicates(subset=["strike", "option_type"]).iterrows():
+            strike = float(row["strike"])
+            opt_type = str(row["option_type"]).upper()
+            if opt_type in {"CE", "PE"}:
+                legs.add((strike, opt_type))
+    else:
+        # No replay bundle for this expiry — the simulator is live,
+        # not replaying. Try the live INDmoney chain instead of
+        # opting out (see docstring on ``_legs_from_live``).
+        live_legs = _legs_from_live(
+            base_symbol=base_symbol, expiry_iso=expiry_iso, options_exchange=options_exchange
+        )
+        if not live_legs:
+            return 0
+        legs = live_legs
 
     if not legs:
         return 0

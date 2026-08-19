@@ -82,16 +82,28 @@ def _edge_slope(prices: np.ndarray, payoff: np.ndarray) -> float:
 
 
 def _find_breakevens(prices: np.ndarray, payoff: np.ndarray) -> list[float]:
+    """
+    Sign-crossing detection. Deliberately asymmetric (`y0 < 0 <= y1` /
+    `y0 >= 0 > y1`, not a plain sign mismatch) so a crossing that lands
+    exactly on a grid point — common with round-number strikes and a
+    round-number grid — is attributed to exactly one adjacent pair instead
+    of two: without the asymmetry, both the pair ending at that zero point
+    and the pair starting from it would independently detect "a sign
+    change" and the same breakeven would be emitted twice.
+    """
     breakevens: list[float] = []
     for i in range(len(prices) - 1):
         y0, y1 = payoff[i], payoff[i + 1]
-        if y0 == 0:
-            breakevens.append(float(prices[i]))
+        crosses_up = y0 < 0 <= y1
+        crosses_down = y0 >= 0 > y1
+        if not (crosses_up or crosses_down):
             continue
-        if (y0 < 0) != (y1 < 0):
-            x0, x1 = prices[i], prices[i + 1]
-            t = -y0 / (y1 - y0)
-            breakevens.append(float(x0 + t * (x1 - x0)))
+        x0, x1 = prices[i], prices[i + 1]
+        if y1 == y0:
+            breakevens.append(float(x0))
+            continue
+        t = -y0 / (y1 - y0)
+        breakevens.append(float(x0 + t * (x1 - x0)))
     return breakevens
 
 
