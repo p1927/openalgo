@@ -81,6 +81,32 @@ def _reference_metadata(symbol: str, exchange: str) -> dict[str, str]:
     }
 
 
+def _normalize_expiry_to_ddmmmyy(raw: str | None) -> str | None:
+    """Coerce caller-supplied expiry strings to the ``DDMMMYY`` contract
+    that ``option_symbol_service.get_available_strikes`` (and the symtoken
+    table) actually use.
+
+    Accepts the shapes the rest of the API surface emits:
+        * ``DD-MMM-YY``     (e.g. ``25-AUG-26``)
+        * ``DD-MMM-YYYY``   (e.g. ``25-AUG-2026``)
+        * ``DDMMMYY``       (e.g. ``25AUG26``)
+        * ``YYYY-MM-DD``    (e.g. ``2026-08-25``)
+
+    Returns ``raw`` unchanged when no format matches — better to let the
+    downstream query raise a clear "no such expiry" error than to silently
+    mangle the input.
+    """
+    if not raw:
+        return raw
+    cleaned = raw.strip().upper()
+    for fmt in ("%d%b%y", "%d-%b-%y", "%d-%b-%Y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(cleaned, fmt).strftime("%d%b%y").upper()
+        except ValueError:
+            continue
+    return raw
+
+
 def get_strikes_with_labels(
     available_strikes: list[float], atm_strike: float, strike_count: int | None = None
 ) -> list[dict[str, Any]]:
@@ -354,7 +380,13 @@ def get_option_chain(
     try:
         # Step 1: Parse underlying symbol
         base_symbol, embedded_expiry = parse_underlying_symbol(underlying)
-        final_expiry = embedded_expiry or expiry_date
+        # Coerce whatever shape the caller sent (DD-MMM-YY, DD-MMM-YYYY,
+        # DDMMMYY, or YYYY-MM-DD) to the DDMMMYY contract that
+        # option_symbol_service.get_available_strikes and the symtoken
+        # table both use. Without this, callers sending 25-AUG-2026 or
+        # 25-AUG-26 got a misleading "No strikes found" because the LIKE
+        # pattern and expiry filter both assumed the dashless form.
+        final_expiry = _normalize_expiry_to_ddmmmyy(embedded_expiry or expiry_date)
 
         if not final_expiry:
             return False, {"status": "error", "message": "Expiry date is required."}, 400

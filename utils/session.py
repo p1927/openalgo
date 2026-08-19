@@ -329,7 +329,16 @@ def check_session_validity(f):
                 or request.headers.get("Accept", "").startswith("application/json")
                 or request.content_type == "application/json"
                 or request.is_json
-                or request.path.startswith("/api/")
+                # Frontend option-chain dropdown hits GET /search/api/expiries
+                # and other webClient endpoints that live under blueprint
+                # prefixes other than /api/ — treat any /api/ anywhere in
+                # the path as AJAX so the user gets a JSON 401 (which the
+                # frontend already handles by redirecting to /login) instead
+                # of a 302 redirect to /auth/login that axios follows and
+                # then can't parse as JSON. Same for the websocket handshake
+                # path /socket.io and the legacy /oiprofile/api routes.
+                or "/api/" in request.path
+                or request.path.startswith("/socket.io")
             )
 
             if is_ajax:
