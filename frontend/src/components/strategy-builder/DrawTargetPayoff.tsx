@@ -285,7 +285,7 @@ export default function DrawTargetPayoff({
         <p className="text-sm font-medium text-foreground">Draw the payoff shape you want</p>
         <p className="text-xs text-muted-foreground">
           {hasStrikes
-            ? 'Click a strike column to place a point (drag to adjust, click a point to remove it). Only the shape matters — up, down, flat — not the exact height.'
+            ? 'Pick from the dots to place a point (drag to adjust, click a point to remove it) — those are the only positions the search can actually build a shape from. Only the shape matters — up, down, flat — not the exact height.'
             : 'Load an option chain to draw against its real strikes.'}
         </p>
       </div>
@@ -301,19 +301,6 @@ export default function DrawTargetPayoff({
           onPointerUp={endDrag}
           onPointerLeave={endDrag}
         >
-          {/* Strike grid — every column is a real, tradable strike; drawn
-              points can only ever land on one of these. */}
-          {sortedStrikes.map((s) => (
-            <line
-              key={s}
-              x1={xForStrike(s)}
-              y1={0}
-              x2={xForStrike(s)}
-              y2={CANVAS_HEIGHT}
-              stroke="currentColor"
-              strokeOpacity="0.07"
-            />
-          ))}
           <line
             x1={0}
             y1={CANVAS_HEIGHT / 2}
@@ -322,6 +309,25 @@ export default function DrawTargetPayoff({
             stroke="currentColor"
             strokeOpacity="0.15"
           />
+          {/* The full selectable matrix — every (strike column x P&L row)
+              intersection, drawn small and faint so it reads as texture
+              rather than clutter. This is the whole point: the canvas shows
+              its complete set of choices up front instead of only reacting
+              after a click, and a click always snaps to the nearest one of
+              these, never an arbitrary position. */}
+          {hasStrikes &&
+            sortedStrikes.map((s) =>
+              Array.from({ length: ROW_COUNT }, (_, row) => (
+                <circle
+                  key={`${s}-${row}`}
+                  cx={xForStrike(s)}
+                  cy={yForRow(row)}
+                  r={GRID_DOT_DIAMETER_PX / 2}
+                  fill="currentColor"
+                  opacity="0.18"
+                />
+              ))
+            )}
           {hasStrikes && (
             <>
               <text x={4} y={CANVAS_HEIGHT - 6} fontSize="10" fill="currentColor" opacity="0.5">
@@ -346,7 +352,7 @@ export default function DrawTargetPayoff({
               <circle
                 key={originalIndex}
                 cx={xForStrike(p.strike)}
-                cy={(1 - p.y) * CANVAS_HEIGHT}
+                cy={yForRow(p.row)}
                 r={POINT_DIAMETER_PX / 2}
                 fill="#10b981"
                 stroke="white"
