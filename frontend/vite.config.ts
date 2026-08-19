@@ -81,7 +81,18 @@ export default defineConfig(({ command }) => ({
       // there), which silently returns the SPA's index.html instead of
       // JSON — the request "succeeds" with no console error, and whatever
       // state it was meant to populate just never arrives.
-      '^/[^/]+/api/.*': {
+      //
+      // `(?!src/)` excludes the app's own source tree: `src/api/client.ts`
+      // and `src/api/auth.ts` match `/[^/]+/api/.*` just as well as a real
+      // blueprint route does ("src" satisfies `[^/]+`, then literal
+      // "/api/"). Without the exclusion, Vite proxies those two module
+      // requests to Flask instead of serving them as source; Flask has no
+      // route for them and falls through to its SPA catch-all, handing
+      // back `index.html` (200, text/html) where the browser expected
+      // JavaScript. That trips strict MIME checking on the module script,
+      // aborts the whole module graph before `main.tsx` ever runs, and the
+      // app renders as a blank page — deterministically, not a timing race.
+      '^/(?!src/)[^/]+/api/.*': {
         target: 'http://localhost:5001',
         changeOrigin: true,
       },
