@@ -16,6 +16,7 @@ from services.strategy_synthesis import (
     combo_payoff,
     evaluate_risk,
     synthesize,
+    win_probability,
 )
 from services.strategy_synthesis.objective import score_combo
 
@@ -210,3 +211,83 @@ def test_synthesize_falls_back_to_greedy_for_large_candidate_pools():
     assert results
     assert all(1 <= len(r.legs) <= 4 for r in results)
     assert all(math.isfinite(r.risk.max_loss) or r.risk.max_loss == -math.inf for r in results)
+
+
+def test_win_probability_neutral_without_market_data():
+    prices = np.linspace(80, 140, 61)
+    payoff = np.linspace(-5, 5, 61)  # arbitrary, irrelevant when spot/iv/years missing
+    assert win_probability(prices, payoff, None, 0.2, 0.1) == 0.5
+    assert win_probability(prices, payoff, 100.0, None, 0.1) == 0.5
+    assert win_probability(prices, payoff, 100.0, 0.2, None) == 0.5
+    assert win_probability(prices, payoff, 100.0, 0.2, 0.0) == 0.5
+
+
+def test_win_probability_selling_far_otm_call_is_high():
+    # A *bought* option's breakeven (strike + premium) can never land
+    # meaningfully below spot — premium is always >= intrinsic value, so a
+    # purchase breaks even at spot at best. High win probability instead
+    # belongs to the *seller* of a far-OTM option: collects the premium and
+    # keeps it unless the price makes an unlikely large move against them.
+    prices = np.linspace(20, 200, 200)
+    legs = [SynthesizedLeg(strike=150, option_type="CE", side="SELL", premium=1)]
+    payoff = combo_payoff(prices, legs, LOT_SIZE)
+    p = win_probability(prices, payoff, spot=100.0, iv=0.2, years=30 / 365)
+    assert p > 0.9
+
+
+def test_win_probability_deep_otm_long_call_is_low():
+    # Spot 100, a call bought far OTM at strike 160 needs a large move to
+    # pay off — win probability should be close to 0.
+    prices = np.linspace(20, 250, 200)
+    legs = [SynthesizedLeg(strike=160, option_type="CE", side="BUY", premium=1)]
+    payoff = combo_payoff(prices, legs, LOT_SIZE)
+    p = win_probability(prices, payoff, spot=100.0, iv=0.2, years=30 / 365)
+    assert p < 0.1
+
+
+def test_win_probability_is_bounded():
+    prices = np.linspace(50, 150, 100)
+    legs = [
+        SynthesizedLeg(strike=90, option_type="CE", side="BUY", premium=8),
+        SynthesizedLeg(strike=110, option_type="CE", side="SELL", premium=3),
+    ]
+    payoff = combo_payoff(prices, legs, LOT_SIZE)
+    p = win_probability(prices, payoff, spot=100.0, iv=0.25, years=15 / 365)
+    assert 0.0 <= p <= 1.0
+
+
+def test_synthesize_win_prob_weight_breaks_ties_between_similar_shapes():
+    # Compares a bought near-the-money call (win probability tops out
+    # around 50% — see test_win_probability_selling_far_otm_call_is_high's
+    # docstring for why) against a sold far-OTM call (high win probability,
+    # low reward). Weighting win-probability should be reflected in each
+    # result's reported figure and rank the higher-probability one first
+    # when shape fit is otherwise comparable.
+    candidates = [
+        LegCandidate(strike=k, option_type="CE", premium=p)
+        for k, p in [(70, 31), (90, 12), (95, 8), (100, 5), (150, 0.3)]
+    ]
+    target_points = [(60.0, -10.0), (100.0, -10.0), (110.0, 5.0), (160.0, 5.0)]
+
+    results = synthesize(
+        target_points=target_points,
+        candidates=candidates,
+        max_legs=1,
+        min_legs=1,
+        top_n=10,  # covers every single-leg combo (5 strikes x 2 sides) so both compared legs are present
+        shape_weight=0.5,
+        risk_weight=0.0,
+        win_prob_weight=0.5,
+        spot=100.0,
+        iv=0.25,
+        years=20 / 365,
+    )
+
+    assert results
+    top = results[0]
+    assert 0.0 <= top.win_probability <= 1.0
+    atm_buy_result = next(r for r in results if r.legs[0].strike == 100 and r.legs[0].side == "BUY")
+    otm_sell_result = next(
+        r for r in results if r.legs[0].strike == 150 and r.legs[0].side == "SELL"
+    )
+    assert otm_sell_result.win_probability > atm_buy_result.win_probability

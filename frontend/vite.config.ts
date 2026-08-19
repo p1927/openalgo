@@ -67,6 +67,24 @@ export default defineConfig(({ command }) => ({
         target: 'http://localhost:5001',
         changeOrigin: true,
       },
+      // Every blueprint's data-fetch routes live at `/<blueprint>/api/*`
+      // (e.g. `/search/api/expiries`, `/sandbox/api/simulator/status`,
+      // `/gex/api/gex-data`) — but the SAME top-level prefixes (`/search`,
+      // `/sandbox`, `/gex`, ...) also name real React Router pages, so they
+      // can't be wholesale-proxied like `/api`/`/auth` above without
+      // breaking a full-page load/refresh of those routes (Vite would hand
+      // the document request to Flask instead of serving the dev SPA shell).
+      // No page route in this app ever has "api" as its second path
+      // segment, so matching on that literal is a safe, collision-free way
+      // to proxy just the fetch traffic. Without this, every one of these
+      // calls resolves against the Vite dev server itself (no such route
+      // there), which silently returns the SPA's index.html instead of
+      // JSON — the request "succeeds" with no console error, and whatever
+      // state it was meant to populate just never arrives.
+      '^/[^/]+/api/.*': {
+        target: 'http://localhost:5001',
+        changeOrigin: true,
+      },
     },
   },
   build: {

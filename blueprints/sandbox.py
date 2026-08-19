@@ -1273,8 +1273,16 @@ def api_simulator_config():
 
                 from utils.auth_utils import async_master_contract_download
 
-                Thread(target=async_master_contract_download, args=("stock_simulator",), daemon=True).start()
-                mc_refresh = "started"
+                rebuild_thread = Thread(
+                    target=async_master_contract_download, args=("stock_simulator",), daemon=True
+                )
+                rebuild_thread.start()
+                # Bounded wait so the response the frontend acts on (e.g.
+                # immediately re-fetching /search/api/expiries to populate
+                # the dropdown) doesn't race the rebuild — see the matching
+                # comment in stock_simulator_control.py::start_replay.
+                rebuild_thread.join(timeout=8.0)
+                mc_refresh = "completed" if not rebuild_thread.is_alive() else "started"
 
         payload = {"status": "success", "simulator": svc.status()}
         if mc_refresh:

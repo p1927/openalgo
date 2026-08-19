@@ -16,8 +16,13 @@ import { optionChainApi } from '@/api/option-chain'
 import { scalpingApi } from '@/api/scalping'
 import { type PortfolioEntry, strategyPortfolioApi, type Watchlist } from '@/api/strategy-portfolio'
 import { tradingApi } from '@/api/trading'
+import DrawTargetPayoff from '@/components/strategy-builder/DrawTargetPayoff'
 import { EditLegDialog } from '@/components/strategy-builder/EditLegDialog'
-import { ExecutePlanWizard, type PlanImplementationStep, type StockPlanOrder } from '@/components/strategy-builder/ExecutePlanWizard'
+import {
+  ExecutePlanWizard,
+  type PlanImplementationStep,
+  type StockPlanOrder,
+} from '@/components/strategy-builder/ExecutePlanWizard'
 import { GreeksTab, type LegGreeks } from '@/components/strategy-builder/GreeksTab'
 import {
   type LegDraft,
@@ -25,7 +30,6 @@ import {
   type ResolveLegContract,
   type ResolveOptionChain,
 } from '@/components/strategy-builder/ManualLegBuilder'
-import DrawTargetPayoff from '@/components/strategy-builder/DrawTargetPayoff'
 import MultiStrikeOITab from '@/components/strategy-builder/MultiStrikeOITab'
 import { PayoffChart } from '@/components/strategy-builder/PayoffChart'
 import {
@@ -34,15 +38,19 @@ import {
 } from '@/components/strategy-builder/PayoffOverTimeChart'
 import { PnLTab } from '@/components/strategy-builder/PnLTab'
 import {
-  ResearchContextPanel,
+  PositionsPanel,
+  type PositionsPanelProps,
+} from '@/components/strategy-builder/PositionsPanel'
+import {
   type PlanPrediction,
   type PlanScenario,
   type RankedStrategy,
+  ResearchContextPanel,
 } from '@/components/strategy-builder/ResearchContextPanel'
-import { PositionsPanel, type PositionsPanelProps } from '@/components/strategy-builder/PositionsPanel'
 import { SaveStrategyDialog } from '@/components/strategy-builder/SaveStrategyDialog'
 import { Simulators } from '@/components/strategy-builder/Simulators'
 import StrategyChartTab from '@/components/strategy-builder/StrategyChartTab'
+import StrikeSliderRail from '@/components/strategy-builder/StrikeSliderRail'
 import { SymbolHeader } from '@/components/strategy-builder/SymbolHeader'
 import {
   type ResolvedTemplateLeg,
@@ -94,13 +102,9 @@ import {
   totalPnlAt,
   totalPremium,
 } from '@/lib/strategyMath'
-import {
-  chargeMarketForExchange,
-  estimateCharges,
-  legsToChargeInput,
-} from '@/lib/tradeCharges'
 import type { Direction, StrategyTemplate } from '@/lib/strategyTemplates'
 import { normalizeExpiryCode } from '@/lib/templateResolution'
+import { chargeMarketForExchange, estimateCharges, legsToChargeInput } from '@/lib/tradeCharges'
 import { makeFormatCurrency } from '@/lib/utils'
 import { useAuthStore } from '@/stores/authStore'
 import { showToast } from '@/utils/toast'
@@ -137,12 +141,38 @@ function cloneLegs(legs: StrategyLeg[]): StrategyLeg[] {
   return legs.map((l) => ({ ...l }))
 }
 
+/**
+ * Nearest listed strike to a dragged/snapped price, not an exact match.
+ *
+ * This used to require an exact hit (`Math.abs(s.strike - strike) < 0.01`),
+ * which silently dropped the update whenever it didn't land on a real row —
+ * and it very often didn't: `strikeStep` (below) is a single global value
+ * derived from the *tightest* gap anywhere in the chain, but many index
+ * option chains widen their strike interval away from spot (e.g. 50pt near
+ * ATM, 100-200pt further out). Snapping a chart-drag to that global step
+ * then lands on a price no row actually has for anything but the tightest
+ * region, and the leg just doesn't move — which reads as "dragging is
+ * broken" even though the line itself moved fine. Finding the closest real
+ * row instead means every drag lands on a tradable strike; `maxDistance`
+ * only guards against snapping across a genuine gap in the loaded chain
+ * (e.g. dragging past its edge) to some arbitrarily distant strike.
+ */
 function findChainRow(
   chain: ListedOptionChainResponse['chain'] | null | undefined,
-  strike: number
+  strike: number,
+  maxDistance = Infinity
 ) {
-  if (!chain) return undefined
-  return chain.find((s) => Math.abs(s.strike - strike) < 0.01)
+  if (!chain || chain.length === 0) return undefined
+  let closest: ListedOptionChainResponse['chain'][number] | undefined
+  let closestDistance = Infinity
+  for (const row of chain) {
+    const distance = Math.abs(row.strike - strike)
+    if (distance < closestDistance) {
+      closestDistance = distance
+      closest = row
+    }
+  }
+  return closest && closestDistance <= maxDistance ? closest : undefined
 }
 
 /**
@@ -232,7 +262,9 @@ export default function StrategyBuilder() {
   const [planCharges, setPlanCharges] = useState<PositionsPanelProps['planCharges']>(null)
   const [planNetPnl, setPlanNetPnl] = useState<PositionsPanelProps['planNetPnl']>(null)
   const [isChargesLoading, setIsChargesLoading] = useState(false)
-  const [planImplementationSteps, setPlanImplementationSteps] = useState<PlanImplementationStep[]>([])
+  const [planImplementationSteps, setPlanImplementationSteps] = useState<PlanImplementationStep[]>(
+    []
+  )
   const [planPrediction, setPlanPrediction] = useState<PlanPrediction | null>(null)
   const [planRecommendedRationale, setPlanRecommendedRationale] = useState<string | null>(null)
   const [planRecommendedTier, setPlanRecommendedTier] = useState<string | null>(null)
@@ -335,9 +367,10 @@ export default function StrategyBuilder() {
   const requiredSupplementalChainKeys = useMemo(() => {
     const derivativeExchange = optionExchangeFor(selectedExchange)
     return new Set(
-      supplementalExpiryKey.split('|').filter(Boolean).map((expiry) =>
-        chainIdentity(derivativeExchange, selectedUnderlying, expiry)
-      )
+      supplementalExpiryKey
+        .split('|')
+        .filter(Boolean)
+        .map((expiry) => chainIdentity(derivativeExchange, selectedUnderlying, expiry))
     )
   }, [selectedExchange, selectedUnderlying, supplementalExpiryKey])
 
@@ -409,13 +442,7 @@ export default function StrategyBuilder() {
         })
       )
     },
-    [
-      apiKey,
-      rememberSupplementalChain,
-      selectedExchange,
-      selectedUnderlying,
-      supplementalExpiryKey,
-    ]
+    [apiKey, rememberSupplementalChain, selectedExchange, selectedUnderlying, supplementalExpiryKey]
   )
 
   useEffect(() => {
@@ -423,9 +450,7 @@ export default function StrategyBuilder() {
     const requiredKeys = new Set(requiredSupplementalChainKeys)
     supplementalChainKeysRef.current = requiredKeys
     setSupplementalChains((previous) => {
-      const retained = new Map(
-        Array.from(previous).filter(([key]) => requiredKeys.has(key))
-      )
+      const retained = new Map(Array.from(previous).filter(([key]) => requiredKeys.has(key)))
       return retained.size === previous.size ? previous : retained
     })
     for (const key of supplementalClockOffsetsRef.current.keys()) {
@@ -445,10 +470,7 @@ export default function StrategyBuilder() {
       window.clearInterval(interval)
       document.removeEventListener('visibilitychange', handleVisibility)
     }
-  }, [
-    refreshSupplementalChains,
-    requiredSupplementalChainKeys,
-  ])
+  }, [refreshSupplementalChains, requiredSupplementalChainKeys])
 
   const supplementalWsSymbols = useMemo(() => {
     const symbols = new Map<string, { symbol: string; exchange: string }>()
@@ -517,11 +539,7 @@ export default function StrategyBuilder() {
         isSupplementalWsAuthenticated,
         supplementalWsConnectionEpoch
       ),
-    [
-      supplementalMarketData,
-      isSupplementalWsAuthenticated,
-      supplementalWsConnectionEpoch,
-    ]
+    [supplementalMarketData, isSupplementalWsAuthenticated, supplementalWsConnectionEpoch]
   )
 
   const liveSupplementalChains = useMemo(() => {
@@ -788,6 +806,12 @@ export default function StrategyBuilder() {
   const spotPrice = activeChain?.underlying_ltp ?? null
   const atmStrike = activeChain?.atm_strike ?? null
   const futuresPrice = activeChain ? forwardPrice : null
+  // Real listed strikes for the Draw Target canvas — it snaps drawn points
+  // to these rather than an arbitrary price (see DrawTargetPayoff.tsx).
+  const availableStrikes = useMemo(
+    () => activeChain?.chain.map((row) => row.strike) ?? [],
+    [activeChain]
+  )
   const atmIv = useMemo(() => {
     if (!activeChain) return null
     const atmRow = activeChain.chain.find((row) => row.strike === activeChain.atm_strike)
@@ -976,10 +1000,7 @@ export default function StrategyBuilder() {
     const generation = rehydrationGenerationRef.current
     const candidates = legs.filter((leg) => {
       if (!leg.active || isLegClosed(leg) || leg.contractValid) return false
-      if (
-        leg.segment === 'FUTURE' &&
-        !futureExpiries.includes(normalizeExpiryCode(leg.expiry))
-      ) {
+      if (leg.segment === 'FUTURE' && !futureExpiries.includes(normalizeExpiryCode(leg.expiry))) {
         return false
       }
       const selectionKey = `${leg.id}|${leg.segment}|${leg.expiry}|${leg.strike ?? ''}|${leg.optionType ?? ''}`
@@ -1204,17 +1225,15 @@ export default function StrategyBuilder() {
   const marginRequestKey = useMemo(() => {
     const exchange = optionExchangeFor(selectedExchange)
     return JSON.stringify(
-      legs
-        .filter(isLegExecutable)
-        .map((leg) => ({
-          exchange: leg.exchange ?? exchange,
-          symbol: leg.symbol,
-          action: leg.side,
-          quantity: String(leg.lots * leg.lotSize),
-          product: 'NRML',
-          pricetype: leg.price > 0 ? 'LIMIT' : 'MARKET',
-          price: leg.price > 0 ? String(leg.price) : '0',
-        }))
+      legs.filter(isLegExecutable).map((leg) => ({
+        exchange: leg.exchange ?? exchange,
+        symbol: leg.symbol,
+        action: leg.side,
+        quantity: String(leg.lots * leg.lotSize),
+        product: 'NRML',
+        pricetype: leg.price > 0 ? 'LIMIT' : 'MARKET',
+        price: leg.price > 0 ? String(leg.price) : '0',
+      }))
     )
   }, [legs, selectedExchange])
 
@@ -1713,14 +1732,23 @@ export default function StrategyBuilder() {
       setLegs((prev) =>
         prev.map((l) => {
           if (l.id !== legId || l.segment !== 'OPTION' || !l.optionType) return l
-          const row = findChainRow(chainData?.chain, strike)
+          // A drag can land a few rupees off whatever real strikes the chain
+          // actually lists (see findChainRow's docstring) — snap to the
+          // nearest one within a few steps rather than requiring an exact
+          // hit, or requiring a hit at all along a widened part of the chain.
+          const row = findChainRow(chainData?.chain, strike, strikeStep * 3)
           const side = l.optionType === 'CE' ? row?.ce : row?.pe
-          // No listed contract at this strike yet (chain not loaded / off-grid
-          // drag) — skip rather than fabricate a symbol the backend can't fill.
-          if (!side?.symbol) return l
+          // No listed contract near this strike (chain not loaded / dragged
+          // past its edge) — skip rather than fabricate a symbol the backend
+          // can't fill.
+          if (!row || !side?.symbol) return l
           return {
             ...l,
-            strike,
+            // Use the resolved row's own strike, not the raw dragged value —
+            // `symbol` below is *for* that strike, and letting them diverge
+            // silently mismatches the leg's payoff math against what it
+            // would actually trade.
+            strike: row.strike,
             expiry: normalizeExpiryCode(l.expiry),
             symbol: side.symbol,
             price: side.ltp && side.ltp > 0 ? side.ltp : l.price,
@@ -1729,7 +1757,7 @@ export default function StrategyBuilder() {
         })
       )
     },
-    [chainData]
+    [chainData, strikeStep]
   )
 
   const resetStrikesToBaseline = useCallback(() => {
@@ -1865,11 +1893,10 @@ export default function StrategyBuilder() {
             { validateStatus: () => true }
           )
         )
-        if (cancelled || res.status !== 200 || res.data.status !== 'success' || !res.data.plan) return
+        if (cancelled || res.status !== 200 || res.data.status !== 'success' || !res.data.plan)
+          return
         const plan = res.data.plan
-        const underlying = String(
-          plan.underlying || plan.ticker || planSymbol
-        ).toUpperCase()
+        const underlying = String(plan.underlying || plan.ticker || planSymbol).toUpperCase()
         const meta = (plan.meta || {}) as Record<string, string>
         const isStockPlan = planAsset === 'stock'
         setPlanKind(isStockPlan ? 'stock' : 'options')
@@ -1903,9 +1930,7 @@ export default function StrategyBuilder() {
         setLoadedEntry(null)
         setLoadedPlanName(String(rec.name || 'trade_plan'))
         setPlanCharges((plan.charges as PositionsPanelProps['planCharges']) || null)
-        setPlanImplementationSteps(
-          (plan.implementation_steps as PlanImplementationStep[]) || []
-        )
+        setPlanImplementationSteps((plan.implementation_steps as PlanImplementationStep[]) || [])
         setPlanPrediction((plan.prediction as PlanPrediction) || null)
         setPlanRecommendedRationale((rec.rationale as string) || null)
         setPlanRecommendedTier((rec.tier as string) || null)
@@ -2156,8 +2181,8 @@ export default function StrategyBuilder() {
                 <>
                   <h3 className="text-base font-semibold">Your canvas awaits</h3>
                   <p className="mx-auto max-w-md text-[13px] text-muted-foreground">
-                    Pick a pre-built strategy above, or add a position manually. Payoff chart, Greeks
-                    and live P&amp;L will materialize here.
+                    Pick a pre-built strategy above, or add a position manually. Payoff chart,
+                    Greeks and live P&amp;L will materialize here.
                   </p>
                 </>
               )}
@@ -2232,48 +2257,48 @@ export default function StrategyBuilder() {
                   className="min-w-0 max-w-full flex-1 overflow-x-auto pb-1"
                 >
                   <TabsList className="inline-flex h-10 w-max min-w-max gap-1 rounded-xl border bg-card p-1 shadow-sm">
-                  <TabsTrigger
-                    value="payoff"
-                    className="rounded-lg px-4 text-xs font-semibold data-[state=active]:bg-gradient-to-br data-[state=active]:from-background data-[state=active]:to-muted/60 data-[state=active]:shadow-sm"
-                  >
-                    <LineChart className="mr-1.5 h-3.5 w-3.5" />
-                    Payoff
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="greeks"
-                    className="rounded-lg px-4 text-xs font-semibold data-[state=active]:bg-gradient-to-br data-[state=active]:from-background data-[state=active]:to-muted/60 data-[state=active]:shadow-sm"
-                  >
-                    <Sparkles className="mr-1.5 h-3.5 w-3.5" />
-                    Greeks
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="pnl"
-                    className="rounded-lg px-4 text-xs font-semibold data-[state=active]:bg-gradient-to-br data-[state=active]:from-background data-[state=active]:to-muted/60 data-[state=active]:shadow-sm"
-                  >
-                    <TrendingUp className="mr-1.5 h-3.5 w-3.5" />
-                    P&amp;L
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="strategychart"
-                    className="rounded-lg px-4 text-xs font-semibold data-[state=active]:bg-gradient-to-br data-[state=active]:from-background data-[state=active]:to-muted/60 data-[state=active]:shadow-sm"
-                  >
-                    <Activity className="mr-1.5 h-3.5 w-3.5" />
-                    Strategy Chart
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="multistrikeoi"
-                    className="rounded-lg px-4 text-xs font-semibold data-[state=active]:bg-gradient-to-br data-[state=active]:from-background data-[state=active]:to-muted/60 data-[state=active]:shadow-sm"
-                  >
-                    <Layers className="mr-1.5 h-3.5 w-3.5" />
-                    Multi Strike OI
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="drawtarget"
-                    className="rounded-lg px-4 text-xs font-semibold data-[state=active]:bg-gradient-to-br data-[state=active]:from-background data-[state=active]:to-muted/60 data-[state=active]:shadow-sm"
-                  >
-                    <PenTool className="mr-1.5 h-3.5 w-3.5" />
-                    Draw Target
-                  </TabsTrigger>
+                    <TabsTrigger
+                      value="payoff"
+                      className="rounded-lg px-4 text-xs font-semibold data-[state=active]:bg-gradient-to-br data-[state=active]:from-background data-[state=active]:to-muted/60 data-[state=active]:shadow-sm"
+                    >
+                      <LineChart className="mr-1.5 h-3.5 w-3.5" />
+                      Payoff
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="greeks"
+                      className="rounded-lg px-4 text-xs font-semibold data-[state=active]:bg-gradient-to-br data-[state=active]:from-background data-[state=active]:to-muted/60 data-[state=active]:shadow-sm"
+                    >
+                      <Sparkles className="mr-1.5 h-3.5 w-3.5" />
+                      Greeks
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="pnl"
+                      className="rounded-lg px-4 text-xs font-semibold data-[state=active]:bg-gradient-to-br data-[state=active]:from-background data-[state=active]:to-muted/60 data-[state=active]:shadow-sm"
+                    >
+                      <TrendingUp className="mr-1.5 h-3.5 w-3.5" />
+                      P&amp;L
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="strategychart"
+                      className="rounded-lg px-4 text-xs font-semibold data-[state=active]:bg-gradient-to-br data-[state=active]:from-background data-[state=active]:to-muted/60 data-[state=active]:shadow-sm"
+                    >
+                      <Activity className="mr-1.5 h-3.5 w-3.5" />
+                      Strategy Chart
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="multistrikeoi"
+                      className="rounded-lg px-4 text-xs font-semibold data-[state=active]:bg-gradient-to-br data-[state=active]:from-background data-[state=active]:to-muted/60 data-[state=active]:shadow-sm"
+                    >
+                      <Layers className="mr-1.5 h-3.5 w-3.5" />
+                      Multi Strike OI
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="drawtarget"
+                      className="rounded-lg px-4 text-xs font-semibold data-[state=active]:bg-gradient-to-br data-[state=active]:from-background data-[state=active]:to-muted/60 data-[state=active]:shadow-sm"
+                    >
+                      <PenTool className="mr-1.5 h-3.5 w-3.5" />
+                      Draw Target
+                    </TabsTrigger>
                   </TabsList>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
@@ -2291,25 +2316,30 @@ export default function StrategyBuilder() {
               <TabsContent value="payoff" className="space-y-3 pt-4">
                 <div className="overflow-hidden rounded-xl border bg-card p-2 shadow-sm">
                   {spotPrice ? (
-                    <PayoffChart
-                      title={`${selectedUnderlying} — ${selectedExpiry || '—'}`}
-                      chartIdentity={chainIdentity(
-                        selectedExchange,
-                        selectedUnderlying,
-                        selectedExpiry
-                      )}
-                      scenario={scenario}
-                      remainingYears={simulatedYearsToNearExpiry}
-                      terminalLabel={terminalCurveLabel}
-                      payoff={payoff}
-                      formatCurrency={formatCurrency}
-                      legs={legs}
-                      strikeStep={strikeStep}
-                      onStrikeChange={handleStrikeFromChart}
-                      onResetStrikes={resetStrikesToBaseline}
-                      canResetStrikes={canResetStrikes}
-                      perLegCharges={perLegCharges}
-                    />
+                    <>
+                      <PayoffChart
+                        title={`${selectedUnderlying} — ${selectedExpiry || '—'}`}
+                        chartIdentity={chainIdentity(
+                          selectedExchange,
+                          selectedUnderlying,
+                          selectedExpiry
+                        )}
+                        scenario={scenario}
+                        remainingYears={simulatedYearsToNearExpiry}
+                        terminalLabel={terminalCurveLabel}
+                        payoff={payoff}
+                        formatCurrency={formatCurrency}
+                        legs={legs}
+                        perLegCharges={perLegCharges}
+                      />
+                      <StrikeSliderRail
+                        legs={legs}
+                        chain={chainData?.chain}
+                        onStrikeChange={handleStrikeFromChart}
+                        onResetStrikes={resetStrikesToBaseline}
+                        canResetStrikes={canResetStrikes}
+                      />
+                    </>
                   ) : (
                     <div className="flex h-[440px] items-center justify-center text-sm text-muted-foreground">
                       Load an option chain to see the payoff chart.
@@ -2375,6 +2405,7 @@ export default function StrategyBuilder() {
                       underlying={selectedUnderlying}
                       exchange={underlyingExchangeFor(selectedExchange, selectedUnderlying)}
                       expiry={normalizeExpiryCode(selectedExpiry)}
+                      strikes={availableStrikes}
                       resolveContract={resolveLegContract}
                       onAdd={handleAddManualLeg}
                     />
@@ -2480,7 +2511,11 @@ export default function StrategyBuilder() {
         open={executePlanOpen}
         onOpenChange={setExecutePlanOpen}
         legs={legs}
-        exchange={planKind === 'stock' ? stockOrder?.exchange ?? 'NSE' : optionExchangeFor(selectedExchange)}
+        exchange={
+          planKind === 'stock'
+            ? (stockOrder?.exchange ?? 'NSE')
+            : optionExchangeFor(selectedExchange)
+        }
         planName={loadedPlanName ?? 'trade_plan'}
         implementationSteps={planImplementationSteps}
         planKind={planKind}

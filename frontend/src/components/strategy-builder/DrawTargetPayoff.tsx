@@ -1,5 +1,5 @@
 import { Loader2, RotateCcw, Sparkles, Trash2 } from 'lucide-react'
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { SynthesisResult } from '@/api/strategy-synthesis'
 import { strategySynthesisApi } from '@/api/strategy-synthesis'
 import { Button } from '@/components/ui/button'
@@ -13,37 +13,71 @@ export interface DrawTargetPayoffProps {
   /** Derivative exchange (e.g. NFO) — matches what the option chain / synthesis API expect. */
   exchange: string
   expiry: string
+  /** Real listed strikes for this underlying/expiry — the canvas snaps drawn points to these. */
+  strikes: number[]
   resolveContract: ResolveLegContract
   onAdd: (draft: LegDraft) => void
 }
 
 interface DrawPoint {
-  /** 0..1 fraction across the canvas width — converted to a price only when submitting. */
-  x: number
-  /** 0..1 fraction up the canvas height (0 = bottom/loss, 1 = top/profit). */
+  /** A real listed strike — not an arbitrary price. See the module comment below for why. */
+  strike: number
+  /** 0..1 fraction up the canvas height (0 = bottom/loss, 1 = top/profit). Never sent as a real number. */
   y: number
 }
 
 const CANVAS_HEIGHT = 220
 const MAX_POINTS = 12
 const DEFAULT_MAX_LEGS = 3
+// On-screen diameter of a placed point. Drawn in real measured pixels (see
+// `canvasWidth` below) rather than viewBox units scaled by `preserveAspectRatio`
+// — a square viewBox stretched to fill a non-square container (100x100 into
+// a wide-and-short canvas) distorts circles into ellipses, the same bug this
+// canvas used to have as the payoff chart's strike handles before that got a
+// pixel-based fix. Matching the viewBox to the container's actual pixel size
+// makes 1 viewBox unit = 1 real pixel in both axes, so a fixed-radius circle
+// is a circle regardless of how wide the container ends up.
+const POINT_DIAMETER_PX = 10
 
-// The drawn curve only needs to carry *shape* — the synthesis backend fits
-// an optimal rescaling before comparing it to any candidate combo's real
-// P&L (see services/strategy_synthesis/objective.py), so the absolute
-// price/P&L numbers behind these fractions are never shown to or chosen by
-// the user. A fixed placeholder price span is enough to turn "click here"
-// into a monotonic x ordering for the target curve.
-const PRICE_SPAN = 100
-
+// Points snap to real listed strikes, not an arbitrary continuous price —
+// two reasons, one cosmetic and one a correctness fix:
+//
+// - Every strike the search can actually choose from is already fixed by
+//   the option chain, so letting the user "draw" at a price no option
+//   exists near was always going to be approximated away regardless.
+//   Showing the real grid up front (vertical guide lines, snap-to-nearest)
+//   makes the interaction honest about what's actually selectable.
+// - The backend's price grid for shape-matching is built directly from
+//   `target_points`'s own x-range (`search.py`: `np.linspace(xs[0], xs[-1],
+//   ...)`). This component used to send a fake 0-100 price span regardless
+//   of the real underlying's price — for something like NIFTY (strikes
+//   ~24,000+), every candidate's intrinsic value over a 0-100 "price" range
+//   is degenerate (constantly zero or constantly max), so shape-matching
+//   was silently comparing candidates outside their real domain entirely.
+//   Sending real strikes as x fixes that: the price grid now actually
+//   spans the region where the candidates' payoffs vary.
 function pointsToTargetPairs(points: DrawPoint[]): [number, number][] {
-  return [...points].sort((a, b) => a.x - b.x).map((p) => [p.x * PRICE_SPAN, p.y * 2 - 1])
+  return [...points].sort((a, b) => a.strike - b.strike).map((p) => [p.strike, p.y * 2 - 1])
+}
+
+function nearestStrike(strikes: number[], price: number): number {
+  let closest = strikes[0]
+  let closestDist = Math.abs(strikes[0] - price)
+  for (const s of strikes) {
+    const dist = Math.abs(s - price)
+    if (dist < closestDist) {
+      closestDist = dist
+      closest = s
+    }
+  }
+  return closest
 }
 
 export default function DrawTargetPayoff({
   underlying,
   exchange,
   expiry,
+  strikes,
   resolveContract,
   onAdd,
 }: DrawTargetPayoffProps) {
@@ -54,32 +88,65 @@ export default function DrawTargetPayoff({
   const [applyingIndex, setApplyingIndex] = useState<number | null>(null)
   const svgRef = useRef<SVGSVGElement>(null)
   const draggingIndexRef = useRef<number | null>(null)
+  // Measures the actual rendered width so points/lines can be drawn in real
+  // pixels (see POINT_DIAMETER_PX above) instead of a viewBox that gets
+  // non-uniformly stretched to fill the container.
+  const [canvasWidth, setCanvasWidth] = useState(600)
+  useEffect(() => {
+    const el = svgRef.current
+    if (!el) return
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width
+      if (width && width > 0) setCanvasWidth(width)
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+
+  const sortedStrikes = useMemo(() => [...strikes].sort((a, b) => a - b), [strikes])
+  const strikeRange = useMemo<[number, number]>(() => {
+    if (sortedStrikes.length === 0) return [0, 1]
+    return [sortedStrikes[0], sortedStrikes[sortedStrikes.length - 1]]
+  }, [sortedStrikes])
+  const hasStrikes = sortedStrikes.length >= 2
+
+  const xForStrike = (strike: number) => {
+    const [lo, hi] = strikeRange
+    const span = hi - lo || 1
+    return ((strike - lo) / span) * canvasWidth
+  }
 
   const canSearch = points.length >= 2 && Boolean(underlying) && Boolean(expiry) && !loading
 
-  const sortedPoints = useMemo(() => [...points].sort((a, b) => a.x - b.x), [points])
+  const sortedPoints = useMemo(() => [...points].sort((a, b) => a.strike - b.strike), [points])
   const pathD = useMemo(() => {
     if (sortedPoints.length < 2) return ''
+    const [lo, hi] = strikeRange
+    const span = hi - lo || 1
+    const xFor = (strike: number) => ((strike - lo) / span) * canvasWidth
     return sortedPoints
-      .map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x * 100} ${(1 - p.y) * 100}`)
+      .map((p, i) => `${i === 0 ? 'M' : 'L'} ${xFor(p.strike)} ${(1 - p.y) * CANVAS_HEIGHT}`)
       .join(' ')
-  }, [sortedPoints])
+  }, [sortedPoints, canvasWidth, strikeRange])
 
-  const fractionFromEvent = (e: { clientX: number; clientY: number }) => {
+  const pointFromEvent = (e: { clientX: number; clientY: number }): DrawPoint | null => {
     const rect = svgRef.current?.getBoundingClientRect()
-    if (!rect) return null
-    const x = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width))
+    if (!rect || !hasStrikes) return null
+    const xFraction = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width))
     const y = Math.min(1, Math.max(0, 1 - (e.clientY - rect.top) / rect.height))
-    return { x, y }
+    const [lo, hi] = strikeRange
+    const rawPrice = lo + xFraction * (hi - lo)
+    return { strike: nearestStrike(sortedStrikes, rawPrice), y }
   }
 
   const handleCanvasClick = (e: React.MouseEvent<SVGSVGElement>) => {
     if (draggingIndexRef.current !== null) return
+    if (!hasStrikes) return
     if (points.length >= MAX_POINTS) {
       showToast.warning(`You can place up to ${MAX_POINTS} points`)
       return
     }
-    const point = fractionFromEvent(e)
+    const point = pointFromEvent(e)
     if (!point) return
     setPoints((prev) => [...prev, point])
     setResults(null)
@@ -94,7 +161,7 @@ export default function DrawTargetPayoff({
   const handleSvgPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
     const index = draggingIndexRef.current
     if (index === null) return
-    const point = fractionFromEvent(e)
+    const point = pointFromEvent(e)
     if (!point) return
     setPoints((prev) => prev.map((p, i) => (i === index ? point : p)))
   }
@@ -188,53 +255,73 @@ export default function DrawTargetPayoff({
       <div className="space-y-1.5">
         <p className="text-sm font-medium text-foreground">Draw the payoff shape you want</p>
         <p className="text-xs text-muted-foreground">
-          Click to place points (drag to adjust, click a point to remove it). Only the shape matters
-          — up, down, flat — not the exact numbers.
+          {hasStrikes
+            ? 'Click a strike column to place a point (drag to adjust, click a point to remove it). Only the shape matters — up, down, flat — not the exact height.'
+            : 'Load an option chain to draw against its real strikes.'}
         </p>
       </div>
 
       <div className="overflow-hidden rounded-lg border bg-muted/20">
         <svg
           ref={svgRef}
-          viewBox="0 0 100 100"
-          preserveAspectRatio="none"
-          className="w-full cursor-crosshair touch-none"
+          viewBox={`0 0 ${canvasWidth} ${CANVAS_HEIGHT}`}
+          className={hasStrikes ? 'w-full cursor-crosshair touch-none' : 'w-full touch-none'}
           style={{ height: CANVAS_HEIGHT }}
           onClick={handleCanvasClick}
           onPointerMove={handleSvgPointerMove}
           onPointerUp={endDrag}
           onPointerLeave={endDrag}
         >
+          {/* Strike grid — every column is a real, tradable strike; drawn
+              points can only ever land on one of these. */}
+          {sortedStrikes.map((s) => (
+            <line
+              key={s}
+              x1={xForStrike(s)}
+              y1={0}
+              x2={xForStrike(s)}
+              y2={CANVAS_HEIGHT}
+              stroke="currentColor"
+              strokeOpacity="0.07"
+            />
+          ))}
           <line
-            x1="0"
-            y1="50"
-            x2="100"
-            y2="50"
+            x1={0}
+            y1={CANVAS_HEIGHT / 2}
+            x2={canvasWidth}
+            y2={CANVAS_HEIGHT / 2}
             stroke="currentColor"
             strokeOpacity="0.15"
-            vectorEffect="non-scaling-stroke"
           />
-          {pathD && (
-            <path
-              d={pathD}
-              fill="none"
-              stroke="#10b981"
-              strokeWidth="2"
-              vectorEffect="non-scaling-stroke"
-            />
+          {hasStrikes && (
+            <>
+              <text x={4} y={CANVAS_HEIGHT - 6} fontSize="10" fill="currentColor" opacity="0.5">
+                {strikeRange[0]}
+              </text>
+              <text
+                x={canvasWidth - 4}
+                y={CANVAS_HEIGHT - 6}
+                fontSize="10"
+                fill="currentColor"
+                opacity="0.5"
+                textAnchor="end"
+              >
+                {strikeRange[1]}
+              </text>
+            </>
           )}
+          {pathD && <path d={pathD} fill="none" stroke="#10b981" strokeWidth="2" />}
           {sortedPoints.map((p) => {
             const originalIndex = points.indexOf(p)
             return (
               <circle
                 key={originalIndex}
-                cx={p.x * 100}
-                cy={(1 - p.y) * 100}
-                r="4"
+                cx={xForStrike(p.strike)}
+                cy={(1 - p.y) * CANVAS_HEIGHT}
+                r={POINT_DIAMETER_PX / 2}
                 fill="#10b981"
                 stroke="white"
                 strokeWidth="1.5"
-                vectorEffect="non-scaling-stroke"
                 className="cursor-grab active:cursor-grabbing"
                 onPointerDown={handlePointPointerDown(originalIndex)}
                 onDoubleClick={(e) => {
@@ -286,40 +373,65 @@ export default function DrawTargetPayoff({
       {results && (
         <div className="space-y-2">
           <p className="text-xs font-medium text-muted-foreground">
-            {results.length} match{results.length > 1 ? 'es' : ''}, best shape fit first
+            {results.length} possibilit{results.length > 1 ? 'ies' : 'y'}, best match first
           </p>
           {results.map((result, index) => (
-            <div
-              key={index}
-              className="flex items-center justify-between gap-3 rounded-md border bg-card px-3 py-2 text-xs"
-            >
-              <div className="min-w-0 space-y-0.5">
-                <p className="truncate font-medium">
-                  {result.legs
-                    .map((l) => `${l.side === 'BUY' ? 'B' : 'S'} ${l.strike} ${l.option_type}`)
-                    .join(' + ')}
-                </p>
-                <p className="text-muted-foreground">
-                  Shape fit {Math.round(result.shape_score * 100)}% · Max profit{' '}
-                  {result.max_profit === null ? 'Unlimited' : result.max_profit.toFixed(2)} · Max
-                  loss {result.max_loss === null ? 'Unlimited' : result.max_loss.toFixed(2)}
-                </p>
+            <div key={index} className="rounded-lg border bg-card p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 space-y-1">
+                  {index === 0 && (
+                    <span className="inline-block rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                      Best match
+                    </span>
+                  )}
+                  <p className="truncate text-xs font-medium">
+                    {result.legs
+                      .map((l) => `${l.side === 'BUY' ? 'B' : 'S'} ${l.strike} ${l.option_type}`)
+                      .join(' + ')}
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  className="h-7 shrink-0 gap-1 text-[11px]"
+                  onClick={() => handleApply(result, index)}
+                  disabled={applyingIndex !== null}
+                >
+                  {applyingIndex === index ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <RotateCcw className="h-3 w-3" />
+                  )}
+                  Apply
+                </Button>
               </div>
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                className="h-7 shrink-0 gap-1 text-[11px]"
-                onClick={() => handleApply(result, index)}
-                disabled={applyingIndex !== null}
-              >
-                {applyingIndex === index ? (
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                ) : (
-                  <RotateCcw className="h-3 w-3" />
-                )}
-                Apply
-              </Button>
+              <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] sm:grid-cols-4">
+                <div>
+                  <dt className="text-muted-foreground">Shape fit</dt>
+                  <dd className="font-semibold tabular-nums">
+                    {Math.round(result.shape_score * 100)}%
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">Win chance</dt>
+                  <dd className="font-semibold tabular-nums">
+                    {Math.round(result.win_probability * 100)}%
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">Max profit</dt>
+                  <dd className="font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
+                    {result.max_profit === null ? 'Unlimited' : result.max_profit.toFixed(2)}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">Max loss</dt>
+                  <dd className="font-semibold tabular-nums text-rose-600 dark:text-rose-400">
+                    {result.max_loss === null ? 'Unlimited' : result.max_loss.toFixed(2)}
+                  </dd>
+                </div>
+              </dl>
             </div>
           ))}
         </div>

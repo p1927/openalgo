@@ -164,12 +164,20 @@ def start_replay():
 
         from utils.auth_utils import async_master_contract_download
 
-        Thread(
+        rebuild_thread = Thread(
             target=async_master_contract_download,
             args=("stock_simulator",),
             daemon=True,
-        ).start()
-        mc_refresh = "started"
+        )
+        rebuild_thread.start()
+        # Bounded wait so the response the frontend acts on (e.g. immediately
+        # re-fetching /search/api/expiries to populate the dropdown) doesn't
+        # race the rebuild. The rebuild is normally sub-second (delete +
+        # reinsert symtoken rows for one day); if it somehow runs long we
+        # still return rather than block the request indefinitely — the
+        # dropdown may just need a manual refresh in that rare case.
+        rebuild_thread.join(timeout=8.0)
+        mc_refresh = "completed" if not rebuild_thread.is_alive() else "started"
     # --- END MC auto-rebuild --------------------------------------------
 
     payload = {"status": "ok", **service.status()}

@@ -28,6 +28,8 @@ export interface SynthesisResult {
   score: number
   shape_score: number
   risk_score: number
+  /** P(profit at expiry), 0..1 — 0.5 when the backend had no live spot/IV to estimate from. */
+  win_probability: number
   /** null means unlimited (a net-long-calls combo with unbounded upside). */
   max_profit: number | null
   /** null means unlimited (a net-short-calls combo with unbounded loss). */

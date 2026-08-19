@@ -460,7 +460,11 @@ describe('PayoffChart exact geometry', () => {
     expect(plotCapture.props?.layout.yaxis?.title?.text).toBe('Profit / Loss')
   })
 
-  it('renders strike markers as editable Plotly shapes when onStrikeChange is provided', () => {
+  it('renders a dashed strike line per leg, with no draggable handle and no slider', () => {
+    // Strike adjustment now lives entirely in StrikeSliderRail, rendered
+    // separately below this chart — PayoffChart itself is read-only, so it
+    // must not render any circle "handle" shape, any Plotly editable-shape
+    // wiring, or its own <input type="range">.
     const payoff = computePayoff(
       [leg('call', 'BUY', 'CE', 100, 2)],
       100,
@@ -481,66 +485,27 @@ describe('PayoffChart exact geometry', () => {
         payoff={payoff}
         formatCurrency={formatCurrency}
         legs={[leg('call', 'BUY', 'CE', 100, 2)]}
-        strikeStep={50}
-        onStrikeChange={() => {}}
       />
     )
 
     const shapes = plotCapture.props?.layout.shapes ?? []
     const strikeLine = shapes.find(
-      (s: any) => s.type === 'line' && s.editable === true && typeof s.name === 'string' && s.name.startsWith('strike:')
+      (s: any) => s.type === 'line' && s.xref === 'x' && s.x0 === 100 && s.line?.dash === 'dash'
     )
-    const handleDot = shapes.find(
-      (s: any) => s.type === 'circle' && s.editable === true && typeof s.name === 'string' && s.name.startsWith('handle:')
-    )
+    const handleDot = shapes.find((s: any) => s.type === 'circle')
     expect(strikeLine).toBeDefined()
-    expect(handleDot).toBeDefined()
-    expect((strikeLine as any).x0).toBe(100)
+    expect(handleDot).toBeUndefined()
+    expect((plotCapture.props?.layout as any).editable).toBeFalsy()
 
-    // No slider panel: the chart card must NOT contain any <input type="range">
     expect(screen.queryByRole('slider')).toBeNull()
   })
 
-  it('enables layout.editable=true and dragmode="pan" so Plotly actually wires shape drag handlers', () => {
-    // Plotly silently ignores per-shape `editable: true` unless the
-    // LAYOUT-level `editable` flag is also true — and the chart panel must
-    // not be in `dragmode: 'zoom'`, which captures the mousedown before any
-    // shape handler runs. This test pins both invariants so a future
-    // refactor that drops one of them re-introduces a silent regression.
-    const payoff = computePayoff(
-      [leg('call', 'BUY', 'CE', 100, 2)],
-      100,
-      7,
-      0,
-      [80, 120],
-      7,
-      0,
-      20,
-      NOW
-    )
-
-    render(
-      <PayoffChart
-        title="Drag wired"
-        scenario={BASE_SCENARIO}
-        remainingYears={7 / 365}
-        payoff={payoff}
-        formatCurrency={formatCurrency}
-        legs={[leg('call', 'BUY', 'CE', 100, 2)]}
-        strikeStep={50}
-        onStrikeChange={() => {}}
-      />
-    )
-
-    expect((plotCapture.props?.layout as any).editable).toBe(true)
-    expect(plotCapture.props?.layout.dragmode).toBe('pan')
-  })
-
-  it('keeps layout.dragmode at the default "zoom" when onStrikeChange is absent', () => {
-    // When the user never asks for strike editing (e.g. PnL tab or a
-    // read-only page that reuses PayoffChart), we don't override the
-    // default dragmode — keeping 'zoom' so the box-zoom affordance still
-    // works for inspecting the payoff curve.
+  it('always uses dragmode "zoom" — the chart is never pan-locked', () => {
+    // Strike dragging used to force dragmode:'pan' (with an on-chart
+    // handle) whenever onStrikeChange was supplied, which made the entire
+    // viewport pannable on any click, not just the handle. Now that
+    // interaction lives in StrikeSliderRail instead, the chart has no
+    // reason to ever leave the default box-zoom behavior.
     const payoff = computePayoff(
       [leg('call', 'BUY', 'CE', 100, 2)],
       100,
@@ -560,10 +525,10 @@ describe('PayoffChart exact geometry', () => {
         remainingYears={7 / 365}
         payoff={payoff}
         formatCurrency={formatCurrency}
+        legs={[leg('call', 'BUY', 'CE', 100, 2)]}
       />
     )
 
-    expect((plotCapture.props?.layout as any).editable).toBeFalsy()
     expect(plotCapture.props?.layout.dragmode).toBe('zoom')
   })
 
@@ -594,8 +559,6 @@ describe('PayoffChart exact geometry', () => {
           leg('lc', 'BUY', 'CE', 100, 5),
           leg('sp', 'SELL', 'PE', 110, 8),
         ]}
-        strikeStep={50}
-        onStrikeChange={() => {}}
       />
     )
 

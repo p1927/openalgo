@@ -15,6 +15,8 @@ from __future__ import annotations
 from typing import Any
 
 from services.option_chain_service import get_option_chain
+from services.option_greeks_service import calculate_time_to_expiry, get_expiry_datetime
+from services.option_symbol_service import get_option_exchange
 from utils.logging import get_logger
 
 from .objective import ScoredCombo
@@ -47,10 +49,14 @@ def synthesize_from_option_chain(
         strike_count=strike_count,
         api_key=api_key,
         with_quotes=True,
-        with_greeks=False,
+        with_greeks=True,
     )
     if not success:
         return False, chain_response, status_code
+
+    spot = chain_response.get("underlying_ltp")
+    years = _years_to_expiry(exchange, expiry_date)
+    iv = _atm_iv(chain_response)
 
     candidates: list[LegCandidate] = []
     # The synthesis core only deals in (strike, option_type, premium) — it
@@ -85,6 +91,9 @@ def synthesize_from_option_chain(
         candidates=candidates,
         max_legs=max_legs,
         lot_size=lot_size,
+        spot=spot,
+        iv=iv,
+        years=years,
         **synthesize_kwargs,
     )
     return (
@@ -100,11 +109,51 @@ def synthesize_from_option_chain(
     )
 
 
+def _years_to_expiry(exchange: str, expiry_date: str) -> float | None:
+    """Time to expiry in years, for `win_probability`'s lognormal model — the
+    same helper `option_chain_service` itself uses for chain-wide Greeks."""
+    options_exchange = get_option_exchange(exchange)
+    expiry_dt = get_expiry_datetime(expiry_date, options_exchange)
+    if expiry_dt is None:
+        return None
+    years, _ = calculate_time_to_expiry(expiry_dt)
+    return years if years > 0 else None
+
+
+def _atm_iv(chain_response: dict[str, Any]) -> float | None:
+    """
+    A single representative IV for `win_probability`'s distribution —
+    averaged CE/PE implied vol at the chain's ATM strike. `win_probability`
+    is already a rough heuristic (a real vol surface has skew this ignores),
+    so one ATM figure is a reasonable simplification rather than needing a
+    per-leg vol lookup threaded through the whole search.
+    """
+    chain = chain_response.get("chain") or []
+    atm_strike = chain_response.get("atm_strike")
+    if not chain or atm_strike is None:
+        return None
+    row = min(chain, key=lambda r: abs((r.get("strike") or 0) - atm_strike))
+    ivs = [
+        iv
+        for leg_key in ("ce", "pe")
+        if (leg := row.get(leg_key))
+        and (iv := leg.get("implied_volatility")) is not None
+        and iv > 0
+    ]
+    if not ivs:
+        return None
+    avg_iv_pct = sum(ivs) / len(ivs)
+    # implied_volatility comes back as a percentage (e.g. 18.5) — the
+    # lognormal model in probability.py expects a decimal (0.185).
+    return avg_iv_pct / 100
+
+
 def _serialize(result: ScoredCombo, symbol_lookup: dict[tuple[float, str], str]) -> dict[str, Any]:
     return {
         "score": round(result.score, 4),
         "shape_score": round(result.shape_score, 4),
         "risk_score": round(result.risk_score, 4),
+        "win_probability": round(result.win_probability, 4),
         "max_profit": None
         if result.risk.max_profit == float("inf")
         else round(result.risk.max_profit, 2),

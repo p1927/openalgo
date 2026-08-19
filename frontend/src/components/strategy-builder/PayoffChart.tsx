@@ -1,8 +1,6 @@
 import type * as PlotlyTypes from 'plotly.js'
-import { MoveHorizontal, RotateCcw } from 'lucide-react'
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useId, useMemo } from 'react'
 import Plot from '@/lib/Plot2D'
-import { Button } from '@/components/ui/button'
 import {
   lognormalPriceBand,
   type PayoffResult,
@@ -25,10 +23,6 @@ export interface PayoffChartProps {
   height?: number
   formatCurrency: (value: number) => string
   legs?: StrategyLeg[]
-  strikeStep?: number
-  onStrikeChange?: (legId: string, strike: number) => void
-  onResetStrikes?: () => void
-  canResetStrikes?: boolean
   /**
    * Per-leg round-trip charge totals (leg.id → total charges). When supplied,
    * the hover tooltip gains an "After charges" row and the y-axis title is
@@ -41,6 +35,13 @@ export interface PayoffChartProps {
 
 const MAX_REPRESENTATIVE_ROWS = 7
 const MAX_SUMMARY_BREAKEVENS = 4
+
+// Fixed layout margins (see `chartLayout.margin` below).
+const CHART_MARGIN = { l: 70, r: 30, t: 80, b: 50 }
+// Anti-overlap offset step for strike lines/labels sharing (or nearly
+// sharing) a strike — sized as a percentage of the visible axis width so it
+// stays scale-invariant whether the underlying trades at 100 or 24,000.
+const CLUSTER_OFFSET_PCT_OF_AXIS = 0.015
 
 function formatHorizon(elapsedDays: number) {
   if (elapsedDays <= 0) return 'T+0'
@@ -61,24 +62,6 @@ function selectEvenly<T>(items: T[], limit: number): T[] {
     return items[sourceIndex]
   })
 }
-
-function snapStrike(value: number, step: number): number {
-  if (!step || step <= 0) return Math.round(value)
-  return Math.round(value / step) * step
-}
-
-// Fixed layout margins (see `chartLayout.margin` further down) — needed up
-// front to convert a target handle size in *pixels* into data-space /
-// paper-space units (see `handleHalfWidth`/`handleHalfHeightPaper` below).
-const CHART_MARGIN = { l: 70, r: 30, t: 80, b: 50 }
-// Target on-screen diameter of the draggable strike handle. Previously this
-// was sized as a flat 3% of the visible axis width with a hardcoded paper-
-// space height (0.985–1.025) — two independent unit systems (price for x,
-// figure-fraction for y) that happen to agree only by coincidence, so the
-// handle rendered as a stretched ellipse rather than a circle, and was
-// oversized on typical desktop widths (~24x18px blob). Sizing both axes
-// from the same pixel target keeps it a small, genuinely round dot.
-const HANDLE_DIAMETER_PX = 14
 
 /**
  * Extends a piecewise-linear payoff series flat-out to the visible axis
@@ -111,16 +94,25 @@ function extendToAxis(xs: number[], ys: number[], axisLo: number, axisHi: number
 
 /**
  * When two or more legs share (or nearly share) a strike, their lines and
- * drag-handles would otherwise render exactly on top of each other —
- * visually indistinguishable, and only the topmost shape in Plotly's
- * z-order actually receives drag/click events. `offset` nudges the leg's
- * line + handle apart from its strike-mates along the x-axis by a small,
- * scale-invariant amount so every leg in the cluster stays independently
- * visible and draggable; `handleRelayout` subtracts it back out before
- * resolving the dragged x-position to a real strike.
+ * labels would otherwise render exactly on top of each other. `offset`
+ * nudges the leg's line apart from its strike-mates along the x-axis by a
+ * small, scale-invariant amount so every leg in the cluster stays
+ * independently visible.
  */
 type StrikeOffsetInfo = { offset: number; groupSize: number; groupIndex: number }
 
+/**
+ * Read-only payoff diagram. Strike adjustment lives entirely in
+ * `StrikeSliderRail` (rendered separately, below this chart) — this
+ * component only draws the current legs' strike lines, it doesn't handle
+ * any pointer interaction for them. That split exists because Plotly has no
+ * built-in way to make shapes draggable without making the *entire chart*
+ * pannable on every other click (a confirmed open limitation:
+ * https://community.plotly.com/t/editable-mode-preventing-shape-and-annotation-dragging/83795),
+ * and a from-scratch pointer-drag layer (an earlier version of this
+ * component had one) is real interaction surface to maintain for a job a
+ * plain HTML range slider does natively, accessibly, and for free.
+ */
 export function PayoffChart({
   title,
   chartIdentity = title,
@@ -132,34 +124,12 @@ export function PayoffChart({
   height = 440,
   formatCurrency,
   legs = [],
-  strikeStep = 50,
-  onStrikeChange,
-  onResetStrikes,
-  canResetStrikes = false,
   perLegCharges,
 }: PayoffChartProps) {
   const regionHeadingId = useId()
   const { mode, appMode } = useThemeStore()
   const isAnalyzer = appMode === 'analyzer'
   const isDark = mode === 'dark' || isAnalyzer
-
-  // Measures the actual rendered plot width so the strike handle (below) can
-  // be sized to a fixed pixel diameter instead of a fraction of the price
-  // domain. Falls back to a sane desktop-card width before the first layout
-  // pass; `useResizeHandler` on <Plot> already keeps Plotly itself in sync
-  // with the container, this just mirrors that width into React state.
-  const plotContainerRef = useRef<HTMLDivElement>(null)
-  const [plotWidthPx, setPlotWidthPx] = useState(600)
-  useEffect(() => {
-    const el = plotContainerRef.current
-    if (!el) return
-    const observer = new ResizeObserver((entries) => {
-      const width = entries[0]?.contentRect.width
-      if (width && width > 0) setPlotWidthPx(width)
-    })
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [])
 
   const strikeLegs = useMemo(
     () =>
@@ -172,21 +142,6 @@ export function PayoffChart({
       ),
     [legs]
   )
-
-  // Previous-strike cache used by `handleRelayout` to suppress duplicate
-  // onStrikeChange emissions. Plotly's plotly_relayout event fires per
-  // commit-not-per-pixel, but the handle circle shares its x with the line
-  // (both edits resolve to the same strike), and Plotly sometimes fires two
-  // relayout events for one drag — checking against the snapshot prevents
-  // back-to-back identical emits that would still trigger upstream
-  // setLegs(...) work.
-  const previousStrikesRef = useRef<Map<string, number>>(new Map())
-
-  // Populated each render from the useMemo below (see the sync effect further
-  // down) so `handleRelayout` — which runs outside the memo, in response to a
-  // user drag — can undo the anti-overlap offset before resolving the real
-  // strike.
-  const strikeOffsetsRef = useRef<Map<string, StrikeOffsetInfo>>(new Map())
 
   const colors = useMemo(
     () => ({
@@ -209,7 +164,7 @@ export function PayoffChart({
     [isDark, isAnalyzer]
   )
 
-  const { data, layout, config, strikeOffsetByLegId, axisLo, axisHi } = useMemo(() => {
+  const { data, layout, config } = useMemo(() => {
     const { spot, iv, daysElapsed } = scenario
     const { samples } = payoff
     if (samples.length === 0) {
@@ -217,9 +172,6 @@ export function PayoffChart({
         data: [] as PlotlyTypes.Data[],
         layout: {} as Partial<PlotlyTypes.Layout>,
         config: {},
-        strikeOffsetByLegId: new Map<string, StrikeOffsetInfo>(),
-        axisLo: 0,
-        axisHi: 0,
       }
     }
 
@@ -288,24 +240,12 @@ export function PayoffChart({
       return `${sign}${pct.toFixed(2)}%`
     })
 
-    // Plot-area pixel dimensions, used to size the strike handle as a fixed
-    // on-screen circle (see HANDLE_DIAMETER_PX above) instead of a fraction
-    // of the price domain, which rendered as a stretched ellipse.
-    const plotPixelWidth = Math.max(1, plotWidthPx - CHART_MARGIN.l - CHART_MARGIN.r)
-    const handleHalfWidth = (HANDLE_DIAMETER_PX / 2 / plotPixelWidth) * axisWidth
-    // `paper` y spans the *entire* figure height, not just the plot area —
-    // Plotly shapes with yref:'paper' measure fraction-of-figure, so convert
-    // against `height` (the figure height) rather than `plotPixelHeight`.
-    const handleHalfHeightPaper = HANDLE_DIAMETER_PX / 2 / height
-
     const currentLabel = formatHorizon(daysElapsed)
     // When `perLegCharges` is supplied, the tooltip gains an extra row at
     // customdata[3] that surfaces the "After charges" P&L. The chart
     // contract is fixed even when no charges are present (customdata length
     // stays at 3 in that case so the hovertemplate keeps rendering).
-    const chargesRow = perLegCharges
-      ? '<br>After charges: %{customdata[3]}'
-      : ''
+    const chargesRow = perLegCharges ? '<br>After charges: %{customdata[3]}' : ''
     const hoverTemplate = (label: string) =>
       `<b>${label}</b>` +
       '<br>Underlying: %{customdata[0]}' +
@@ -381,15 +321,15 @@ export function PayoffChart({
 
     const shapes: Partial<PlotlyTypes.Shape>[] = []
 
-    // Cluster legs whose strikes fall within one handle-width of each other
+    // Cluster legs whose strikes fall within one offset-step of each other
     // (e.g. a straddle/strangle collapsed to one strike, or a calendar
     // spread) and assign each a small deterministic x-offset so their lines
-    // and handles don't stack exactly on top of one another. See
-    // `StrikeOffsetInfo` above for why this exists.
+    // don't stack exactly on top of one another. See `StrikeOffsetInfo`
+    // above for why this exists.
     const strikeOffsetByLegId = new Map<string, StrikeOffsetInfo>()
     {
-      const collisionThreshold = handleHalfWidth * 2.2
-      const offsetStep = handleHalfWidth * 2.4
+      const offsetStep = axisWidth * CLUSTER_OFFSET_PCT_OF_AXIS
+      const collisionThreshold = offsetStep * 1.5
       const sortedByStrike = [...strikeLegs]
         .map((leg) => ({ leg, strike: leg.strike ?? spot }))
         .sort((a, b) => a.strike - b.strike)
@@ -416,58 +356,35 @@ export function PayoffChart({
       }
     }
 
-    // Vertical strike lines + on-line handle dots. When `onStrikeChange` is
-    // supplied, these are draggable via our own pointer handlers on the
-    // container (see handlePointerDown/Move/Up) — not Plotly's built-in
-    // shape editing (see the dragmode comment above for why). When the
-    // callback is absent we still render the same shapes non-interactively
-    // so the legend stays consistent — strike identity is meaningful even
-    // when interaction is off.
-    const strikeEditable = Boolean(onStrikeChange)
+    // Vertical strike lines — always dashed now (previously solid for a
+    // long leg, dashed for short; that distinction is redundant once B/S is
+    // already spelled out in the label above each line) and extended a bit
+    // below the plot area's own bottom edge, into the margin whitespace, so
+    // they visually run toward the strike slider rail rendered just below
+    // this chart rather than stopping abruptly at the axis.
     strikeLegs.forEach((leg, i) => {
       const strike = leg.strike ?? spot
       const renderX = strike + (strikeOffsetByLegId.get(leg.id)?.offset ?? 0)
       const isCe = leg.optionType === 'CE'
       const isSell = leg.side === 'SELL'
       const color = isCe ? colors.ceStrike : colors.peStrike
-      // 1) Vertical strike line — drawn above plots but below annotations
-      //    so the handles render on top of it.
       shapes.push({
         type: 'line',
         xref: 'x',
         yref: 'paper',
         x0: renderX,
         x1: renderX,
-        y0: 0,
+        y0: -(CHART_MARGIN.b / height) * 0.9,
         y1: 1,
         line: {
           color,
-          width: isSell ? 2 : 3,
-          dash: isSell ? 'dash' : 'solid',
+          width: isSell ? 1.5 : 2,
+          dash: 'dash',
         },
+        opacity: 0.85,
         legendgroup: `strike-${i}`,
         layer: 'below',
       })
-      // 2) Small circle handle anchored just above the plot area so it
-      //    doesn't fight with the strike-line for clicks/hover. Sized to a
-      //    fixed on-screen diameter (see HANDLE_DIAMETER_PX above) so it
-      //    renders as a true circle — not a stretched ellipse — and stays a
-      //    comfortably clickable, unobtrusive dot whether the underlying
-      //    trades at 100 or 24,000.
-      if (strikeEditable) {
-        const handleCenterY = 1.005
-        shapes.push({
-          type: 'circle',
-          xref: 'x',
-          yref: 'paper',
-          x0: renderX - handleHalfWidth,
-          x1: renderX + handleHalfWidth,
-          y0: handleCenterY - handleHalfHeightPaper,
-          y1: handleCenterY + handleHalfHeightPaper,
-          fillcolor: color,
-          line: { color, width: 1.5 },
-        })
-      }
     })
 
     // Zero-line baseline (drawn under strikes so vertical strike marks
@@ -483,12 +400,9 @@ export function PayoffChart({
       line: { color: colors.zeroLine, width: 1 },
     })
 
-    // σ boundaries: previously drawn as full-height, full-width filled
-    // rectangles (stacked 1σ-over-2σ for a "stepped" look). Layered below
-    // the translucent profit/loss fill, those rects blended into a muddy
-    // wash that dominated the whole chart. A thin dotted tick line per
-    // boundary (plus the existing σ label) marks the same information
-    // without competing with the P&L fill for attention.
+    // σ boundaries: a thin dotted tick line per boundary (plus the σ
+    // label further down) marks the statistically-likely price range
+    // without a full-height filled band competing with the P&L fill.
     if (b1 && b2) {
       for (const x of [b2.lower, b1.lower, b1.upper, b2.upper]) {
         if (!inDomain(x)) continue
@@ -519,7 +433,7 @@ export function PayoffChart({
 
     const annotations: Partial<PlotlyTypes.Annotations>[] = []
 
-    // Spot label — anchored at spot x but on `y: 1.06 (paper)` just like
+    // Spot label — anchored at spot x but on `y: 1.08 (paper)` just like
     // the σ labels. When a strike is within ~3% of spot, push the spot
     // label left/right of the strike to avoid overlap; otherwise it sits
     // directly above spot.
@@ -550,10 +464,10 @@ export function PayoffChart({
       // A σ boundary landing within ~4% of the axis width of any strike (or
       // spot, which already has its own label) would collide with that
       // strike's label below — the two rows sit close together on purpose,
-      // and text needs far more clearance than the drag-handle anti-overlap
-      // offset provides. Rather than fight for space, drop the σ *text* in
-      // that case; the dotted tick line stays, so the boundary is still
-      // marked, just not double-labeled on top of a strike.
+      // and text needs real clearance. Rather than fight for space, drop
+      // the σ *text* in that case; the dotted tick line stays, so the
+      // boundary is still marked, just not double-labeled on top of a
+      // strike.
       const collisionZoneX = axisWidth * 0.04
       const nearAnyStrikeOrSpot = (x: number) =>
         Math.abs(x - spot) < collisionZoneX ||
@@ -597,10 +511,10 @@ export function PayoffChart({
       annotations.push({
         x: renderX,
         // Labels for a colliding cluster are additionally staggered
-        // vertically (on top of the x-offset shared with their line/handle)
-        // — a 0.045 step is sized against actual label text height (not
-        // the much smaller handle-hit-target offset), so stacked labels in
-        // a cluster read as a legible list rather than an overlapping blur.
+        // vertically (on top of the x-offset shared with their line) — a
+        // 0.045 step is sized against actual label text height, so stacked
+        // labels in a cluster read as a legible list rather than an
+        // overlapping blur.
         y: 1.03 + (offsetInfo ? offsetInfo.groupIndex * 0.045 : 0),
         xref: 'x',
         yref: 'paper',
@@ -633,19 +547,7 @@ export function PayoffChart({
 
     const chartLayout: Partial<PlotlyTypes.Layout> = {
       uirevision: chartIdentity,
-      // Strike dragging is handled entirely by our own pointer-event
-      // handlers on the container (see handlePointerDown/Move/Up below) —
-      // NOT by Plotly's built-in shape-editing (`layout.editable` /
-      // `shape.editable`). Plotly ties shape-drag hit-testing to
-      // `dragmode`: with 'zoom' the plot's own zoom-rect handler swallows
-      // the mousedown before it reaches a shape; with 'pan' shapes become
-      // draggable but so does the *entire viewport* on every other click —
-      // there's no built-in "shapes draggable, chart otherwise static"
-      // mode (a confirmed open limitation, not a config we missed:
-      // https://community.plotly.com/t/editable-mode-preventing-shape-and-annotation-dragging/83795).
-      // Disabling dragmode entirely and driving drags ourselves sidesteps
-      // that limitation and gives a fixed, non-pannable chart like Groww's.
-      dragmode: strikeEditable ? false : 'zoom',
+      dragmode: 'zoom',
       title: {
         text: title,
         font: { color: colors.text, size: 14 },
@@ -701,9 +603,6 @@ export function PayoffChart({
         modeBarButtonsToRemove: ['pan2d', 'select2d', 'lasso2d', 'autoScale2d', 'toggleSpikelines'],
         responsive: true,
       } as Partial<PlotlyTypes.Config>,
-      strikeOffsetByLegId,
-      axisLo,
-      axisHi,
     }
   }, [
     payoff,
@@ -718,7 +617,6 @@ export function PayoffChart({
     formatCurrency,
     strikeLegs,
     perLegCharges,
-    plotWidthPx,
     height,
   ])
 
@@ -761,14 +659,6 @@ export function PayoffChart({
     return { samples: selected, candidateCount: candidates.length }
   }, [payoff, scenario.spot])
 
-  // Keep the ref in sync with the latest per-leg anti-overlap offsets so
-  // `handleRelayout` (which fires from a Plotly event outside this render,
-  // not from the memo above) can undo the right offset for whichever leg
-  // was dragged.
-  useEffect(() => {
-    strikeOffsetsRef.current = strikeOffsetByLegId
-  }, [strikeOffsetByLegId])
-
   const summaryBreakevens = selectEvenly(payoff.breakevens, MAX_SUMMARY_BREAKEVENS)
 
   const scenarioSample = useMemo(() => {
@@ -784,156 +674,18 @@ export function PayoffChart({
     Number.isFinite(value) ? formatCurrency(value) : value > 0 ? 'Unlimited' : 'Unlimited loss'
   const currentLabel = formatHorizon(scenario.daysElapsed)
 
-  // Strike dragging, driven entirely by our own pointer handlers rather
-  // than Plotly's built-in shape editing — see the `dragmode` comment in
-  // the layout memo above for why. `draggingLegIdRef` holds the leg id
-  // currently being dragged (or null); pointer capture keeps receiving
-  // move/up events even if the cursor leaves the container mid-drag.
-  const draggingLegIdRef = useRef<string | null>(null)
-
-  const [hoveringLegId, setHoveringLegId] = useState<string | null>(null)
-
-  // Converts a pointer event's clientX into a data-space (price) x,
-  // inverting the same pixel math used to size/position the handles in the
-  // layout memo (CHART_MARGIN, plotWidthPx, axisLo/axisHi).
-  const dataXFromPointer = (e: React.PointerEvent<HTMLDivElement>): number | null => {
-    const container = plotContainerRef.current
-    if (!container || axisHi <= axisLo) return null
-    const rect = container.getBoundingClientRect()
-    const plotPixelWidth = Math.max(1, plotWidthPx - CHART_MARGIN.l - CHART_MARGIN.r)
-    const localX = e.clientX - rect.left - CHART_MARGIN.l
-    return axisLo + (localX / plotPixelWidth) * (axisHi - axisLo)
-  }
-
-  // Finds the strike leg closest to `dataX`, within a ~14px grab tolerance
-  // either side — matches the handle's own on-screen diameter
-  // (HANDLE_DIAMETER_PX). Returns null if nothing is close enough.
-  const findLegNear = (dataX: number): StrategyLeg | null => {
-    const plotPixelWidth = Math.max(1, plotWidthPx - CHART_MARGIN.l - CHART_MARGIN.r)
-    const toleranceData = (14 / plotPixelWidth) * (axisHi - axisLo)
-    let closestLeg: StrategyLeg | null = null
-    let closestDist = Infinity
-    for (const leg of strikeLegs) {
-      const strike = leg.strike ?? scenario.spot
-      const renderX = strike + (strikeOffsetByLegId.get(leg.id)?.offset ?? 0)
-      const dist = Math.abs(renderX - dataX)
-      if (dist < closestDist) {
-        closestDist = dist
-        closestLeg = leg
-      }
-    }
-    return closestLeg && closestDist <= toleranceData ? closestLeg : null
-  }
-
-  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!onStrikeChange || strikeLegs.length === 0) return
-    const dataX = dataXFromPointer(e)
-    const leg = dataX === null ? null : findLegNear(dataX)
-    if (!leg) return
-    e.preventDefault()
-    e.currentTarget.setPointerCapture(e.pointerId)
-    draggingLegIdRef.current = leg.id
-  }
-
-  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!onStrikeChange) return
-    const dataX = dataXFromPointer(e)
-    const legId = draggingLegIdRef.current
-    if (!legId) {
-      // Not dragging — just update the hover affordance so the cursor only
-      // signals "draggable" near an actual handle, not across the whole
-      // chart (that ambiguity is exactly the bug this replaces).
-      setHoveringLegId(dataX === null ? null : (findLegNear(dataX)?.id ?? null))
-      return
-    }
-    if (dataX === null) return
-    // Undo the anti-overlap offset (see StrikeOffsetInfo) before snapping —
-    // the handle's rendered x is nudged away from the true strike when it
-    // shares one with another leg.
-    const offset = strikeOffsetsRef.current.get(legId)?.offset ?? 0
-    const snapped = snapStrike(dataX - offset, strikeStep)
-    const prev = previousStrikesRef.current.get(legId)
-    if (prev === snapped) return
-    // First drag ever — flip the local "seen-drag" toggle so the chart
-    // header drops its one-time "drag any strike line" hint callout.
-    if (!hasInteractedRef.current) {
-      hasInteractedRef.current = true
-      setHintVisible(false)
-    }
-    onStrikeChange(legId, snapped)
-    previousStrikesRef.current.set(legId, snapped)
-  }
-
-  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-      e.currentTarget.releasePointerCapture(e.pointerId)
-    }
-    draggingLegIdRef.current = null
-  }
-
-  const handlePointerLeave = () => setHoveringLegId(null)
-
-  // Track whether the user has dragged a strike at least once. The
-  // local hint callout disappears the moment they've touched a strike —
-  // it's a discovery aid, not a permanent label. `strikeEditable` and
-  // `strikeLegs` are read from the chart's render closure; we can't
-  // capture them outside the useMemo without re-deriving, so declare a
-  // tiny memo here for the same gate the hint uses.
-  const dragHintEligible = Boolean(onStrikeChange) && strikeLegs.length > 0
-  const hasInteractedRef = useRef(false)
-  const [hintVisible, setHintVisible] = useState(dragHintEligible)
-  // Keep hintVisible in sync with the gate: re-enable it if a future flag
-  // flips editability back on for a populated chart.
-  useEffect(() => {
-    if (!hasInteractedRef.current) {
-      setHintVisible(dragHintEligible)
-    }
-  }, [dragHintEligible])
-
   return (
     <section aria-labelledby={regionHeadingId} className="min-w-0 max-w-full overflow-hidden">
       <h2 id={regionHeadingId} className="sr-only">
         {title} payoff analysis
       </h2>
-      <div
-        ref={plotContainerRef}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerUp}
-        onPointerLeave={handlePointerLeave}
-        style={hoveringLegId ? { cursor: 'ew-resize' } : undefined}
-      >
-        <Plot
-          data={data}
-          layout={layout}
-          config={config}
-          useResizeHandler
-          style={{ width: '100%', height }}
-        />
-      </div>
-      {onStrikeChange && strikeLegs.length > 0 && onResetStrikes && canResetStrikes && (
-        <div className="flex items-center justify-end px-1 pb-1.5">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-7 gap-1 text-[10px]"
-            onClick={onResetStrikes}
-          >
-            <RotateCcw className="h-3 w-3" /> Reset strikes
-          </Button>
-        </div>
-      )}
-      {hintVisible && (
-        <div
-          className="flex items-center justify-center gap-1.5 -mt-2 pb-1.5 text-[10px] font-medium text-muted-foreground"
-          aria-live="polite"
-        >
-          <MoveHorizontal className="h-3 w-3" aria-hidden="true" />
-          Drag any strike line on the chart to adjust its value
-        </div>
-      )}
+      <Plot
+        data={data}
+        layout={layout}
+        config={config}
+        useResizeHandler
+        style={{ width: '100%', height }}
+      />
       <div className="space-y-3 border-t px-3 py-3 text-xs">
         <output aria-live="polite" aria-atomic="true" className="block text-muted-foreground">
           Scenario spot <strong className="text-foreground">{formatCurrency(scenario.spot)}</strong>

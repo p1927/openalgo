@@ -1,6 +1,7 @@
 """
 Scoring: how well a candidate leg combination matches a user-drawn target
-payoff shape, blended with how favorable its risk/reward profile is.
+payoff shape, blended with how favorable its risk/reward profile is and how
+likely it is to finish in profit.
 """
 
 from __future__ import annotations
@@ -10,6 +11,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .payoff import RiskProfile, SynthesizedLeg, combo_payoff, evaluate_risk
+from .probability import win_probability
 
 
 @dataclass(frozen=True)
@@ -18,6 +20,7 @@ class ScoredCombo:
     risk: RiskProfile
     shape_score: float  # 0..1, higher = closer shape match
     risk_score: float  # 0..1, higher = better risk/reward
+    win_probability: float  # 0..1, P(profit at expiry); 0.5 (neutral) if spot/iv/years unknown
     score: float  # weighted combination, used for ranking
 
 
@@ -59,10 +62,22 @@ def score_combo(
     lot_size: int,
     shape_weight: float,
     risk_weight: float,
+    win_prob_weight: float = 0.0,
+    spot: float | None = None,
+    iv: float | None = None,
+    years: float | None = None,
 ) -> ScoredCombo:
     payoff = combo_payoff(prices, legs, lot_size)
     risk = evaluate_risk(prices, payoff)
     shape = _shape_score(target, payoff)
     risk_s = _risk_score(risk)
-    total = shape_weight * shape + risk_weight * risk_s
-    return ScoredCombo(legs=legs, risk=risk, shape_score=shape, risk_score=risk_s, score=total)
+    win_p = win_probability(prices, payoff, spot, iv, years)
+    total = shape_weight * shape + risk_weight * risk_s + win_prob_weight * win_p
+    return ScoredCombo(
+        legs=legs,
+        risk=risk,
+        shape_score=shape,
+        risk_score=risk_s,
+        win_probability=win_p,
+        score=total,
+    )

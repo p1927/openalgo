@@ -19,6 +19,7 @@ from .payoff import (
     intrinsic_value,
     risk_reward_ratio,
 )
+from .probability import win_probability
 from .search import synthesize
 from .service import synthesize_from_option_chain
 
@@ -34,4 +35,5 @@ __all__ = [
     "score_combo",
     "synthesize",
     "synthesize_from_option_chain",
+    "win_probability",
 ]

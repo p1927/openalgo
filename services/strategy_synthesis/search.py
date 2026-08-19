@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import itertools
 import math
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -25,6 +26,39 @@ from .payoff import LegCandidate, SynthesizedLeg
 
 _MAX_EXHAUSTIVE_COMBINATIONS = 200_000
 _LOCAL_SEARCH_PASSES = 2
+
+
+@dataclass(frozen=True)
+class _ScoringContext:
+    """Bundles the growing list of `score_combo` parameters that every
+    candidate combo in a search needs scored the same way, so `_exhaustive`/
+    `_greedy` pass one object around instead of an ever-lengthening
+    positional list."""
+
+    lot_size: int
+    shape_weight: float
+    risk_weight: float
+    win_prob_weight: float
+    spot: float | None
+    iv: float | None
+    years: float | None
+
+
+def _score(
+    prices: np.ndarray, target: np.ndarray, legs: list[SynthesizedLeg], ctx: _ScoringContext
+) -> ScoredCombo:
+    return score_combo(
+        prices,
+        target,
+        legs,
+        ctx.lot_size,
+        ctx.shape_weight,
+        ctx.risk_weight,
+        ctx.win_prob_weight,
+        ctx.spot,
+        ctx.iv,
+        ctx.years,
+    )
 
 
 def _templates(candidates: list[LegCandidate], sides: tuple[str, ...]) -> list[SynthesizedLeg]:
@@ -44,12 +78,10 @@ def _exhaustive(
     leg_count: int,
     prices: np.ndarray,
     target: np.ndarray,
-    lot_size: int,
-    shape_weight: float,
-    risk_weight: float,
+    ctx: _ScoringContext,
 ) -> list[ScoredCombo]:
     return [
-        score_combo(prices, target, list(combo), lot_size, shape_weight, risk_weight)
+        _score(prices, target, list(combo), ctx)
         for combo in itertools.combinations(templates, leg_count)
     ]
 
@@ -59,9 +91,7 @@ def _greedy(
     leg_count: int,
     prices: np.ndarray,
     target: np.ndarray,
-    lot_size: int,
-    shape_weight: float,
-    risk_weight: float,
+    ctx: _ScoringContext,
 ) -> list[ScoredCombo]:
     chosen: list[SynthesizedLeg] = []
     remaining = list(templates)
@@ -72,7 +102,7 @@ def _greedy(
         best_leg = None
         best_score = -math.inf
         for leg in remaining:
-            trial = score_combo(prices, target, chosen + [leg], lot_size, shape_weight, risk_weight)
+            trial = _score(prices, target, chosen + [leg], ctx)
             if trial.score > best_score:
                 best_score = trial.score
                 best_leg = leg
@@ -82,12 +112,10 @@ def _greedy(
     for _ in range(_LOCAL_SEARCH_PASSES):
         improved = False
         for i in range(len(chosen)):
-            current_score = score_combo(
-                prices, target, chosen, lot_size, shape_weight, risk_weight
-            ).score
+            current_score = _score(prices, target, chosen, ctx).score
             for candidate_leg in list(remaining):
                 trial_legs = chosen[:i] + [candidate_leg] + chosen[i + 1 :]
-                trial = score_combo(prices, target, trial_legs, lot_size, shape_weight, risk_weight)
+                trial = _score(prices, target, trial_legs, ctx)
                 if trial.score > current_score:
                     remaining.remove(candidate_leg)
                     remaining.append(chosen[i])
@@ -99,7 +127,7 @@ def _greedy(
 
     if not chosen:
         return []
-    return [score_combo(prices, target, chosen, lot_size, shape_weight, risk_weight)]
+    return [_score(prices, target, chosen, ctx)]
 
 
 def synthesize(
@@ -110,14 +138,19 @@ def synthesize(
     min_legs: int = 1,
     top_n: int = 5,
     allow_sides: tuple[str, ...] = ("BUY", "SELL"),
-    shape_weight: float = 0.8,
-    risk_weight: float = 0.2,
+    shape_weight: float = 0.7,
+    risk_weight: float = 0.15,
+    win_prob_weight: float = 0.15,
+    spot: float | None = None,
+    iv: float | None = None,
+    years: float | None = None,
     grid_points: int = 120,
 ) -> list[ScoredCombo]:
     """
     Finds the top `top_n` leg combinations (from `min_legs` to `max_legs`
     legs) that best match `target_points` — a user-drawn (price, P&L) curve
-    — ranked by a blend of shape fit and risk/reward (see `objective.py`).
+    — ranked by a blend of shape fit, risk/reward, and win probability (see
+    `objective.py`).
 
     `candidates` is the pool of (strike, option_type, premium) the search
     may choose from — callers fetch this from the live option chain (see
@@ -125,20 +158,31 @@ def synthesize(
     given its inputs, which is what makes it unit-testable without a
     broker connection.
 
-    The default `shape_weight`/`risk_weight` split (0.8/0.2) is deliberately
-    lopsided toward shape: `objective._risk_score` gives an unbounded-profit
-    combo close to its maximum score regardless of how it actually looks, so
-    a near-even blend lets "technically unlimited upside" outscore a combo
-    that matches the user's drawn shape almost exactly but happens to be
-    capped — which is backwards, since a flat top in the drawing means the
-    user *wants* a capped payoff there. Risk/reward should only decide
-    between candidates whose shape fit is already comparable, not override
-    a clearly better shape match.
+    `spot`/`iv`/`years` feed `objective.win_probability` — pass them
+    (`service.py` does, from the live chain) to get a real P(profit)
+    estimate; omit them and win_probability degrades to a neutral 0.5 for
+    every candidate, which doesn't affect relative ranking (a constant
+    shifts every combo's score equally) so callers without live market data
+    can still call this safely.
+
+    The default weight split (0.7 shape / 0.15 risk / 0.15 win-probability)
+    is deliberately shape-dominant: `objective._risk_score` gives an
+    unbounded-profit combo close to its maximum score regardless of how it
+    actually looks, and a shape-agnostic combo can likewise have a high raw
+    win probability by sheer luck of where its breakevens land — either one
+    at a near-even blend could outscore a combo that matches the user's
+    drawn shape almost exactly but happens to be capped, which is backwards:
+    a flat top in the drawing means the user *wants* a capped payoff there.
+    Risk/reward and win-probability should only decide between candidates
+    whose shape fit is already comparable, not override a clearly better
+    shape match.
     """
     if not target_points or not candidates or max_legs < 1:
         return []
-    if not (0 < shape_weight <= 1 and 0 <= risk_weight <= 1):
-        raise ValueError("shape_weight must be in (0,1]; risk_weight must be in [0,1]")
+    if not (0 < shape_weight <= 1 and 0 <= risk_weight <= 1 and 0 <= win_prob_weight <= 1):
+        raise ValueError(
+            "shape_weight must be in (0,1]; risk_weight and win_prob_weight must be in [0,1]"
+        )
 
     xs = np.array([p[0] for p in target_points], dtype=float)
     ys = np.array([p[1] for p in target_points], dtype=float)
@@ -149,6 +193,15 @@ def synthesize(
     target = np.interp(prices, xs, ys)
 
     templates = _templates(candidates, allow_sides)
+    ctx = _ScoringContext(
+        lot_size=lot_size,
+        shape_weight=shape_weight,
+        risk_weight=risk_weight,
+        win_prob_weight=win_prob_weight,
+        spot=spot,
+        iv=iv,
+        years=years,
+    )
 
     all_results: list[ScoredCombo] = []
     for leg_count in range(min_legs, max_legs + 1):
@@ -156,15 +209,9 @@ def synthesize(
         if combos_possible == 0:
             continue
         if combos_possible <= _MAX_EXHAUSTIVE_COMBINATIONS:
-            all_results.extend(
-                _exhaustive(
-                    templates, leg_count, prices, target, lot_size, shape_weight, risk_weight
-                )
-            )
+            all_results.extend(_exhaustive(templates, leg_count, prices, target, ctx))
         else:
-            all_results.extend(
-                _greedy(templates, leg_count, prices, target, lot_size, shape_weight, risk_weight)
-            )
+            all_results.extend(_greedy(templates, leg_count, prices, target, ctx))
 
     all_results.sort(key=lambda r: r.score, reverse=True)
 
