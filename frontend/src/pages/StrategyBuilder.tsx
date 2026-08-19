@@ -5,6 +5,7 @@ import {
   Layers,
   LineChart,
   PenTool,
+  SlidersHorizontal,
   Sparkles,
   TrendingUp,
 } from 'lucide-react'
@@ -105,7 +106,7 @@ import {
 import type { Direction, StrategyTemplate } from '@/lib/strategyTemplates'
 import { normalizeExpiryCode } from '@/lib/templateResolution'
 import { chargeMarketForExchange, estimateCharges, legsToChargeInput } from '@/lib/tradeCharges'
-import { makeFormatCurrency } from '@/lib/utils'
+import { cn, makeFormatCurrency } from '@/lib/utils'
 import { useAuthStore } from '@/stores/authStore'
 import { showToast } from '@/utils/toast'
 
@@ -277,6 +278,14 @@ export default function StrategyBuilder() {
   const [strikeAdjustBaseline, setStrikeAdjustBaseline] = useState<StrategyLeg[] | null>(null)
   const [executePlanOpen, setExecutePlanOpen] = useState(false)
   const [activeTab, setActiveTab] = useState('payoff')
+  // Within the Payoff tab: 'adjust' shows the read-only chart + strike
+  // sliders (fine-tuning an existing strategy); 'draw' shows the
+  // click-to-place-points canvas (sketching a target shape to search legs
+  // for). Both operate on the same chart footprint and the same `legs`
+  // state — Draw is just an alternate way to arrive at legs, not a
+  // separate feature, so it lives as a mode of the Payoff tab rather than
+  // its own tab.
+  const [payoffMode, setPayoffMode] = useState<'adjust' | 'draw'>('adjust')
 
   // Basket execution dialog
   const [executeDialogOpen, setExecuteDialogOpen] = useState(false)
@@ -1635,6 +1644,17 @@ export default function StrategyBuilder() {
     setLegs((prev) => [...prev, newLeg])
   }, [])
 
+  // Applying a leg found by Draw mode's search should immediately show the
+  // resulting payoff — switching back to Adjust mode is how the user sees
+  // "did that shape actually get built" without an extra click.
+  const handleAddLegFromDraw = useCallback(
+    (draft: LegDraft) => {
+      handleAddManualLeg(draft)
+      setPayoffMode('adjust')
+    },
+    [handleAddManualLeg]
+  )
+
   // Payoff
   const perLegCharges = useMemo<Record<string, number> | undefined>(() => {
     if (!planCharges?.per_leg?.length) return undefined
@@ -2292,13 +2312,6 @@ export default function StrategyBuilder() {
                       <Layers className="mr-1.5 h-3.5 w-3.5" />
                       Multi Strike OI
                     </TabsTrigger>
-                    <TabsTrigger
-                      value="drawtarget"
-                      className="rounded-lg px-4 text-xs font-semibold data-[state=active]:bg-gradient-to-br data-[state=active]:from-background data-[state=active]:to-muted/60 data-[state=active]:shadow-sm"
-                    >
-                      <PenTool className="mr-1.5 h-3.5 w-3.5" />
-                      Draw Target
-                    </TabsTrigger>
                   </TabsList>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
@@ -2317,28 +2330,83 @@ export default function StrategyBuilder() {
                 <div className="overflow-hidden rounded-xl border bg-card p-2 shadow-sm">
                   {spotPrice ? (
                     <>
-                      <PayoffChart
-                        title={`${selectedUnderlying} — ${selectedExpiry || '—'}`}
-                        chartIdentity={chainIdentity(
-                          selectedExchange,
-                          selectedUnderlying,
-                          selectedExpiry
-                        )}
-                        scenario={scenario}
-                        remainingYears={simulatedYearsToNearExpiry}
-                        terminalLabel={terminalCurveLabel}
-                        payoff={payoff}
-                        formatCurrency={formatCurrency}
-                        legs={legs}
-                        perLegCharges={perLegCharges}
-                      />
-                      <StrikeSliderRail
-                        legs={legs}
-                        chain={chainData?.chain}
-                        onStrikeChange={handleStrikeFromChart}
-                        onResetStrikes={resetStrikesToBaseline}
-                        canResetStrikes={canResetStrikes}
-                      />
+                      <div className="flex items-center justify-end px-1 pb-2">
+                        {/* A plain toggle-button pair, not a nested <Tabs> —
+                            Radix Tabs ties each trigger to a matching
+                            TabsContent panel via aria-controls, which a
+                            tabs-within-a-tab-panel switch (no separate panel
+                            markup here) can't satisfy; axe correctly flagged
+                            that as an invalid ARIA reference. `aria-pressed`
+                            on plain buttons is the standard toggle-button-
+                            group pattern and needs no matching panel. */}
+                        <div className="inline-flex h-8 items-center gap-0.5 rounded-lg bg-muted p-0.5">
+                          <button
+                            type="button"
+                            aria-pressed={payoffMode === 'adjust'}
+                            onClick={() => setPayoffMode('adjust')}
+                            className={cn(
+                              'inline-flex h-7 items-center gap-1 rounded-md px-3 text-[11px] font-semibold transition-colors',
+                              payoffMode === 'adjust'
+                                ? 'bg-background shadow-sm'
+                                : 'text-muted-foreground hover:text-foreground'
+                            )}
+                          >
+                            <SlidersHorizontal className="h-3 w-3" />
+                            Adjust
+                          </button>
+                          <button
+                            type="button"
+                            aria-pressed={payoffMode === 'draw'}
+                            onClick={() => setPayoffMode('draw')}
+                            className={cn(
+                              'inline-flex h-7 items-center gap-1 rounded-md px-3 text-[11px] font-semibold transition-colors',
+                              payoffMode === 'draw'
+                                ? 'bg-background shadow-sm'
+                                : 'text-muted-foreground hover:text-foreground'
+                            )}
+                          >
+                            <PenTool className="h-3 w-3" />
+                            Draw Target
+                          </button>
+                        </div>
+                      </div>
+                      {payoffMode === 'adjust' ? (
+                        <>
+                          <PayoffChart
+                            title={`${selectedUnderlying} — ${selectedExpiry || '—'}`}
+                            chartIdentity={chainIdentity(
+                              selectedExchange,
+                              selectedUnderlying,
+                              selectedExpiry
+                            )}
+                            scenario={scenario}
+                            remainingYears={simulatedYearsToNearExpiry}
+                            terminalLabel={terminalCurveLabel}
+                            payoff={payoff}
+                            formatCurrency={formatCurrency}
+                            legs={legs}
+                            perLegCharges={perLegCharges}
+                          />
+                          <StrikeSliderRail
+                            legs={legs}
+                            chain={chainData?.chain}
+                            onStrikeChange={handleStrikeFromChart}
+                            onResetStrikes={resetStrikesToBaseline}
+                            canResetStrikes={canResetStrikes}
+                          />
+                        </>
+                      ) : (
+                        <div className="px-2 pb-2">
+                          <DrawTargetPayoff
+                            underlying={selectedUnderlying}
+                            exchange={underlyingExchangeFor(selectedExchange, selectedUnderlying)}
+                            expiry={normalizeExpiryCode(selectedExpiry)}
+                            strikes={availableStrikes}
+                            resolveContract={resolveLegContract}
+                            onAdd={handleAddLegFromDraw}
+                          />
+                        </div>
+                      )}
                     </>
                   ) : (
                     <div className="flex h-[440px] items-center justify-center text-sm text-muted-foreground">
@@ -2395,24 +2463,6 @@ export default function StrategyBuilder() {
                 ) : (
                   <div className="rounded-xl border bg-card p-8 text-center text-sm text-muted-foreground shadow-sm">
                     Resolving the underlying market-data reference...
-                  </div>
-                )}
-              </TabsContent>
-              <TabsContent value="drawtarget" className="pt-4">
-                {selectedUnderlying && selectedExpiry ? (
-                  <div className="overflow-hidden rounded-xl border bg-card p-4 shadow-sm">
-                    <DrawTargetPayoff
-                      underlying={selectedUnderlying}
-                      exchange={underlyingExchangeFor(selectedExchange, selectedUnderlying)}
-                      expiry={normalizeExpiryCode(selectedExpiry)}
-                      strikes={availableStrikes}
-                      resolveContract={resolveLegContract}
-                      onAdd={handleAddManualLeg}
-                    />
-                  </div>
-                ) : (
-                  <div className="rounded-xl border bg-card p-8 text-center text-sm text-muted-foreground shadow-sm">
-                    Select an underlying and expiry to draw a target payoff.
                   </div>
                 )}
               </TabsContent>

@@ -86,10 +86,7 @@ export default function StrikeSliderRail({
 
         return (
           <div key={leg.id} className="flex items-center gap-3">
-            <span
-              className="w-28 shrink-0 truncate text-[11px] font-semibold"
-              style={{ color }}
-            >
+            <span className="w-28 shrink-0 truncate text-[11px] font-semibold" style={{ color }}>
               {isSell ? 'S' : 'B'} {leg.strike} {leg.optionType}
             </span>
             <input

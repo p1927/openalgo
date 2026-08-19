@@ -1347,7 +1347,7 @@ describe('StrategyBuilder identity orchestration', () => {
     fireEvent.click(await screen.findByRole('option', { name: '18AUG26' }))
     await addOneLeg()
 
-    const timeSlider = screen.getAllByRole('slider')[2]
+    const timeSlider = screen.getByRole('slider', { name: 'Time forward' })
     fireEvent.change(timeSlider, { target: { value: '4' } })
     expect(timeSlider).toHaveValue('4')
 
@@ -1359,7 +1359,7 @@ describe('StrategyBuilder identity orchestration', () => {
       expect(screen.getAllByRole('button', { name: 'Remove position' })).toHaveLength(2)
     )
     await waitFor(() => {
-      const contractedSlider = screen.getAllByRole('slider')[2] as HTMLInputElement
+      const contractedSlider = screen.getByRole('slider', { name: 'Time forward' }) as HTMLInputElement
       expect(contractedSlider).toHaveValue(contractedSlider.max)
       expect(Number(contractedSlider.max)).toBeLessThanOrEqual(7)
     })
@@ -1373,9 +1373,13 @@ describe('StrategyBuilder identity orchestration', () => {
     await waitFor(() =>
       expect(screen.getAllByRole('button', { name: 'Remove position' })).toHaveLength(1)
     )
-    expect(Number(screen.getAllByRole('slider')[2].getAttribute('max'))).toBeGreaterThan(4)
+    expect(
+      Number(screen.getByRole('slider', { name: 'Time forward' }).getAttribute('max'))
+    ).toBeGreaterThan(4)
     await waitFor(() => {
-      const persistedDays = Number((screen.getAllByRole('slider')[2] as HTMLInputElement).value)
+      const persistedDays = Number(
+        (screen.getByRole('slider', { name: 'Time forward' }) as HTMLInputElement).value
+      )
       expect(persistedDays).toBeGreaterThan(0.24)
       expect(persistedDays).toBeLessThan(0.26)
     })
@@ -1414,7 +1418,7 @@ describe('StrategyBuilder identity orchestration', () => {
   it('keeps a controlled identity and legs on cancel, then clears legs and scenarios on acceptance', async () => {
     renderBuilder()
     await addOneLeg()
-    const spotShift = screen.getAllByRole('slider')[0]
+    const spotShift = screen.getByRole('slider', { name: 'Spot price shift' })
     fireEvent.change(spotShift, { target: { value: '5' } })
     expect(spotShift).toHaveValue('5')
 
@@ -1427,7 +1431,7 @@ describe('StrategyBuilder identity orchestration', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(screen.getByRole('combobox', { name: 'Underlying' })).toHaveTextContent('NIFTY')
     expect(screen.getByRole('button', { name: 'Remove position' })).toBeInTheDocument()
-    expect(screen.getAllByRole('slider')[0]).toHaveValue('5')
+    expect(screen.getByRole('slider', { name: 'Spot price shift' })).toHaveValue('5')
 
     await chooseUnderlying('BANKNIFTY')
     fireEvent.click(screen.getByRole('button', { name: 'Clear strategy' }))
@@ -1438,7 +1442,7 @@ describe('StrategyBuilder identity orchestration', () => {
     expect(screen.queryByRole('button', { name: 'Remove position' })).not.toBeInTheDocument()
 
     await addOneLeg()
-    expect(screen.getAllByRole('slider')[0]).toHaveValue('0')
+    expect(screen.getByRole('slider', { name: 'Spot price shift' })).toHaveValue('0')
   })
 
   it('does not let an in-flight margin response repopulate state after an identity reset', async () => {
