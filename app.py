@@ -1141,12 +1141,19 @@ if __name__ == "__main__":
     # eventually but only after a long, unpredictable delay — indistinguishable
     # from the reloader being broken.
     reloader_options = {
+        # Explicit rather than "auto": force the fast, event-driven watchdog
+        # backend (requires the `watchdog` package) instead of Werkzeug's
+        # default stat-polling reloader, which re-walks every sys.path
+        # directory (including the venv's site-packages) on every poll and
+        # can take far longer than the poll interval in a repo this size.
+        "reloader_type": "watchdog",
         "exclude_patterns": [
             "*/strategies/*",
             "*/log/*",
             "*.log",
             "*.bak",
             "*/.venv/*",
+            "*/db/*",
         ]
     }
     # Suppress Flask/Werkzeug's default startup banner — our banner replaces it
