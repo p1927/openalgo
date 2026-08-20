@@ -73,7 +73,17 @@ vi.mock('@/hooks/useMarketData', () => ({
   },
 }))
 
-vi.mock('@/components/strategy-builder/PayoffChart', () => ({ PayoffChart: () => null }))
+vi.mock('@/components/strategy-builder/PayoffChart', () => ({
+  PayoffChart: (props: {
+    belowChart?: import('react').ReactNode
+    belowSliders?: import('react').ReactNode
+  }) => (
+    <div data-testid="mock-payoff-chart">
+      {props.belowChart}
+      {props.belowSliders}
+    </div>
+  ),
+}))
 vi.mock('@/components/strategy-builder/PnLTab', () => ({ PnLTab: () => null }))
 vi.mock('@/components/strategy-builder/StrategyChartTab', () => ({
   default: (props: Record<string, unknown>) => {
@@ -1345,9 +1355,10 @@ describe('StrategyBuilder identity orchestration', () => {
     const add = await waitForAddButton()
     fireEvent.keyDown(screen.getByRole('combobox', { name: 'Expiry' }), { key: 'ArrowDown' })
     fireEvent.click(await screen.findByRole('option', { name: '18AUG26' }))
+    await screen.findByText('NIFTY18AUG2624600CE')
     await addOneLeg()
 
-    const timeSlider = screen.getByRole('slider', { name: 'Time forward' })
+    const timeSlider = await screen.findByRole('slider', { name: 'Time forward' })
     fireEvent.change(timeSlider, { target: { value: '4' } })
     expect(timeSlider).toHaveValue('4')
 
@@ -1417,8 +1428,9 @@ describe('StrategyBuilder identity orchestration', () => {
 
   it('keeps a controlled identity and legs on cancel, then clears legs and scenarios on acceptance', async () => {
     renderBuilder()
+    await screen.findByText('NIFTY13AUG2624600CE')
     await addOneLeg()
-    const spotShift = screen.getByRole('slider', { name: 'Spot price shift' })
+    const spotShift = await screen.findByRole('slider', { name: 'Spot price shift' })
     fireEvent.change(spotShift, { target: { value: '5' } })
     expect(spotShift).toHaveValue('5')
 

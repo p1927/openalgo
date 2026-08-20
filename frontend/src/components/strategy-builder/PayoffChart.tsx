@@ -47,6 +47,14 @@ export interface PayoffChartProps {
    * after all of that.
    */
   belowChart?: ReactNode
+  /**
+   * Rendered after `belowChart` (typically the strike-rail) and before the
+   * scenario-spot summary — used for the what-if simulators so they sit
+   * visually anchored to the chart whose payoff they recompute, rather than
+   * floating at the bottom of the right-hand column and repeating on every
+   * tab.
+   */
+  belowSliders?: ReactNode
 }
 
 const MAX_REPRESENTATIVE_ROWS = 7
@@ -177,6 +185,7 @@ export function PayoffChart({
   perLegCharges,
   underlyingSymbol,
   belowChart,
+  belowSliders,
 }: PayoffChartProps) {
   const regionHeadingId = useId()
   const chartScopeId = useId().replace(/:/g, '')
@@ -771,6 +780,7 @@ export function PayoffChart({
         )}
       </div>
       {belowChart && <div className="px-3 pt-3">{belowChart}</div>}
+      {belowSliders && <div className="px-3 pt-2">{belowSliders}</div>}
       <div className="space-y-3 border-t px-3 py-3 text-xs">
         <output aria-live="polite" aria-atomic="true" className="block text-muted-foreground">
           Scenario spot <strong className="text-foreground">{formatCurrency(scenario.spot)}</strong>

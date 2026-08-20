@@ -111,3 +111,61 @@ describe('Simulators sub-day horizon', () => {
     expect(onDaysElapsedChange).toHaveBeenLastCalledWith(3.5)
   })
 })
+
+describe('Simulators compact variant', () => {
+  const baseProps = {
+    spotShiftPct: 0,
+    ivShiftPct: 0,
+    daysElapsed: 0,
+    maxDays: 5,
+    onSpotShiftChange: vi.fn(),
+    onIvShiftChange: vi.fn(),
+    onDaysElapsedChange: vi.fn(),
+    onReset: vi.fn(),
+  }
+
+  it('renders the inline strip instead of the card chrome', () => {
+    render(<Simulators {...baseProps} variant="compact" />)
+
+    expect(screen.getByTestId('simulators-compact')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'What-If Simulator' })).not.toBeInTheDocument()
+  })
+
+  it('exposes all three sliders with the same accessible names as the card variant', () => {
+    render(<Simulators {...baseProps} variant="compact" />)
+
+    expect(screen.getByRole('slider', { name: 'Spot price shift' })).toBeInTheDocument()
+    expect(screen.getByRole('slider', { name: 'Implied volatility shift' })).toBeInTheDocument()
+    expect(screen.getByRole('slider', { name: 'Time forward' })).toBeInTheDocument()
+  })
+
+  it('still wires through to the onChange callbacks and onReset', () => {
+    const onSpotShiftChange = vi.fn()
+    const onIvShiftChange = vi.fn()
+    const onReset = vi.fn()
+    render(
+      <Simulators
+        {...baseProps}
+        variant="compact"
+        spotShiftPct={2.5}
+        ivShiftPct={10}
+        onSpotShiftChange={onSpotShiftChange}
+        onIvShiftChange={onIvShiftChange}
+        onReset={onReset}
+      />
+    )
+
+    fireEvent.change(screen.getByRole('slider', { name: 'Spot price shift' }), {
+      target: { value: '3' },
+    })
+    expect(onSpotShiftChange).toHaveBeenCalledWith(3)
+
+    fireEvent.change(screen.getByRole('slider', { name: 'Implied volatility shift' }), {
+      target: { value: '-20' },
+    })
+    expect(onIvShiftChange).toHaveBeenCalledWith(-20)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reset what-if simulators' }))
+    expect(onReset).toHaveBeenCalledTimes(1)
+  })
+})

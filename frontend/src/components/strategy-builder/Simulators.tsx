@@ -121,9 +121,37 @@ export interface SimulatorsProps {
   onIvShiftChange: (v: number) => void
   onDaysElapsedChange: (v: number) => void
   onReset: () => void
+  /**
+   * `'card'` (default) keeps the original stacked layout with header +
+   * bordered card chrome — used when Simulators is the only thing in a
+   * right-hand slot.
+   *
+   * `'compact'` strips the card chrome and lays the three sliders out in a
+   * single horizontal strip — used when Simulators sits inline beneath the
+   * strike-rail inside the payoff chart card and must read as one
+   * continuation of the chart, not a separate panel.
+   */
+  variant?: 'card' | 'compact'
 }
 
-export function Simulators({
+interface SimulatorsInternals {
+  spotShiftPct: number
+  ivShiftPct: number
+  daysElapsed: number
+  maxShiftedDays: number
+  hasTimeRemaining: boolean
+  isSubDay: boolean
+  timeSliderValue: number
+  timeSliderMax: number
+  timeStep: number
+  isDirty: boolean
+  sliderValueToDays: (value: number) => number
+  onSpotShiftChange: (v: number) => void
+  onIvShiftChange: (v: number) => void
+  onDaysElapsedChange: (v: number) => void
+}
+
+function useSimulatorsInternals({
   spotShiftPct,
   ivShiftPct,
   daysElapsed,
@@ -131,8 +159,16 @@ export function Simulators({
   onSpotShiftChange,
   onIvShiftChange,
   onDaysElapsedChange,
-  onReset,
-}: SimulatorsProps) {
+}: Pick<
+  SimulatorsProps,
+  | 'spotShiftPct'
+  | 'ivShiftPct'
+  | 'daysElapsed'
+  | 'maxDays'
+  | 'onSpotShiftChange'
+  | 'onIvShiftChange'
+  | 'onDaysElapsedChange'
+>): SimulatorsInternals {
   const maxShiftedDays = Math.max(0, maxDays)
   const hasTimeRemaining = maxShiftedDays > 0
   const isSubDay = maxShiftedDays < 1
@@ -150,26 +186,53 @@ export function Simulators({
     if (value >= timePartitions) return maxShiftedDays
     return (value * maxShiftedDays) / timePartitions
   }
-  const formatTime = (value: number) => {
-    const totalSeconds = Math.max(0, Math.round(value * 24 * 60 * 60))
-    const totalHours = Math.round((totalSeconds / (60 * 60)) * 10) / 10
-    if (isSubDay) {
-      if (totalSeconds < 60) return `+${totalSeconds}s`
-      if (totalSeconds < 60 * 60) {
-        const minutes = Math.floor(totalSeconds / 60)
-        const seconds = totalSeconds % 60
-        return seconds === 0 ? `+${minutes}m` : `+${minutes}m ${seconds}s`
-      }
-      return `+${totalHours.toLocaleString()}h`
-    }
-    const wholeDays = Math.floor(totalHours / 24)
-    const hours = Math.round((totalHours - wholeDays * 24) * 10) / 10
-    if (hours === 0) return `+${wholeDays}d`
-    if (wholeDays === 0) return `+${hours.toLocaleString()}h`
-    return `+${wholeDays}d ${hours.toLocaleString()}h`
-  }
   const isDirty = spotShiftPct !== 0 || ivShiftPct !== 0 || daysElapsed !== 0
+  return {
+    spotShiftPct,
+    ivShiftPct,
+    daysElapsed,
+    maxShiftedDays,
+    hasTimeRemaining,
+    isSubDay,
+    timeSliderValue,
+    timeSliderMax,
+    timeStep,
+    isDirty,
+    sliderValueToDays,
+    onSpotShiftChange,
+    onIvShiftChange,
+    onDaysElapsedChange,
+  }
+}
 
+function formatTimeLabel(internals: SimulatorsInternals, value: number): string {
+  const days = internals.sliderValueToDays(value)
+  const totalSeconds = Math.max(0, Math.round(days * 24 * 60 * 60))
+  const totalHours = Math.round((totalSeconds / (60 * 60)) * 10) / 10
+  if (internals.isSubDay) {
+    if (totalSeconds < 60) return `+${totalSeconds}s`
+    if (totalSeconds < 60 * 60) {
+      const minutes = Math.floor(totalSeconds / 60)
+      const seconds = totalSeconds % 60
+      return seconds === 0 ? `+${minutes}m` : `+${minutes}m ${seconds}s`
+    }
+    return `+${totalHours.toLocaleString()}h`
+  }
+  const wholeDays = Math.floor(totalHours / 24)
+  const hours = Math.round((totalHours - wholeDays * 24) * 10) / 10
+  if (hours === 0) return `+${wholeDays}d`
+  if (wholeDays === 0) return `+${hours.toLocaleString()}h`
+  return `+${wholeDays}d ${hours.toLocaleString()}h`
+}
+
+function SimulatorsCard({
+  internals,
+  onReset,
+}: {
+  internals: SimulatorsInternals
+  onReset: () => void
+}) {
+  const formatTime = (value: number) => formatTimeLabel(internals, value)
   return (
     <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
       <div className="flex items-center justify-between border-b bg-gradient-to-r from-muted/30 to-transparent px-4 py-3">
@@ -188,11 +251,10 @@ export function Simulators({
           variant="ghost"
           size="sm"
           onClick={onReset}
-          disabled={!isDirty}
+          disabled={!internals.isDirty}
           className="h-7 text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-40"
         >
-          <RotateCcw className="mr-1 h-3 w-3" />
-          Reset
+          <RotateCcw className="mr-1 h-3 w-3" /> Reset
         </Button>
       </div>
       <div className="space-y-5 px-4 py-4">
@@ -201,44 +263,229 @@ export function Simulators({
           label="Spot Price"
           accessibleLabel="Spot price shift"
           sublabel="Move underlying up or down"
-          value={spotShiftPct}
+          value={internals.spotShiftPct}
           min={-10}
           max={10}
           step={0.1}
           accent="pink"
           centered
           formatter={(v) => `${v > 0 ? '+' : ''}${v.toFixed(1)}%`}
-          onChange={onSpotShiftChange}
+          onChange={internals.onSpotShiftChange}
         />
         <SliderRow
           icon={<Waves className="h-3.5 w-3.5" />}
           label="Implied Volatility"
           accessibleLabel="Implied volatility shift"
           sublabel="Vol expansion or crush"
-          value={ivShiftPct}
+          value={internals.ivShiftPct}
           min={-50}
           max={50}
           step={1}
           accent="violet"
           centered
           formatter={(v) => `${v > 0 ? '+' : ''}${v.toFixed(0)}%`}
-          onChange={onIvShiftChange}
+          onChange={internals.onIvShiftChange}
         />
         <SliderRow
           icon={<Clock className="h-3.5 w-3.5" />}
-          label={isSubDay ? 'Hours Forward' : 'Days Forward'}
+          label={internals.isSubDay ? 'Hours Forward' : 'Days Forward'}
           accessibleLabel="Time forward"
           sublabel="Advance time toward expiry"
-          value={timeSliderValue}
+          value={internals.timeSliderValue}
           min={0}
-          max={timeSliderMax}
-          step={timeStep}
-          disabled={!hasTimeRemaining}
+          max={internals.timeSliderMax}
+          step={internals.timeStep}
+          disabled={!internals.hasTimeRemaining}
           accent="blue"
-          formatter={(value) => formatTime(sliderValueToDays(value))}
-          onChange={(value) => onDaysElapsedChange(sliderValueToDays(value))}
+          formatter={(value) => formatTime(value)}
+          onChange={(value) => internals.onDaysElapsedChange(internals.sliderValueToDays(value))}
         />
       </div>
     </div>
   )
+}
+
+interface CompactSlotProps {
+  icon: ReactNode
+  label: string
+  accessibleLabel: string
+  value: number
+  min: number
+  max: number
+  step: number
+  formatter: (v: number) => string
+  onChange: (v: number) => void
+  disabled?: boolean
+  accent: 'pink' | 'violet' | 'blue'
+  centered?: boolean
+}
+
+/**
+ * Single-line control used by `SimulatorsCompact`: `[icon] [label] [slider…] [value]`.
+ * Kept narrow so three of them line up in the compact strip without forcing
+ * the chart card to scroll; wraps to a new row on narrow widths.
+ */
+function CompactSlot({
+  icon,
+  label,
+  accessibleLabel,
+  value,
+  min,
+  max,
+  step,
+  formatter,
+  onChange,
+  disabled = false,
+  accent,
+  centered = false,
+}: CompactSlotProps) {
+  const accentTrack = {
+    pink: 'accent-pink-500',
+    violet: 'accent-violet-500',
+    blue: 'accent-blue-500',
+  }[accent]
+  const accentValue = {
+    pink: 'text-pink-600 dark:text-pink-400',
+    violet: 'text-violet-600 dark:text-violet-400',
+    blue: 'text-blue-600 dark:text-blue-400',
+  }[accent]
+  return (
+    <div className="flex min-w-0 flex-1 basis-40 items-center gap-1.5">
+      <span
+        className={cn('inline-flex h-5 w-5 shrink-0 items-center justify-center', accentValue)}
+      >
+        {icon}
+      </span>
+      <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        {label}
+      </span>
+      <input
+        type="range"
+        aria-label={accessibleLabel}
+        aria-valuetext={formatter(value)}
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        disabled={disabled}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className={cn(
+          'h-1.5 min-w-0 flex-1 cursor-pointer rounded-full bg-muted/70 outline-none',
+          accentTrack,
+          disabled && 'cursor-not-allowed opacity-40'
+        )}
+      />
+      <span
+        className={cn(
+          'shrink-0 tabular-nums text-[10px] font-semibold',
+          accentValue,
+          centered && 'min-w-[3.2rem] text-right'
+        )}
+      >
+        {formatter(value)}
+      </span>
+    </div>
+  )
+}
+
+/**
+ * Compact, inline variant — no card chrome, no header. Three sliders share a
+ * single horizontal strip so the block reads as a continuation of the chart
+ * card above it, not a separate panel that has to be re-scanned for.
+ */
+function SimulatorsCompact({
+  internals,
+  onReset,
+}: {
+  internals: SimulatorsInternals
+  onReset: () => void
+}) {
+  const formatTime = (value: number) => formatTimeLabel(internals, value)
+  return (
+    <div
+      data-testid="simulators-compact"
+      className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-dashed bg-muted/20 px-3 py-2"
+    >
+      <div className="flex shrink-0 items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <Sliders className="h-3 w-3" />
+        What-if
+      </div>
+      <CompactSlot
+        icon={<TrendingUp className="h-3 w-3" />}
+        label="Spot"
+        value={internals.spotShiftPct}
+        min={-10}
+        max={10}
+        step={0.1}
+        accent="pink"
+        centered
+        formatter={(v) => `${v > 0 ? '+' : ''}${v.toFixed(1)}%`}
+        onChange={internals.onSpotShiftChange}
+        accessibleLabel="Spot price shift"
+      />
+      <CompactSlot
+        icon={<Waves className="h-3 w-3" />}
+        label="IV"
+        value={internals.ivShiftPct}
+        min={-50}
+        max={50}
+        step={1}
+        accent="violet"
+        centered
+        formatter={(v) => `${v > 0 ? '+' : ''}${v.toFixed(0)}%`}
+        onChange={internals.onIvShiftChange}
+        accessibleLabel="Implied volatility shift"
+      />
+      <CompactSlot
+        icon={<Clock className="h-3 w-3" />}
+        label={internals.isSubDay ? 'Hours' : 'Days'}
+        value={internals.timeSliderValue}
+        min={0}
+        max={internals.timeSliderMax}
+        step={internals.timeStep}
+        disabled={!internals.hasTimeRemaining}
+        accent="blue"
+        formatter={(value) => formatTime(value)}
+        onChange={(value) => internals.onDaysElapsedChange(internals.sliderValueToDays(value))}
+        accessibleLabel="Time forward"
+      />
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={onReset}
+        disabled={!internals.isDirty}
+        aria-label="Reset what-if simulators"
+        className="ml-auto h-6 shrink-0 px-2 text-[10px] text-muted-foreground hover:text-foreground disabled:opacity-30"
+      >
+        <RotateCcw className="mr-1 h-2.5 w-2.5" /> Reset
+      </Button>
+    </div>
+  )
+}
+
+export function Simulators({
+  spotShiftPct,
+  ivShiftPct,
+  daysElapsed,
+  maxDays,
+  onSpotShiftChange,
+  onIvShiftChange,
+  onDaysElapsedChange,
+  onReset,
+  variant = 'card',
+}: SimulatorsProps) {
+  const internals = useSimulatorsInternals({
+    spotShiftPct,
+    ivShiftPct,
+    daysElapsed,
+    maxDays,
+    onSpotShiftChange,
+    onIvShiftChange,
+    onDaysElapsedChange,
+  })
+  if (variant === 'compact') {
+    return <SimulatorsCompact internals={internals} onReset={onReset} />
+  }
+  return <SimulatorsCard internals={internals} onReset={onReset} />
 }

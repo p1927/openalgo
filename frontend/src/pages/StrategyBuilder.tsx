@@ -2417,6 +2417,19 @@ export default function StrategyBuilder() {
                               canResetStrikes={canResetStrikes}
                             />
                           }
+                          belowSliders={
+                            <Simulators
+                              variant="compact"
+                              spotShiftPct={spotShiftPct}
+                              ivShiftPct={ivShiftPct}
+                              daysElapsed={scenario.daysElapsed}
+                              maxDays={maxSimulatorDays}
+                              onSpotShiftChange={setSpotShiftPct}
+                              onIvShiftChange={setIvShiftPct}
+                              onDaysElapsedChange={setDaysElapsed}
+                              onReset={resetSimulators}
+                            />
+                          }
                         />
                       </div>
                       <div
@@ -2511,17 +2524,6 @@ export default function StrategyBuilder() {
                 />
               </TabsContent>
             </Tabs>
-
-            <Simulators
-              spotShiftPct={spotShiftPct}
-              ivShiftPct={ivShiftPct}
-              daysElapsed={scenario.daysElapsed}
-              maxDays={maxSimulatorDays}
-              onSpotShiftChange={setSpotShiftPct}
-              onIvShiftChange={setIvShiftPct}
-              onDaysElapsedChange={setDaysElapsed}
-              onReset={resetSimulators}
-            />
           </div>
         </div>
       )}
