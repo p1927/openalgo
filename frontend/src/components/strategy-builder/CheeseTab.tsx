@@ -100,8 +100,8 @@ export function CheeseTab({
   const spotChangePct =
     spotChange !== null && underlyingPrevClose ? (spotChange / underlyingPrevClose) * 100 : null
 
-  const handleCellClick = async (strike: number, optionType: LegDraftType, side: 'BUY' | 'SELL') => {
-    const key = `${strike}-${optionType}`
+  const handleAddLeg = async (strike: number, optionType: LegDraftType, side: 'BUY' | 'SELL') => {
+    const key = `${strike}-${optionType}-${side}`
     setAddingKey(key)
     try {
       const resolved = await resolveContract(selectedExpiry, 'OPTION', strike, optionType)
@@ -133,6 +133,10 @@ export function CheeseTab({
     } finally {
       setAddingKey(null)
     }
+  }
+
+  const handleCellClick = (strike: number, optionType: LegDraftType, side: 'BUY' | 'SELL') => {
+    void handleAddLeg(strike, optionType, side)
   }
 
   return (
@@ -208,7 +212,7 @@ export function CheeseTab({
                 key={row.strike}
                 style={{ height: ROW_HEIGHT, gridTemplateColumns: GRID_COLS }}
                 className={cn(
-                  'grid items-center border-b px-3 last:border-b-0',
+                  'group grid items-center border-b px-3 last:border-b-0',
                   row.strike === atmStrike && 'bg-muted/20'
                 )}
               >

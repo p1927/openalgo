@@ -174,6 +174,18 @@ beforeEach(() => {
     })
   )
   Element.prototype.scrollIntoView = vi.fn()
+  // DrawTargetPayoff now stays mounted (hidden, not unmounted) even while
+  // the Adjust view is showing, so its ResizeObserver effect always runs.
+  // The global stub in src/test/setup.ts is a plain `vi.fn()` mock, which
+  // `vi.clearAllMocks()` above strips back to no implementation — `new
+  // ResizeObserver()` then throws "is not a constructor". A real class,
+  // like StrategyBuilder.test.tsx and DrawTargetPayoff.test.tsx already use,
+  // survives that reset.
+  window.ResizeObserver = class {
+    disconnect() {}
+    observe() {}
+    unobserve() {}
+  }
 })
 
 describe('StrategyBuilder accessibility and mobile containment', () => {
