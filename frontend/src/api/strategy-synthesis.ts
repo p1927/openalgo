@@ -27,7 +27,19 @@ export interface SynthesizedLegResult {
 export interface SynthesisResult {
   score: number
   shape_score: number
-  risk_score: number
+  /**
+   * Absolute max profit normalized to [0, 1] against an adaptive
+   * benchmark derived from the option chain. 1.0 means unlimited upside
+   * (naked long call) or max profit above the benchmark; 0.0 means
+   * zero/negative or no realized max profit on the sampled price grid.
+   */
+  profit_score: number
+  /**
+   * Absolute max loss normalized to [0, 1] (higher = better, i.e. smaller
+   * loss). 0.0 means unlimited downside (naked short call); 1.0 means
+   * can't lose (fully hedged or the payoff never goes negative).
+   */
+  loss_score: number
   /** P(profit at expiry), 0..1 — 0.5 when the backend had no live spot/IV to estimate from. */
   win_probability: number
   /** null means unlimited (a net-long-calls combo with unbounded upside). */
