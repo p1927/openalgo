@@ -258,23 +258,111 @@ export function CheeseTab({
                 >
                   <div className="text-[11px] font-normal tabular-nums">
                     {row.ce ? formatCurrency(row.ce.price) : '—'}
-                    {addingKey === `${row.strike}-CE` && '…'}
+                    {addingKey?.startsWith(`${row.strike}-CE-`) && '…'}
                   </div>
                   <div className="text-[9px] text-muted-foreground">0.00%</div>
                 </div>
 
-                <div className="flex flex-col items-center gap-1 px-2">
-                  <span className="text-[12px] font-semibold tabular-nums">{row.strike}</span>
-                  <span className="flex h-1 w-[90px] items-center justify-center gap-0.5">
-                    <span
-                      className="h-1 rounded-full bg-rose-500"
-                      style={{ width: barWidth(sellPressure) }}
-                    />
-                    <span
-                      className="h-1 rounded-full bg-emerald-500"
-                      style={{ width: barWidth(buyPressure) }}
-                    />
-                  </span>
+                <div className="relative flex items-center justify-center px-2">
+                  {/* CE side B/S buttons — appear on row hover, sit to the LEFT of strike */}
+                  <div
+                    className={cn(
+                      'absolute left-1 top-1/2 z-20 flex -translate-y-1/2 gap-0.5',
+                      'opacity-0 transition-opacity group-hover:opacity-100'
+                    )}
+                  >
+                    <button
+                      type="button"
+                      aria-label={`Buy ${row.strike} CE`}
+                      data-testid={`cheese-buy-ce-${row.strike}`}
+                      disabled={!row.ce || addingKey === `${row.strike}-CE-BUY`}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        row.ce && handleCellClick(row.strike, 'CE', 'BUY')
+                      }}
+                      className={cn(
+                        'flex h-5 w-5 items-center justify-center rounded text-[10px] font-bold leading-none',
+                        'bg-emerald-600 text-white shadow-sm transition-colors hover:bg-emerald-700',
+                        'disabled:cursor-not-allowed disabled:opacity-50'
+                      )}
+                    >
+                      B
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Sell ${row.strike} CE`}
+                      data-testid={`cheese-sell-ce-${row.strike}`}
+                      disabled={!row.ce || addingKey === `${row.strike}-CE-SELL`}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        row.ce && handleCellClick(row.strike, 'CE', 'SELL')
+                      }}
+                      className={cn(
+                        'flex h-5 w-5 items-center justify-center rounded text-[10px] font-bold leading-none',
+                        'bg-rose-600 text-white shadow-sm transition-colors hover:bg-rose-700',
+                        'disabled:cursor-not-allowed disabled:opacity-50'
+                      )}
+                    >
+                      S
+                    </button>
+                  </div>
+
+                  <div className="flex flex-col items-center gap-1">
+                    <span className="text-[12px] font-semibold tabular-nums">{row.strike}</span>
+                    <span className="flex h-1 w-[90px] items-center justify-center gap-0.5">
+                      <span
+                        className="h-1 rounded-full bg-rose-500"
+                        style={{ width: barWidth(sellPressure) }}
+                      />
+                      <span
+                        className="h-1 rounded-full bg-emerald-500"
+                        style={{ width: barWidth(buyPressure) }}
+                      />
+                    </span>
+                  </div>
+
+                  {/* PE side B/S buttons — appear on row hover, sit to the RIGHT of strike */}
+                  <div
+                    className={cn(
+                      'absolute right-1 top-1/2 z-20 flex -translate-y-1/2 gap-0.5',
+                      'opacity-0 transition-opacity group-hover:opacity-100'
+                    )}
+                  >
+                    <button
+                      type="button"
+                      aria-label={`Buy ${row.strike} PE`}
+                      data-testid={`cheese-buy-pe-${row.strike}`}
+                      disabled={!row.pe || addingKey === `${row.strike}-PE-BUY`}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        row.pe && handleCellClick(row.strike, 'PE', 'BUY')
+                      }}
+                      className={cn(
+                        'flex h-5 w-5 items-center justify-center rounded text-[10px] font-bold leading-none',
+                        'bg-emerald-600 text-white shadow-sm transition-colors hover:bg-emerald-700',
+                        'disabled:cursor-not-allowed disabled:opacity-50'
+                      )}
+                    >
+                      B
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Sell ${row.strike} PE`}
+                      data-testid={`cheese-sell-pe-${row.strike}`}
+                      disabled={!row.pe || addingKey === `${row.strike}-PE-SELL`}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        row.pe && handleCellClick(row.strike, 'PE', 'SELL')
+                      }}
+                      className={cn(
+                        'flex h-5 w-5 items-center justify-center rounded text-[10px] font-bold leading-none',
+                        'bg-rose-600 text-white shadow-sm transition-colors hover:bg-rose-700',
+                        'disabled:cursor-not-allowed disabled:opacity-50'
+                      )}
+                    >
+                      S
+                    </button>
+                  </div>
                 </div>
 
                 <div
@@ -292,7 +380,7 @@ export function CheeseTab({
                 >
                   <div className="text-[11px] font-normal tabular-nums">
                     {row.pe ? formatCurrency(row.pe.price) : '—'}
-                    {addingKey === `${row.strike}-PE` && '…'}
+                    {addingKey?.startsWith(`${row.strike}-PE-`) && '…'}
                   </div>
                   <div className="text-[9px] text-muted-foreground">0.00%</div>
                 </div>
