@@ -15,6 +15,13 @@ export interface DrawTargetPayoffProps {
   expiry: string
   /** Real listed strikes for this underlying/expiry — the canvas snaps drawn points to these. */
   strikes: number[]
+  /**
+   * Live underlying LTP from the option chain. Renders a thin vertical
+   * "spot" line on the canvas that moves as the LTP ticks; the hover/click
+   * info box also shows the strike-vs-spot delta against this value.
+   * `null` hides the line and skips the delta from the box.
+   */
+  spotPrice: number | null
   resolveContract: ResolveLegContract
   onAdd: (draft: LegDraft) => void
 }
@@ -103,6 +110,7 @@ export default function DrawTargetPayoff({
   exchange,
   expiry,
   strikes,
+  spotPrice,
   resolveContract,
   onAdd,
 }: DrawTargetPayoffProps) {
@@ -113,6 +121,24 @@ export default function DrawTargetPayoff({
   const [applyingIndex, setApplyingIndex] = useState<number | null>(null)
   const svgRef = useRef<SVGSVGElement>(null)
   const draggingIndexRef = useRef<number | null>(null)
+  // Live crosshair state — populated on canvas pointer move OR on click, so
+  // the user can either hover along the curve or click a point and see the
+  // same three numbers (strike · shape value · Δ vs spot). Stored as both
+  // the snapped strike and the value so the box can format it independently
+  // of the canvas's own coordinate math. `pixelX`/`pixelY` are relative to
+  // the SVG container so the absolutely-positioned info box (rendered
+  // outside the SVG) can sit next to the cursor without fighting the
+  // viewBox-to-pixel mapping. `pinned: true` means the box was set by a
+  // click (or grab) and should stay visible even after the cursor leaves
+  // the canvas — otherwise the box disappears the instant the user moves
+  // their mouse to read it, which defeats the point of clicking.
+  const [hoverInfo, setHoverInfo] = useState<{
+    pixelX: number
+    pixelY: number
+    strike: number
+    row: number
+    pinned: boolean
+  } | null>(null)
   // Measures the actual rendered width so points/lines can be drawn in real
   // pixels (see POINT_DIAMETER_PX above) instead of a viewBox that gets
   // non-uniformly stretched to fill the container.
@@ -134,6 +160,23 @@ export default function DrawTargetPayoff({
     return [sortedStrikes[0], sortedStrikes[sortedStrikes.length - 1]]
   }, [sortedStrikes])
   const hasStrikes = sortedStrikes.length >= 2
+
+  // Spot pixel — the live LTP snaps to the nearest listed strike column
+  // (the canvas only ever shows real strikes), then gets mapped through
+  // the same xForStrike used for placed points. Clamped to the visible
+  // strike range so a runaway spot can't draw a line outside the chart
+  // frame. `null` when the chain hasn't reported an LTP yet. The mapping
+  // is inlined rather than calling `xForStrike` because `xForStrike` is
+  // re-created on every render — depending on it would defeat the memo.
+  const spotPixelX = useMemo(() => {
+    if (spotPrice === null || !Number.isFinite(spotPrice) || !hasStrikes) return null
+    const [lo, hi] = strikeRange
+    const span = hi - lo || 1
+    const snapped = nearestStrike(sortedStrikes, spotPrice)
+    if (snapped <= lo) return 0
+    if (snapped >= hi) return canvasWidth
+    return ((snapped - lo) / span) * canvasWidth
+  }, [spotPrice, sortedStrikes, strikeRange, canvasWidth, hasStrikes])
 
   const xForStrike = (strike: number) => {
     const [lo, hi] = strikeRange
@@ -168,6 +211,24 @@ export default function DrawTargetPayoff({
     return { strike: nearestStrike(sortedStrikes, rawPrice), row: nearestRow(yFraction) }
   }
 
+  // Same as `pointFromEvent` but also records the cursor position so the
+  // info box can render next to it. Returns the (snapped) point plus the
+  // pixel offset relative to the SVG container — `rect.left`/`rect.top`
+  // already account for any border/padding, so this is a clean
+  // "position the box here" coordinate for the absolutely-positioned
+  // overlay div.
+  const pointAndHoverFromEvent = (e: { clientX: number; clientY: number }) => {
+    const rect = svgRef.current?.getBoundingClientRect()
+    if (!rect || !hasStrikes) return null
+    const point = pointFromEvent(e)
+    if (!point) return null
+    return {
+      point,
+      pixelX: e.clientX - rect.left,
+      pixelY: e.clientY - rect.top,
+    }
+  }
+
   const handleCanvasClick = (e: React.MouseEvent<SVGSVGElement>) => {
     if (draggingIndexRef.current !== null) return
     if (!hasStrikes) return
@@ -179,20 +240,68 @@ export default function DrawTargetPayoff({
     if (!point) return
     setPoints((prev) => [...prev, point])
     setResults(null)
+    // Pin the box to a clicked point so the user can read off the snapped
+    // values after releasing the mouse (hover would otherwise dismiss it
+    // as soon as they move the cursor away).
+    const hover = pointAndHoverFromEvent(e)
+    if (hover) {
+      setHoverInfo({
+        pixelX: hover.pixelX,
+        pixelY: hover.pixelY,
+        strike: hover.point.strike,
+        row: hover.point.row,
+        pinned: true,
+      })
+    }
   }
 
   const handlePointPointerDown = (index: number) => (e: React.PointerEvent<SVGCircleElement>) => {
     e.stopPropagation()
     e.currentTarget.setPointerCapture(e.pointerId)
     draggingIndexRef.current = index
+    // Also surface the box for the point being grabbed — the user almost
+    // certainly wants to see what they're about to drag.
+    const p = points[index]
+    if (p) {
+      setHoverInfo({
+        pixelX: xForStrike(p.strike),
+        pixelY: yForRow(p.row),
+        strike: p.strike,
+        row: p.row,
+        pinned: true,
+      })
+    }
   }
 
   const handleSvgPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
     const index = draggingIndexRef.current
-    if (index === null) return
-    const point = pointFromEvent(e)
-    if (!point) return
-    setPoints((prev) => prev.map((p, i) => (i === index ? point : p)))
+    if (index !== null) {
+      const snap = pointAndHoverFromEvent(e)
+      if (!snap) return
+      setPoints((prev) => prev.map((p, i) => (i === index ? snap.point : p)))
+      setHoverInfo({
+        pixelX: snap.pixelX,
+        pixelY: snap.pixelY,
+        strike: snap.point.strike,
+        row: snap.point.row,
+        pinned: true,
+      })
+      return
+    }
+    if (!hasStrikes) return
+    // Plain hover (not dragging) — show the box at the snapped strike/row
+    // so the user can read the values at any strike column, not just the
+    // ones they've placed a point on. `pinned: false` so leaving the
+    // canvas dismisses it again — that's the natural hover affordance.
+    const snap = pointAndHoverFromEvent(e)
+    if (!snap) return
+    setHoverInfo({
+      pixelX: snap.pixelX,
+      pixelY: snap.pixelY,
+      strike: snap.point.strike,
+      row: snap.point.row,
+      pinned: false,
+    })
   }
 
   const endDrag = () => {
@@ -202,14 +311,24 @@ export default function DrawTargetPayoff({
     }
   }
 
-  const removePoint = (index: number) => {
-    setPoints((prev) => prev.filter((_, i) => i !== index))
-    setResults(null)
+  const handleSvgPointerLeave = () => {
+    endDrag()
+    // Preserve pinned boxes (set by click/grab) — they should stay until
+    // the next user interaction. Only plain-hover boxes (pinned: false)
+    // are tied to the cursor and should dismiss on leave.
+    setHoverInfo((current) => (current?.pinned ? current : null))
   }
 
   const handleClear = () => {
     setPoints([])
     setResults(null)
+    setHoverInfo(null)
+  }
+
+  const removePoint = (index: number) => {
+    setPoints((prev) => prev.filter((_, i) => i !== index))
+    setResults(null)
+    setHoverInfo(null)
   }
 
   const handleSearch = async () => {
@@ -290,7 +409,7 @@ export default function DrawTargetPayoff({
         </p>
       </div>
 
-      <div className="overflow-hidden rounded-lg border bg-muted/20">
+      <div className="relative overflow-hidden rounded-lg border bg-muted/20">
         <svg
           ref={svgRef}
           viewBox={`0 0 ${canvasWidth} ${CANVAS_HEIGHT}`}
@@ -299,7 +418,7 @@ export default function DrawTargetPayoff({
           onClick={handleCanvasClick}
           onPointerMove={handleSvgPointerMove}
           onPointerUp={endDrag}
-          onPointerLeave={endDrag}
+          onPointerLeave={handleSvgPointerLeave}
         >
           <line
             x1={0}
@@ -309,6 +428,26 @@ export default function DrawTargetPayoff({
             stroke="currentColor"
             strokeOpacity="0.15"
           />
+          {/* Live spot line — a thin vertical guide at the snapped spot
+              strike. Uses the same pink as the Adjust tab's PayoffChart
+              spot line (colors.spotLine `#db2777` / `#ec4899`) so the two
+              tabs read as the same chart family. Drawn above the grid
+              texture but below placed points so a green point right at
+              spot is still visible. Re-renders every time the LTP ticks
+              because `spotPixelX` is in the SVG's effective dep set. */}
+          {spotPixelX !== null && (
+            <line
+              x1={spotPixelX}
+              y1={0}
+              x2={spotPixelX}
+              y2={CANVAS_HEIGHT}
+              stroke="#db2777"
+              strokeWidth={1}
+              strokeDasharray="3 3"
+              strokeOpacity="0.7"
+              pointerEvents="none"
+            />
+          )}
           {/* The full selectable matrix — every (strike column x P&L row)
               intersection, drawn small and faint so it reads as texture
               rather than clutter. This is the whole point: the canvas shows
@@ -367,6 +506,47 @@ export default function DrawTargetPayoff({
             )
           })}
         </svg>
+        {/* Hover/click info box — small, unbold, sits inside the canvas
+            frame near the cursor. Position is the snapped point's pixel
+            coordinates (relative to the SVG container). Kept outside the
+            SVG so it can use the same Tailwind tokens as the rest of the
+            page (border, muted-foreground, etc.) without a foreignObject
+            bridge. `pointer-events-none` so the box never steals hover
+            from the canvas itself. */}
+        {hoverInfo && (
+          <div
+            className="pointer-events-none absolute z-10 -translate-x-1/2 whitespace-nowrap rounded border bg-background/95 px-2 py-1 text-[11px] leading-tight text-muted-foreground shadow-sm"
+            style={{
+              left: hoverInfo.pixelX,
+              // Pin near the cursor but clamp to a band that keeps it on
+              // the canvas — same trick PayoffChart uses (`top: Math.min(
+              // Math.max(yPixel, 34), height - 60)`). 18px below the cursor
+              // reads as "label under the crosshair"; the +20px bottom
+              // clamp leaves room for the spot-line label below it.
+              top: Math.min(Math.max(hoverInfo.pixelY + 14, 4), CANVAS_HEIGHT - 40),
+            }}
+          >
+            <span className="tabular-nums text-foreground">
+              {hoverInfo.strike.toLocaleString('en-IN')}
+            </span>
+            <span className="mx-1.5 text-muted-foreground/60">·</span>
+            <span className="tabular-nums">
+              {rowToValue(hoverInfo.row) >= 0 ? '+' : ''}
+              {rowToValue(hoverInfo.row).toFixed(2)}
+            </span>
+            {spotPrice !== null && Number.isFinite(spotPrice) && (
+              <>
+                <span className="mx-1.5 text-muted-foreground/60">·</span>
+                <span className="tabular-nums">
+                  {hoverInfo.strike - spotPrice >= 0 ? '+' : ''}
+                  {(hoverInfo.strike - spotPrice).toLocaleString('en-IN', {
+                    maximumFractionDigits: 2,
+                  })}
+                </span>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="flex flex-wrap items-end gap-3">

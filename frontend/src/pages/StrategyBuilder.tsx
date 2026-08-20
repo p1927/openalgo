@@ -2419,12 +2419,15 @@ export default function StrategyBuilder() {
                           }
                         />
                       </div>
-                      <div className={cn('px-2 pb-2', payoffMode === 'draw' ? undefined : 'hidden')}>
+                      <div
+                        className={cn('px-2 pb-2', payoffMode === 'draw' ? undefined : 'hidden')}
+                      >
                         <DrawTargetPayoff
                           underlying={selectedUnderlying}
                           exchange={underlyingExchangeFor(selectedExchange, selectedUnderlying)}
                           expiry={normalizeExpiryCode(selectedExpiry)}
                           strikes={availableStrikes}
+                          spotPrice={spotPrice}
                           resolveContract={resolveLegContract}
                           onAdd={handleAddLegFromDraw}
                         />
