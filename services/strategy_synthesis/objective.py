@@ -1,23 +1,43 @@
 """
 Scoring: how well a candidate leg combination matches a user-drawn target
 payoff shape, blended with how favorable its absolute risk profile is and
-how likely it is to finish in profit.
+how likely it is to finish in profit, minus a fee-driven leg-count
+penalty.
 
 Ranking priority (defaults) — expressed in the order the user asked for:
 
-    1. Win probability (highest weight) — "high chance of happening".
-    2. Absolute max profit (second) — "want more profit, not legs that
-       give very little".
-    3. Absolute max loss (third) — "minimizing risk".
-    4. Shape fit (smallest) — a *gate* (combo's shape must vaguely
-       match what the user drew) rather than the primary axis; we no
-       longer want a near-perfect shape match to outrank a clearly more
-       profitable, higher-win-probability combo just because the user's
-       drawn target happened to fit a tiny-payoff structure.
+    1. Shape fit (largest weight) — the user drew a curve on the canvas
+       to express *what kind* of payoff they want. Within the universe
+       of combos whose other factors are competitive, the one that
+       matches the drawn shape most closely is the right answer.
 
-The shape is still in the formula (and `alpha <= 0` mirror-image combos
-are still scored 0 outright) — the change is that it lost the dominant
-weight. See the docstring in `search.synthesize` for the full rationale.
+    2. Win probability — "high chance of happening".
+    3. Absolute max profit — "want more profit, not legs that give
+       very little".
+    4. Absolute max loss — "minimizing risk".
+    5. Leg-count penalty — same shape, same win/profit/risk → fewer
+       legs wins, because each leg adds brokerage + STT + GST +
+       exchange fees. India options are charged per leg, so a 4-leg
+       iron condor pays roughly 4x the per-trade fees of a 1-leg call.
+
+The leg penalty is applied as an additive term per extra leg beyond
+the first (a 1-leg combo has zero penalty; a 2-leg combo gets one unit
+of `leg_count_penalty`; etc.). It's small enough that a multi-leg
+combo with clearly better shape/win/profit/risk still wins over a
+1-leg alternative, but large enough that two near-tied combos get
+broken by leg count.
+
+The previous version of this module had a near-perfect shape match on
+a tiny-payoff structure outrank a clearly more profitable,
+higher-win-probability combo. The fix moved shape from dominant to
+*one of four* axes. The user then asked for shape to be *re-emphasized*
+as the tie-breaker among holy-grail candidates — which is what this
+ordering does: shape is now the largest single weight, but profit
+(0.25), loss (0.20), and win prob (0.30) collectively outweigh shape
+(0.25), so a small-profit spread that happens to fit the drawn shape
+perfectly still loses to a long call with materially more profit and
+a comparable win rate. The leg-count penalty further nudges ties
+toward fewer legs.
 """
 
 from __future__ import annotations
@@ -39,7 +59,8 @@ class ScoredCombo:
     profit_score: float  # 0..1, higher = larger absolute max profit
     loss_score: float  # 0..1, higher = smaller absolute max loss
     win_probability: float  # 0..1, P(profit at expiry); 0.5 (neutral) if spot/iv/years unknown
-    score: float  # weighted combination, used for ranking
+    leg_count_penalty: float  # additive subtractor applied to the base score (>= 0)
+    score: float  # final ranking score (base blend minus penalty)
 
 
 def _shape_score(target: np.ndarray, candidate: np.ndarray) -> float:
@@ -127,24 +148,32 @@ def score_combo(
     profit_weight: float,
     loss_weight: float,
     win_prob_weight: float,
+    leg_count_penalty: float = 0.0,
     profit_normalization: float = 50_000.0,
     spot: float | None = None,
     iv: float | None = None,
     years: float | None = None,
 ) -> ScoredCombo:
     """
-    Blend four axes into a final ranking score:
+    Blend four axes into a base score, then subtract a leg-count penalty:
 
-        score = shape_weight * shape
-              + profit_weight * profit_score
-              + loss_weight * loss_score
-              + win_prob_weight * win_probability
+        base   = shape_weight * shape
+               + profit_weight * profit_score
+               + loss_weight * loss_score
+               + win_prob_weight * win_probability
+        score  = max(0.0, base - leg_count_penalty * (len(legs) - 1))
 
-    The four weights are caller-supplied (defaults from `search.synthesize`
-    are 0.10 / 0.25 / 0.15 / 0.50 — see the module docstring for the
-    priority order). They should sum to 1.0; if they don't, the formula
-    still works (the residual is implicitly given to `profit_score` only
-    when weights don't add up, but the caller is expected to pass 1.0).
+    The penalty is per extra leg beyond the first (a 1-leg combo has no
+    penalty; a 2-leg combo gets one unit; a 4-leg gets three units). The
+    multiplier is supplied by the caller (`search.synthesize` defaults
+    to 0.03, i.e. a 3% per-leg fee haircut). The penalty is small enough
+    to be a tie-breaker, not a veto — a 4-leg combo with clearly better
+    shape / win prob / profit / loss still wins over a 1-leg alternative
+    with marginal benefits.
+
+    The final score is clamped at 0 so a long penalty against an
+    otherwise-mediocre combo doesn't produce a negative ranking score
+    (which would interact oddly with sort orders downstream).
     """
     payoff = combo_payoff(prices, legs, lot_size)
     risk = evaluate_risk(prices, payoff)
@@ -152,12 +181,14 @@ def score_combo(
     profit_s = _profit_score(risk, profit_normalization)
     loss_s = _loss_score(risk, profit_normalization)
     win_p = win_probability(prices, payoff, spot, iv, years)
-    total = (
+    base = (
         shape_weight * shape
         + profit_weight * profit_s
         + loss_weight * loss_s
         + win_prob_weight * win_p
     )
+    penalty = max(0.0, leg_count_penalty) * max(0, len(legs) - 1)
+    total = max(0.0, base - penalty)
     return ScoredCombo(
         legs=legs,
         risk=risk,
@@ -165,5 +196,6 @@ def score_combo(
         profit_score=profit_s,
         loss_score=loss_s,
         win_probability=win_p,
+        leg_count_penalty=penalty,
         score=total,
     )

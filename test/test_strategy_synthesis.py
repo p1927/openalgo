@@ -210,6 +210,13 @@ def test_synthesize_invalid_weights_raise():
             max_legs=1,
             win_prob_weight=-0.1,
         )
+    with pytest.raises(ValueError):
+        synthesize(
+            target_points=target_points,
+            candidates=candidates,
+            max_legs=1,
+            leg_count_penalty=-0.01,
+        )
 
 
 def test_synthesize_ranks_high_profit_high_win_above_perfect_shape_low_profit():
@@ -473,4 +480,206 @@ def test_synthesize_profit_normalization_default_handles_tight_chains():
     # Some combo in the results has profit_score > 0 (not all 0).
     assert any(r.profit_score > 0 for r in results), (
         "all combos scored 0 on profit — the adaptive normalization is broken."
+    )
+
+
+def test_leg_count_penalty_subtracts_per_extra_leg():
+    # The penalty is per extra leg beyond the first: a 1-leg combo has
+    # 0, a 2-leg has one unit, a 4-leg has three units. This is what
+    # makes a 1-leg and 4-leg differ by 3 * leg_count_penalty on the
+    # final score, all other axes equal. We verify the *penalty field*
+    # is computed correctly per leg count; the score itself differs
+    # across combos because the underlying leg payoffs differ (1-leg
+    # naked call vs 4-leg combo have very different risk profiles).
+    from services.strategy_synthesis.objective import score_combo
+
+    prices = np.linspace(80, 120, 41)
+    target = np.zeros_like(prices)
+
+    one_leg = [SynthesizedLeg(strike=100, option_type="CE", side="BUY", premium=1)]
+    two_leg = [
+        SynthesizedLeg(strike=100, option_type="CE", side="BUY", premium=1),
+        SynthesizedLeg(strike=110, option_type="CE", side="SELL", premium=1),
+    ]
+    four_leg = [
+        SynthesizedLeg(strike=k, option_type="CE", side="BUY", premium=1)
+        for k in (95, 100, 105, 110)
+    ]
+
+    def score(legs, penalty):
+        return score_combo(
+            prices,
+            target,
+            legs,
+            lot_size=1,
+            shape_weight=0.25,
+            profit_weight=0.25,
+            loss_weight=0.20,
+            win_prob_weight=0.30,
+            leg_count_penalty=penalty,
+        )
+
+    # Per-leg penalty is the multiplier times (n_legs - 1). At penalty=0.05:
+    # 1-leg -> 0, 2-leg -> 0.05, 4-leg -> 0.15.
+    s1 = score(one_leg, 0.05)
+    s2 = score(two_leg, 0.05)
+    s4 = score(four_leg, 0.05)
+    assert s1.leg_count_penalty == 0.0
+    assert s2.leg_count_penalty == pytest.approx(0.05)
+    assert s4.leg_count_penalty == pytest.approx(0.15)
+
+    # The *score* reflects the penalty. Compute the deltas:
+    # (1-leg score) - (2-leg score) >= 0.05 (the 2-leg got 0.05 penalty,
+    # the 1-leg got 0 — but the 1-leg may also score lower on other
+    # axes, so this is an inequality, not an equality).
+    assert s1.score - s2.score >= 0.0
+    assert s1.score - s4.score >= 0.0
+    # And the leg-penalty component specifically accounts for the
+    # 0.05 / 0.15 differences.
+    s1_zero = score(one_leg, 0.0)
+    s2_zero = score(two_leg, 0.0)
+    s4_zero = score(four_leg, 0.0)
+    # The score at penalty=0 minus the score at penalty=0.05 isolates
+    # the leg-count penalty contribution (the other axes are unchanged).
+    assert s1_zero.score - s1.score == pytest.approx(0.0)
+    assert s2_zero.score - s2.score == pytest.approx(0.05)
+    assert s4_zero.score - s4.score == pytest.approx(0.15)
+
+
+def test_leg_count_penalty_breaks_tie_toward_fewer_legs():
+    # User priority: "lower the number of legs the better." When two
+    # candidates match the shape, win probability, profit, and loss
+    # axes essentially identically, the leg-count penalty should tip
+    # the tie to the 1-leg combo. We construct a chain + target where
+    # a naked long call and a debit spread both produce a similar
+    # score on the four base axes, and verify the 1-leg wins once
+    # the leg penalty is enabled.
+    candidates = [
+        LegCandidate(strike=k, option_type="CE", premium=5.0)
+        for k in (90, 95, 100, 105, 110)
+    ]
+    # A target that a long call at strike 90 matches very well (rising
+    # payoff) — a debit spread on 90/110 also matches.
+    target_points = [(80.0, 0.0), (95.0, 2.0), (110.0, 8.0), (130.0, 20.0)]
+
+    # With leg_count_penalty=0, the ranking is purely on the four base
+    # axes (shape + profit + loss + win_prob) — no leg-count signal.
+    without_penalty = synthesize(
+        target_points=target_points,
+        candidates=candidates,
+        max_legs=2,
+        min_legs=1,
+        top_n=10,
+        leg_count_penalty=0.0,
+        spot=100.0,
+        iv=0.20,
+        years=15 / 365,
+    )
+    # With the default penalty, the 1-leg combo should move up the
+    # ranking (penalty=0) and any 2-leg combo moves down (penalty>0).
+    with_penalty = synthesize(
+        target_points=target_points,
+        candidates=candidates,
+        max_legs=2,
+        min_legs=1,
+        top_n=10,
+        spot=100.0,
+        iv=0.20,
+        years=15 / 365,
+    )
+
+    # Find the 1-leg combo in each ranking.
+    def find_one_leg(results):
+        return next(
+            (i for i, r in enumerate(results) if len(r.legs) == 1), None
+        )
+
+    no_pen_rank = find_one_leg(without_penalty)
+    pen_rank = find_one_leg(with_penalty)
+    # The 1-leg's ranking should be at least as good (lower index) with
+    # the penalty on as without — because the 2-legs got penalized and
+    # the 1-leg didn't. If both rankings have a 1-leg result, compare
+    # their positions; otherwise (no 1-leg in one ranking) the test is
+    # not applicable and we just check that the with_penalty run
+    # surfaced a 1-leg.
+    assert pen_rank is not None, "no 1-leg combo in with_penalty results"
+    if no_pen_rank is not None:
+        assert pen_rank <= no_pen_rank, (
+            f"1-leg moved from rank {no_pen_rank} (no penalty) to rank "
+            f"{pen_rank} (with penalty) — it should have moved up or stayed. "
+            f"Leg-count penalty isn't doing its job."
+        )
+    # And the 1-leg's score should be higher than the 1-leg's score
+    # without penalty (no penalty = 0, so this is a trivial >= check,
+    # but it's a smoke test that the penalty doesn't accidentally
+    # *add* to the score).
+    if no_pen_rank is not None and pen_rank is not None:
+        assert with_penalty[pen_rank].score >= without_penalty[no_pen_rank].score - 0.001, (
+            f"1-leg score with penalty ({with_penalty[pen_rank].score}) "
+            f"is less than 1-leg score without penalty "
+            f"({without_penalty[no_pen_rank].score}). The penalty "
+            f"should not penalize a 1-leg combo (its penalty is 0)."
+        )
+
+
+def test_shape_does_not_dominate_when_other_factors_differ_materially():
+    # User's clarified priority: shape is the *criterion* — within the
+    # universe of combos whose other factors are competitive, the one
+    # matching the shape most closely wins. But the user also said
+    # "more profit, not legs that give very little" first — so when a
+    # *wider* spread offers a materially larger absolute profit, it
+    # should still beat the exact-shape match. The 95/105 (perfect
+    # shape) loses to a 90/110 with ~4x the absolute profit, and
+    # that's correct per the user's priority ordering.
+    candidates = [
+        LegCandidate(strike=k, option_type="CE", premium=5.0)
+        for k in (90, 95, 100, 105, 110)
+    ]
+    target_legs = [
+        SynthesizedLeg(strike=95, option_type="CE", side="BUY", premium=5),
+        SynthesizedLeg(strike=105, option_type="CE", side="SELL", premium=5),
+    ]
+    prices = np.linspace(85, 115, 61)
+    target_payoff = combo_payoff(prices, target_legs, LOT_SIZE)
+    target_points = list(zip(prices.tolist(), target_payoff.tolist(), strict=True))
+
+    results = synthesize(
+        target_points=target_points,
+        candidates=candidates,
+        max_legs=2,
+        min_legs=2,
+        top_n=10,
+        spot=100.0,
+        iv=0.20,
+        years=15 / 365,
+    )
+
+    # The exact 95/105 should NOT be at rank 0 because the 90/110
+    # (wider body, 4x the max profit) is materially better on the
+    # other axes. Shape is the criterion, but the user explicitly
+    # asked for "more profit, not legs that give very little" —
+    # when the profit difference is large, it should still win.
+    exact_idx = next(
+        (
+            i
+            for i, r in enumerate(results)
+            if {(l.strike, l.side) for l in r.legs} == {(95, "BUY"), (105, "SELL")}
+        ),
+        None,
+    )
+    wide_idx = next(
+        (
+            i
+            for i, r in enumerate(results)
+            if {(l.strike, l.side) for l in r.legs} == {(90, "BUY"), (110, "SELL")}
+        ),
+        None,
+    )
+    assert exact_idx is not None and wide_idx is not None
+    # The wider spread should rank above the exact-shape spread.
+    assert wide_idx < exact_idx, (
+        f"wider 90/110 (rank {wide_idx}) should outrank exact-shape "
+        f"95/105 (rank {exact_idx}) — the user's priority puts more "
+        f"profit ahead of perfect shape when the profit difference is "
+        f"material. shape is the tie-breaker, not the primary axis."
     )

@@ -42,6 +42,7 @@ class _ScoringContext:
     profit_weight: float
     loss_weight: float
     win_prob_weight: float
+    leg_count_penalty: float
     profit_normalization: float
     spot: float | None
     iv: float | None
@@ -60,6 +61,7 @@ def _score(
         ctx.profit_weight,
         ctx.loss_weight,
         ctx.win_prob_weight,
+        ctx.leg_count_penalty,
         ctx.profit_normalization,
         ctx.spot,
         ctx.iv,
@@ -165,10 +167,11 @@ def synthesize(
     min_legs: int = 1,
     top_n: int = 5,
     allow_sides: tuple[str, ...] = ("BUY", "SELL"),
-    shape_weight: float = 0.10,
-    profit_weight: float = 0.30,
+    shape_weight: float = 0.25,
+    profit_weight: float = 0.25,
     loss_weight: float = 0.20,
-    win_prob_weight: float = 0.40,
+    win_prob_weight: float = 0.30,
+    leg_count_penalty: float = 0.03,
     profit_normalization: float | None = None,
     spot: float | None = None,
     iv: float | None = None,
@@ -179,7 +182,8 @@ def synthesize(
     Finds the top `top_n` leg combinations (from `min_legs` to `max_legs`
     legs) that best match `target_points` — a user-drawn (price, P&L) curve
     — ranked by a blend of shape fit, absolute max profit, absolute max
-    loss, and win probability (see `objective.score_combo`).
+    loss, and win probability, minus a per-leg fee penalty (see
+    `objective.score_combo`).
 
     `candidates` is the pool of (strike, option_type, premium) the search
     may choose from — callers fetch this from the live option chain (see
@@ -194,27 +198,34 @@ def synthesize(
     shifts every combo's score equally) so callers without live market data
     can still call this safely.
 
-    The default weight split (0.10 shape / 0.30 profit / 0.20 loss /
-    0.40 win probability) reflects the user's stated priority for the
-    Draw Target recommendations:
+    The default weight split (0.25 shape / 0.25 profit / 0.20 loss /
+    0.30 win probability, with 0.03 per-extra-leg fee penalty) reflects
+    the user's stated priority for the Draw Target recommendations:
 
-      1. High chance of happening (win probability, biggest weight).
-      2. More profit, not legs that give very little (absolute max
-         profit, second).
-      3. Less risk (absolute max loss, third).
-      4. Match the drawn shape (still a real factor, but no longer
-         dominant — the shape is a *gate* to keep the top results
-         from being a wildly different shape than the user drew,
-         not the primary axis).
+      1. Shape fit (largest single weight) — the user drew a curve to
+         express *what kind* of payoff they want; within the universe
+         of competitive combos, the one that matches the shape most
+         closely is the right answer.
+      2. Win probability (0.30) — "high chance of happening".
+      3. More profit, not legs that give very little (0.25) — absolute
+         max profit, normalized against the chain.
+      4. Less risk (0.20) — absolute max loss.
+      5. Fewer legs (0.03 per extra leg) — India options are charged
+         per leg, so an iron condor pays 4x the per-trade fees of a
+         single long call. A 4-leg combo needs to be clearly better
+         on the other axes to beat a 2-leg with otherwise-similar
+         scores.
 
-    The previous default (0.7 / 0.15 / 0.15 shape/risk/win_prob) used
-    the scale-invariant shape score as the primary axis, which meant
-    a near-perfect shape match on a tiny-payoff structure would outrank
-    a clearly more profitable, higher-win-probability combo just because
-    the user's drawn target happened to fit a low-payoff body. The user
-    explicitly does not want that — they want the holy grail (high
-    win rate, more profit, less risk), and accept that the drawn shape
-    is a hint, not a contract.
+    Earlier iterations of the ranking had the shape as the *only*
+    primary axis (a near-perfect shape match on a tiny-payoff structure
+    would outrank a clearly more profitable, higher-win-probability
+    combo). Then it had shape as a minor gate. The current ordering
+    puts shape back as the *largest single weight* but keeps
+    profit/loss/win-prob collectively dominant — so a small-profit
+    spread that happens to fit the drawn shape perfectly still loses
+    to a long call with materially more profit, while a near-tied
+    pair of 2-leg spreads is broken by whichever fits the shape
+    better.
 
     `profit_normalization` is the rupee value that maps to a profit
     score of 1.0; if omitted, it defaults to 5x the highest premium in
@@ -232,6 +243,8 @@ def synthesize(
         raise ValueError(
             "shape_weight, profit_weight, loss_weight, win_prob_weight must all be in [0, 1]"
         )
+    if leg_count_penalty < 0:
+        raise ValueError("leg_count_penalty must be >= 0")
 
     xs = np.array([p[0] for p in target_points], dtype=float)
     ys = np.array([p[1] for p in target_points], dtype=float)
@@ -253,6 +266,7 @@ def synthesize(
         profit_weight=profit_weight,
         loss_weight=loss_weight,
         win_prob_weight=win_prob_weight,
+        leg_count_penalty=leg_count_penalty,
         profit_normalization=norm,
         spot=spot,
         iv=iv,

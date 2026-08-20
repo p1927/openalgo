@@ -155,6 +155,7 @@ def _serialize(result: ScoredCombo, symbol_lookup: dict[tuple[float, str], str])
         "profit_score": round(result.profit_score, 4),
         "loss_score": round(result.loss_score, 4),
         "win_probability": round(result.win_probability, 4),
+        "leg_count_penalty": round(result.leg_count_penalty, 4),
         "max_profit": None
         if result.risk.max_profit == float("inf")
         else round(result.risk.max_profit, 2),
