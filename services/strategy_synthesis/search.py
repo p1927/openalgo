@@ -30,15 +30,19 @@ _LOCAL_SEARCH_PASSES = 2
 
 @dataclass(frozen=True)
 class _ScoringContext:
-    """Bundles the growing list of `score_combo` parameters that every
+    """
+    Bundles the growing list of `score_combo` parameters that every
     candidate combo in a search needs scored the same way, so `_exhaustive`/
     `_greedy` pass one object around instead of an ever-lengthening
-    positional list."""
+    positional list.
+    """
 
     lot_size: int
     shape_weight: float
-    risk_weight: float
+    profit_weight: float
+    loss_weight: float
     win_prob_weight: float
+    profit_normalization: float
     spot: float | None
     iv: float | None
     years: float | None
@@ -53,8 +57,10 @@ def _score(
         legs,
         ctx.lot_size,
         ctx.shape_weight,
-        ctx.risk_weight,
+        ctx.profit_weight,
+        ctx.loss_weight,
         ctx.win_prob_weight,
+        ctx.profit_normalization,
         ctx.spot,
         ctx.iv,
         ctx.years,
@@ -130,6 +136,27 @@ def _greedy(
     return [_score(prices, target, chosen, ctx)]
 
 
+def _default_profit_normalization(candidates: list[LegCandidate], lot_size: int) -> float:
+    """
+    Build a sensible "this is a good absolute profit" benchmark from the
+    candidate pool, so a combo delivering ~5x the most expensive single
+    leg's premium as max profit scores 1.0 on the profit axis, and a
+    combo delivering the same as one leg's premium scores 0.2.
+
+    Why 5x: a fully-loaded 4-leg bullish structure (long low strike +
+    long high strike + short mid-strike puts) can roughly deliver up to
+    a few multiples of a single premium in max profit; beyond that, a
+    naked long call's unlimited upside will saturate at 1.0 anyway, so
+    the exact constant doesn't matter for those — it just needs to be
+    a value where "ordinary" multi-leg combos land in the 0.2..0.8
+    range rather than 0.0..0.1 or 0.99..1.0.
+    """
+    if not candidates:
+        return 1.0
+    max_premium = max(c.premium for c in candidates)
+    return max(max_premium * 5.0 * lot_size, 1.0)
+
+
 def synthesize(
     target_points: list[tuple[float, float]],
     candidates: list[LegCandidate],
@@ -138,9 +165,11 @@ def synthesize(
     min_legs: int = 1,
     top_n: int = 5,
     allow_sides: tuple[str, ...] = ("BUY", "SELL"),
-    shape_weight: float = 0.7,
-    risk_weight: float = 0.15,
-    win_prob_weight: float = 0.15,
+    shape_weight: float = 0.10,
+    profit_weight: float = 0.30,
+    loss_weight: float = 0.20,
+    win_prob_weight: float = 0.40,
+    profit_normalization: float | None = None,
     spot: float | None = None,
     iv: float | None = None,
     years: float | None = None,
@@ -149,8 +178,8 @@ def synthesize(
     """
     Finds the top `top_n` leg combinations (from `min_legs` to `max_legs`
     legs) that best match `target_points` — a user-drawn (price, P&L) curve
-    — ranked by a blend of shape fit, risk/reward, and win probability (see
-    `objective.py`).
+    — ranked by a blend of shape fit, absolute max profit, absolute max
+    loss, and win probability (see `objective.score_combo`).
 
     `candidates` is the pool of (strike, option_type, premium) the search
     may choose from — callers fetch this from the live option chain (see
@@ -165,23 +194,43 @@ def synthesize(
     shifts every combo's score equally) so callers without live market data
     can still call this safely.
 
-    The default weight split (0.7 shape / 0.15 risk / 0.15 win-probability)
-    is deliberately shape-dominant: `objective._risk_score` gives an
-    unbounded-profit combo close to its maximum score regardless of how it
-    actually looks, and a shape-agnostic combo can likewise have a high raw
-    win probability by sheer luck of where its breakevens land — either one
-    at a near-even blend could outscore a combo that matches the user's
-    drawn shape almost exactly but happens to be capped, which is backwards:
-    a flat top in the drawing means the user *wants* a capped payoff there.
-    Risk/reward and win-probability should only decide between candidates
-    whose shape fit is already comparable, not override a clearly better
-    shape match.
+    The default weight split (0.10 shape / 0.30 profit / 0.20 loss /
+    0.40 win probability) reflects the user's stated priority for the
+    Draw Target recommendations:
+
+      1. High chance of happening (win probability, biggest weight).
+      2. More profit, not legs that give very little (absolute max
+         profit, second).
+      3. Less risk (absolute max loss, third).
+      4. Match the drawn shape (still a real factor, but no longer
+         dominant — the shape is a *gate* to keep the top results
+         from being a wildly different shape than the user drew,
+         not the primary axis).
+
+    The previous default (0.7 / 0.15 / 0.15 shape/risk/win_prob) used
+    the scale-invariant shape score as the primary axis, which meant
+    a near-perfect shape match on a tiny-payoff structure would outrank
+    a clearly more profitable, higher-win-probability combo just because
+    the user's drawn target happened to fit a low-payoff body. The user
+    explicitly does not want that — they want the holy grail (high
+    win rate, more profit, less risk), and accept that the drawn shape
+    is a hint, not a contract.
+
+    `profit_normalization` is the rupee value that maps to a profit
+    score of 1.0; if omitted, it defaults to 5x the highest premium in
+    the candidate pool, which puts ordinary multi-leg combos in the
+    0.2..0.8 range and saturates naked long calls at 1.0.
     """
     if not target_points or not candidates or max_legs < 1:
         return []
-    if not (0 < shape_weight <= 1 and 0 <= risk_weight <= 1 and 0 <= win_prob_weight <= 1):
+    if not (
+        0 <= shape_weight <= 1
+        and 0 <= profit_weight <= 1
+        and 0 <= loss_weight <= 1
+        and 0 <= win_prob_weight <= 1
+    ):
         raise ValueError(
-            "shape_weight must be in (0,1]; risk_weight and win_prob_weight must be in [0,1]"
+            "shape_weight, profit_weight, loss_weight, win_prob_weight must all be in [0, 1]"
         )
 
     xs = np.array([p[0] for p in target_points], dtype=float)
@@ -193,11 +242,18 @@ def synthesize(
     target = np.interp(prices, xs, ys)
 
     templates = _templates(candidates, allow_sides)
+    norm = (
+        profit_normalization
+        if profit_normalization is not None
+        else _default_profit_normalization(candidates, lot_size)
+    )
     ctx = _ScoringContext(
         lot_size=lot_size,
         shape_weight=shape_weight,
-        risk_weight=risk_weight,
+        profit_weight=profit_weight,
+        loss_weight=loss_weight,
         win_prob_weight=win_prob_weight,
+        profit_normalization=norm,
         spot=spot,
         iv=iv,
         years=years,
