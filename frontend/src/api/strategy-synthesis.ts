@@ -40,6 +40,13 @@ export interface SynthesisResult {
    * can't lose (fully hedged or the payoff never goes negative).
    */
   loss_score: number
+  /**
+   * Additive subtractor applied to the base score for leg count: a
+   * 1-leg combo has 0, a 2-leg has `leg_count_penalty`, a 4-leg has
+   * 3 * `leg_count_penalty`. Captures the per-leg fee cost (brokerage
+   * + STT + GST + exchange) on India options.
+   */
+  leg_count_penalty: number
   /** P(profit at expiry), 0..1 — 0.5 when the backend had no live spot/IV to estimate from. */
   win_probability: number
   /** null means unlimited (a net-long-calls combo with unbounded upside). */
