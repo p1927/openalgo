@@ -498,6 +498,7 @@ export default function DrawTargetPayoff({
                 strokeWidth="1.5"
                 className="cursor-grab active:cursor-grabbing"
                 onPointerDown={handlePointPointerDown(originalIndex)}
+                onClick={(e) => e.stopPropagation()}
                 onDoubleClick={(e) => {
                   e.stopPropagation()
                   removePoint(originalIndex)
