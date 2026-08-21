@@ -52,12 +52,23 @@ const MIN_SPREAD_PCT = 0.02
 /** Below this many weighted observations, a smile fit is too noisy to trust. */
 const MIN_FIT_POINTS = 5
 
+/**
+ * Weight a leg's IV observation for the smile fit. A tight two-sided quote is
+ * trusted more than a wide one. Some brokers/feeds (e.g. IndMoney) never
+ * report bid/ask for options — only LTP — so a leg with open interest but no
+ * quoted spread still gets a flat weight of 1 rather than being dropped
+ * entirely; on those feeds requiring a two-sided quote would starve the fit
+ * of every observation and leave every leg unscored.
+ */
 function liquidityWeight(bid: number, ask: number, oi: number): number {
-  if (!(bid > 0) || !(ask > 0) || ask < bid || !(oi > 0)) return 0
-  const mid = (bid + ask) / 2
-  if (!(mid > 0)) return 0
-  const spreadPct = (ask - bid) / mid
-  return 1 / Math.max(spreadPct, MIN_SPREAD_PCT)
+  if (!(oi > 0)) return 0
+  if (bid > 0 && ask > 0 && ask >= bid) {
+    const mid = (bid + ask) / 2
+    if (!(mid > 0)) return 0
+    const spreadPct = (ask - bid) / mid
+    return 1 / Math.max(spreadPct, MIN_SPREAD_PCT)
+  }
+  return 1
 }
 
 function isTwoSided(leg: OptionData): boolean {
