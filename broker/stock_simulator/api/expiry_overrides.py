@@ -220,18 +220,18 @@ def get_expiries_override(underlying: str, exchange: str) -> dict[str, Any] | No
         from trade_integrations.stock_simulator.options.expiry_query import (
             get_expiries_for_sim_now,
         )
-        from trade_integrations.stock_simulator.replay import get_replay_service
+        from trade_integrations.stock_simulator.client import StockSimulatorClient, StockSimulatorClientError
     except Exception:
         logger.exception("simulator expiry override: import/setup failed; opting out")
         return None
 
     try:
-        service = get_replay_service()
-    except Exception:
-        logger.exception("simulator expiry override: replay service unavailable; opting out")
+        status = StockSimulatorClient().status()
+    except StockSimulatorClientError:
+        logger.exception("simulator expiry override: stock_simulator service unavailable; opting out")
         return None
 
-    replay_date = getattr(getattr(service, "config", None), "replay_date", None)
+    replay_date = (status.get("clock") or {}).get("replay_date")
     if not replay_date:
         # No replay armed: the simulator is in live mode. The symtoken
         # table is only ever refreshed by the replay-anchored
@@ -243,14 +243,18 @@ def get_expiries_override(underlying: str, exchange: str) -> dict[str, Any] | No
         return _live_expiries_override(underlying)
 
     try:
-        sim_now = service.sim_now()
-    except Exception:
-        logger.exception("simulator expiry override: sim_now raised; opting out")
+        from datetime import datetime
+
+        sim_now = datetime.fromisoformat(status["clock"]["sim_now"])
+    except (KeyError, ValueError):
+        logger.exception("simulator expiry override: sim_now missing/invalid; opting out")
         return None
+
+    from trade_integrations.stock_simulator.config import load_sim_config
 
     try:
         expiries = get_expiries_for_sim_now(
-            data_root=service.config.data_root,
+            data_root=load_sim_config().data_root,
             underlying=underlying,
             # The helper's ``exchange`` parameter is reserved for future
             # per-options-exchange bundle support; today the bundle layout

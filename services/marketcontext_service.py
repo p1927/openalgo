@@ -31,9 +31,9 @@ def _simulator_block(broker: str) -> dict[str, Any]:
         from broker.stock_simulator.api._trade_path import ensure_trade_integrations_path
 
         ensure_trade_integrations_path()
-        from trade_integrations.stock_simulator.replay import get_replay_service
+        from trade_integrations.stock_simulator.client import StockSimulatorClient
 
-        status = get_replay_service().status()
+        status = StockSimulatorClient().status()
         clock = status.get("clock") if isinstance(status.get("clock"), dict) else {}
         return {
             "active": True,

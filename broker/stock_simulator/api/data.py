@@ -42,59 +42,25 @@ class BrokerData:
     def __init__(self, auth_token: str, feed_token: str | None = None) -> None:
         self.auth_token = auth_token
         ensure_trade_integrations_path()
-        from trade_integrations.stock_simulator.replay import get_replay_service
+        from trade_integrations.stock_simulator.client import StockSimulatorClient
 
-        self._replay = get_replay_service()
-
-    @staticmethod
-    def _mode() -> dict[str, Any]:
-        from trade_integrations.stock_simulator.mode import effective_mode
-
-        return effective_mode()
+        self._client = StockSimulatorClient()
 
     def get_quotes(self, symbol: str, exchange: str) -> dict[str, Any]:
-        mode_info = self._mode()
-        if mode_info["mode"] == "live":
-            try:
-                from trade_integrations.stock_simulator.live_quotes import get_live_quote_service
-
-                quote = get_live_quote_service().get_quote(symbol, exchange)
-                quote["replay_date"] = None
-                return quote
-            except Exception:
-                logger.warning(
-                    "live quote fetch failed for %s/%s; falling back to replay", symbol, exchange,
-                    exc_info=True,
-                )
-                mode_info = {"mode": "replay", "reason": "live_fetch_failed",
-                             "replay_date": self._replay.config.replay_date}
-
-        quote = self._replay.get_quote(symbol, exchange)
-        quote["mode"] = mode_info["mode"]
-        quote["replay_date"] = mode_info.get("replay_date")
+        result = self._client.get_quote(symbol, exchange)
+        quote = result["data"]
+        quote["mode"] = result["mode"]
+        quote.setdefault("replay_date", None)
         return quote
 
     def get_multiquotes(self, symbols: list[dict[str, str]]) -> list[dict[str, Any]]:
-        mode_info = self._mode()
-        if mode_info["mode"] == "live":
-            try:
-                from trade_integrations.stock_simulator.live_quotes import get_live_quote_service
-
-                results = get_live_quote_service().get_multiquotes(symbols)
-                for item in results:
-                    if "data" in item:
-                        item["data"]["replay_date"] = None
-                return results
-            except Exception:
-                logger.warning("live multiquote fetch failed; falling back to replay", exc_info=True)
-                mode_info = {"mode": "replay", "reason": "live_fetch_failed",
-                             "replay_date": self._replay.config.replay_date}
-
-        results = self._replay.get_multiquotes(symbols)
+        result = self._client.get_multiquotes(symbols)
+        mode = result["mode"]
+        results = result["data"]
         for item in results:
             if "data" in item:
-                item["data"]["mode"] = mode_info["mode"]
-                item["data"]["replay_date"] = mode_info.get("replay_date")
+                item["data"]["mode"] = mode
+                item["data"].setdefault("replay_date", None)
         return results
 
     def get_option_chain(
@@ -110,28 +76,10 @@ class BrokerData:
         if exchange in {"NFO", "BFO"} and spot_exchange == exchange:
             spot_exchange = "NSE_INDEX" if exchange == "NFO" else "BSE_INDEX"
 
-        if self._mode()["mode"] == "live":
-            try:
-                from trade_integrations.stock_simulator.live_quotes import get_live_quote_service
-
-                return get_live_quote_service().get_option_chain(
-                    symbol,
-                    spot_exchange,
-                    expiry_date=expiry_date,
-                    strike_count=strike_count,
-                )
-            except Exception:
-                logger.warning(
-                    "live option chain fetch failed for %s/%s; falling back to replay",
-                    symbol, exchange, exc_info=True,
-                )
-
-        return self._replay.get_option_chain(
-            symbol,
-            spot_exchange,
-            expiry_date=expiry_date,
-            strike_count=strike_count,
+        result = self._client.get_option_chain(
+            symbol, spot_exchange, expiry_date=expiry_date, strike_count=strike_count
         )
+        return result["data"]
 
     def get_depth(self, symbol: str, exchange: str) -> dict[str, Any]:
         quote = self.get_quotes(symbol, exchange)
@@ -152,6 +100,9 @@ class BrokerData:
     def get_intervals(self) -> list[str]:
         return list(self.timeframe_map.keys())
 
+    def _mode(self) -> dict[str, Any]:
+        return self._client.data_status()["mode"]
+
     def get_history(
         self,
         symbol: str,
@@ -170,11 +121,8 @@ class BrokerData:
         is_option = exchange.upper() in {"NFO", "BFO"} or parse_openalgo_option_symbol(symbol)
         if not is_option and self._mode()["mode"] == "live":
             try:
-                from trade_integrations.stock_simulator.live_quotes import get_live_quote_service
-
-                rows = get_live_quote_service().get_history(
-                    symbol, exchange, interval, start_date, end_date
-                )
+                result = self._client.get_history(symbol, exchange, interval, start_date, end_date)
+                rows = result["data"]
                 if rows:
                     df = pd.DataFrame(rows)
                     if "oi" not in df.columns:
@@ -244,12 +192,14 @@ class BrokerData:
     def _active_replay_window(self) -> tuple[str | None, str | None]:
         """The replay day(s) actually loaded — the whole rotation week when
         week-mode is on, else just the single active replay date."""
-        config = self._replay.config
-        if config.week_mode and config.week_dates:
-            dates = sorted(config.week_dates)
+        status = self._client.status()
+        week_dates = status.get("week_dates") or []
+        if status.get("week_mode") and week_dates:
+            dates = sorted(week_dates)
             return dates[0], dates[-1]
-        if config.replay_date:
-            return config.replay_date, config.replay_date
+        replay_date = (status.get("clock") or {}).get("replay_date")
+        if replay_date:
+            return replay_date, replay_date
         return None, None
 
     def _history_options(
@@ -328,7 +278,7 @@ class BrokerData:
         # not-yet-reached minutes (the catalog may hold a full day even
         # though sim_now is only partway through it) never render as
         # "future" candles ahead of where the simulator actually is.
-        sim_now = self._replay.sim_now()
+        sim_now = datetime.fromisoformat(self._client.status()["clock"]["sim_now"])
         day_frame = day_frame[day_frame["ts_ist"] <= sim_now]
         if day_frame.empty:
             return []

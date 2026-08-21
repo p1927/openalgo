@@ -102,8 +102,9 @@ class Stock_simulatorWebSocketAdapter(BaseBrokerWebSocketAdapter):
 
     def _replay_stream_loop(self) -> None:
         ensure_trade_integrations_path()
-        from trade_integrations.stock_simulator.mode import effective_mode
-        from trade_integrations.stock_simulator.replay import get_replay_service
+        from trade_integrations.stock_simulator.client import StockSimulatorClient, StockSimulatorClientError
+
+        client = StockSimulatorClient()
 
         while self.running:
             try:
@@ -113,37 +114,28 @@ class Stock_simulatorWebSocketAdapter(BaseBrokerWebSocketAdapter):
                     time.sleep(0.25)
                     continue
 
-                svc = get_replay_service()
-                sim_mode_info = effective_mode()
-                live_service = None
-                if sim_mode_info["mode"] == "live":
-                    from trade_integrations.stock_simulator.live_quotes import get_live_quote_service
-
-                    live_service = get_live_quote_service()
+                # A single status call resolves live-vs-replay once per loop
+                # iteration (server-side, via the shared service) — no local
+                # branching between two service objects any more.
+                try:
+                    sim_status = client.data_status()
+                except StockSimulatorClientError:
+                    sim_status = {"mode": {"mode": "replay"}, "replay": {"clock": {"emit_interval_ms": 1000}}}
+                sim_mode_info = sim_status["mode"]
 
                 for sub in subs:
                     symbol = sub["symbol"]
                     exchange = sub["exchange"]
                     mode = int(sub.get("mode") or 2)
                     sub_key = f"{exchange}_{symbol}"
-                    is_live = live_service is not None
+                    is_live = sim_mode_info.get("mode") == "live"
                     try:
-                        quote = live_service.get_quote(symbol, exchange) if is_live else svc.get_quote(symbol, exchange)
-                    except Exception as exc:
-                        if is_live:
-                            # Live fetch failed (creds missing/expired, INDmoney
-                            # unreachable) — fall back to replay for this tick
-                            # rather than dropping the subscription silently.
-                            logger.debug("live quote miss %s/%s: %s; falling back to replay", symbol, exchange, exc)
-                            try:
-                                quote = svc.get_quote(symbol, exchange)
-                                is_live = False
-                            except Exception as replay_exc:
-                                logger.debug("replay quote miss %s/%s: %s", symbol, exchange, replay_exc)
-                                continue
-                        else:
-                            logger.debug("replay quote miss %s/%s: %s", symbol, exchange, exc)
-                            continue
+                        result = client.get_quote(symbol, exchange)
+                        quote = result["data"]
+                        is_live = result["mode"] == "live"
+                    except StockSimulatorClientError as exc:
+                        logger.debug("simulator quote miss %s/%s: %s", symbol, exchange, exc)
+                        continue
 
                     ltp = float(quote.get("ltp") or 0)
                     if ltp <= 0:
@@ -210,7 +202,11 @@ class Stock_simulatorWebSocketAdapter(BaseBrokerWebSocketAdapter):
                 # `is_live` (which can flip to False on a live-fetch
                 # fallback and would otherwise reflect only the last
                 # subscription processed).
-                sleep_s = 1.0 if sim_mode_info["mode"] == "live" else svc.emit_interval_seconds()
+                if sim_mode_info.get("mode") == "live":
+                    sleep_s = 1.0
+                else:
+                    emit_ms = (sim_status.get("replay") or {}).get("clock", {}).get("emit_interval_ms", 1000)
+                    sleep_s = max(0.05, float(emit_ms) / 1000.0)
             except Exception:
                 logger.exception("stock_simulator replay stream tick failed")
                 sleep_s = 1.0
