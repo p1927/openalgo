@@ -9,51 +9,6 @@ from utils.logging import get_logger
 logger = get_logger(__name__)
 
 
-def _expiry_reference_date(api_key: str | None):
-    """Wall-clock today for live brokers; replay anchor date for stock_simulator."""
-    from datetime import date, datetime
-    import os
-
-    try:
-        from broker.stock_simulator.api._trade_path import hydrate_simulator_env_from_db
-
-        hydrate_simulator_env_from_db()
-    except Exception:
-        pass
-
-    def _replay_anchor() -> date | None:
-        replay = os.getenv("NSE_REPLAY_DATE", "2021-03-25").strip()[:10]
-        try:
-            return date.fromisoformat(replay)
-        except ValueError:
-            return None
-
-    if os.getenv("STOCK_SIMULATOR_MODE", "").strip().lower() == "replay":
-        anchor = _replay_anchor()
-        if anchor is not None:
-            return anchor
-
-    if api_key:
-        from database.auth_db import get_broker_name
-
-        if get_broker_name(api_key) == "stock_simulator":
-            anchor = _replay_anchor()
-            if anchor is not None:
-                return anchor
-
-    try:
-        from flask import has_request_context, session
-
-        if has_request_context() and session.get("broker") == "stock_simulator":
-            anchor = _replay_anchor()
-            if anchor is not None:
-                return anchor
-    except Exception:
-        pass
-
-    return datetime.now().date()
-
-
 def get_expiry_dates(
     symbol: str, exchange: str, instrumenttype: str, api_key: str = None
 ) -> tuple[bool, dict[str, Any], int]:
@@ -278,7 +233,9 @@ def get_expiry_dates(
                     )
                     return datetime.max
 
-        today = _expiry_reference_date(api_key)
+        from broker.stock_simulator.api.expiry_reference import expiry_reference_date
+
+        today = expiry_reference_date(api_key)
         live_expiry_dates = [
             d for d in filtered_expiry_dates if parse_expiry_date(d).date() >= today
         ]
