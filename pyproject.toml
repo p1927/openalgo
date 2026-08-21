@@ -1,7 +1,7 @@
 [project]
 requires-python = ">=3.12"
 name = "openalgoUI"
-version = "2.0.1.9"
+version = "2.0.2.0"
 description = "Broker-agnostic open-source trading automation"
 dependencies = [
   "aniso8601==9.0.1",
@@ -115,6 +115,7 @@ dependencies = [
   "python-socketio==5.16.3",
   "python-telegram-bot==22.8",
   "wars==0.1.4",
+  "watchdog==6.0.0",
   "pytz==2026.2",
   "PyYAML==6.0.3",
   "pyzmq==27.1.0",
@@ -152,7 +153,6 @@ dependencies = [
   "zmq==0.0.0",
   "opengreeks>=0.2.0",
   "openstatz==0.4.1",
-  "watchdog==6.0.0",
 ]
 
 [build-system]

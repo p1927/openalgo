@@ -77,9 +77,7 @@ build/
 out/
 
 # Frontend specific
-# frontend/dist/ is a local build artifact only on this fork -- run
-# `npm run build` in frontend/ to produce it. Not committed, and CI does
-# not auto-commit it back to main (unlike upstream marketcalls/openalgo).
+# frontend/dist/ is built by CI/CD pipeline
 frontend/dist/
 frontend/.cache/
 *.local
@@ -92,6 +90,7 @@ frontend/.cache/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+#frontend/dist
 
 # Windows NUL file
 nul

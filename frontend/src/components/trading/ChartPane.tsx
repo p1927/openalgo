@@ -11,6 +11,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { CHART_TYPE_GROUPS, CHART_TYPES, chartTypeIcon } from '@/lib/trading/chartTypes'
 import type { IntervalGroup } from '@/lib/trading/intervals'
+import { lotInfoText } from '@/lib/trading/legend'
 import {
   type CtxItem,
   type DrawSelection,
@@ -73,7 +74,15 @@ function PencilIcon({ className }: { className?: string }) {
 /** Three rising bars — the volume histogram in miniature. */
 function VolumeIcon({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" aria-hidden="true">
+    <svg
+      viewBox="0 0 24 24"
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.8}
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
       <path d="M5 20v-6M12 20V8M19 20v-9" />
     </svg>
   )
@@ -100,17 +109,6 @@ function ledClass(state: string): string {
     return 'bg-emerald-500 shadow-[0_0_6px] shadow-emerald-500/70'
   if (state === 'closed' || state === 'error' || state === 'auth failed') return 'bg-rose-500'
   return 'bg-amber-500'
-}
-
-function lotInfoText(v: SymbolView | null, qty: number): string {
-  if (!v) return ''
-  if (v.lots) {
-    const lots = Math.max(1, Math.floor(qty || 1))
-    let t = `${lots} × ${v.lotsize} = ${lots * v.lotsize} qty`
-    if (v.freezeQty > 1 && lots * v.lotsize > v.freezeQty) t += ` ⚠ freeze ${v.freezeQty}`
-    return t
-  }
-  return v.quoteOnly ? 'quote-only (no trading)' : ''
 }
 
 interface Props {
@@ -180,6 +178,7 @@ export function ChartPane({
   // drawing + indicator controls (additive; the trading controls are unchanged)
   const [indicators, setIndicators] = useState<{ id: string; name: string }[]>([])
   const [catalog, setCatalog] = useState<{ id: string; name: string; category: string }[]>([])
+  const [indicatorQuery, setIndicatorQuery] = useState('')
   const [grid, setGrid] = useState({ vertical: true, horizontal: true })
   const [fullscreen, setFullscreen] = useState(false)
   const [gridSub, setGridSub] = useState(false)
@@ -378,12 +377,21 @@ export function ChartPane({
   /** Portal target for menus: the pane itself in fullscreen, body otherwise. */
   const menuHost = fullscreen ? paneRef.current : null
 
-  const catalogGroups = catalog.reduce<Record<string, typeof catalog>>((acc, d) => {
-    const list = acc[d.category] ?? []
-    list.push(d)
-    acc[d.category] = list
-    return acc
-  }, {})
+  const indicatorFilter = indicatorQuery.trim().toLowerCase()
+  const catalogGroups = catalog
+    .filter(
+      (d) =>
+        indicatorFilter === '' ||
+        d.name.toLowerCase().includes(indicatorFilter) ||
+        d.id.includes(indicatorFilter),
+    )
+    .reduce<Record<string, typeof catalog>>((acc, d) => {
+      const list = acc[d.category] ?? []
+      list.push(d)
+      acc[d.category] = list
+      return acc
+    }, {})
+  const catalogMatches = Object.values(catalogGroups).reduce((n, l) => n + l.length, 0)
 
   // The product the toggle switches to; with two options that is "the other".
   const nextProduct = sym
@@ -455,7 +463,12 @@ export function ChartPane({
         {/* Chart type */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" className="h-8 shrink-0 gap-1" title={chartTypeDef.label}>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 shrink-0 gap-1"
+              title={chartTypeDef.label}
+            >
               <span className="h-4 w-4">{chartTypeIcon(chartTypeDef.iconKey)}</span>
               <ChevronDown className="h-3.5 w-3.5 opacity-60" />
             </Button>
@@ -496,7 +509,10 @@ export function ChartPane({
 
         {/* Quantity */}
         <div className="flex shrink-0 items-center gap-1">
-          <label className="whitespace-nowrap text-[11px] text-muted-foreground" htmlFor={`qty-${paneId}`}>
+          <label
+            className="whitespace-nowrap text-[11px] text-muted-foreground"
+            htmlFor={`qty-${paneId}`}
+          >
             {sym?.lots ? 'Lots' : 'Qty'}
           </label>
           <Input
@@ -523,7 +539,24 @@ export function ChartPane({
               <ChevronDown className="h-3.5 w-3.5 opacity-60" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent container={menuHost} align="start" className="max-h-80 w-64 overflow-y-auto">
+          <DropdownMenuContent
+            container={menuHost}
+            align="start"
+            className="max-h-80 w-64 overflow-y-auto"
+            onCloseAutoFocus={() => setIndicatorQuery('')}
+          >
+            <div className="sticky top-0 z-10 bg-popover px-2 pb-1 pt-1">
+              <input
+                type="text"
+                value={indicatorQuery}
+                onChange={(e) => setIndicatorQuery(e.target.value)}
+                // Radix moves focus to the first item on any printable key, which
+                // would otherwise steal every keystroke out of this box.
+                onKeyDown={(e) => e.stopPropagation()}
+                placeholder={`Search ${catalog.length} indicators`}
+                className="h-7 w-full rounded border bg-background px-2 text-xs outline-none focus:border-primary"
+              />
+            </div>
             {indicators.length > 0 && (
               <>
                 <div className="px-2 pb-1 pt-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
@@ -556,6 +589,11 @@ export function ChartPane({
                 ))}
                 <DropdownMenuSeparator />
               </>
+            )}
+            {catalogMatches === 0 && (
+              <div className="px-2 py-3 text-center text-xs text-muted-foreground">
+                No indicator matches that
+              </div>
             )}
             {Object.entries(catalogGroups).map(([cat, list]) => (
               <div key={cat}>
@@ -600,7 +638,9 @@ export function ChartPane({
             variant="ghost"
             size="icon"
             className="h-8 w-8"
-            onClick={() => terminalRef.current?.screenshot()}
+            onClick={() => {
+              void terminalRef.current?.screenshot()
+            }}
             title="Save chart screenshot"
             aria-label="Save chart screenshot"
           >
@@ -682,7 +722,11 @@ export function ChartPane({
             {/* View actions live here rather than in the toolbar — they are
                 occasional, and the row they used to occupy is chart height. */}
             {ctx.items.length > 0 && <div className="my-1 h-px bg-border" />}
-            <button type="button" className={ctxRow} onClick={() => run(() => terminalRef.current?.resetScale())}>
+            <button
+              type="button"
+              className={ctxRow}
+              onClick={() => run(() => terminalRef.current?.resetScale())}
+            >
               <RefreshCw className="h-3.5 w-3.5 opacity-70" />
               Reset chart view
             </button>

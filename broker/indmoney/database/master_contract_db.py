@@ -22,14 +22,14 @@ from utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-
 def _safe_socketio_emit(event: str, payload: dict) -> None:
     """Emit progress when Flask-SocketIO is initialized (CLI-safe no-op otherwise)."""
     try:
         if getattr(socketio, "server", None) is not None:
-            _safe_socketio_emit(event, payload)
+            socketio.emit(event, payload)
     except Exception as exc:
         logger.debug("socketio emit skipped: %s", exc)
+
 
 DATABASE_URL = os.getenv("DATABASE_URL")  # Replace with your database path
 
