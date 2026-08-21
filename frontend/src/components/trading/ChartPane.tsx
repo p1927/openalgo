@@ -1,6 +1,7 @@
 import { ChevronDown, RefreshCw, Search } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { simNowEpochSec, useSimulatorStatus } from '@/hooks/useSimulatorStatus'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,6 +23,7 @@ import {
   TradingTerminal,
 } from '@/lib/trading/terminal'
 import { cn } from '@/lib/utils'
+import { useBrokerStore } from '@/stores/brokerStore'
 import { useThemeStore } from '@/stores/themeStore'
 import { showToast } from '@/utils/toast'
 import { DrawingStyleBar } from './DrawingStyleBar'
@@ -257,6 +259,29 @@ export function ChartPane({
       terminalRef.current = null
     }
   }, [paneId, apiKey, wsUrl])
+
+  /* ── replayed feeds (e.g. stock_simulator) don't run on wall-clock time —
+   * point the terminal at the simulator's own clock so live candles and
+   * history requests land on the replayed time, not real "now". A ref (not
+   * state) carries the latest value so polling doesn't reinstall the getter
+   * on every tick; only the on/off switch needs a render. */
+  const { capabilities } = useBrokerStore()
+  const isSimulator = capabilities?.broker_name === 'stock_simulator'
+  const { clock } = useSimulatorStatus({ pollMs: 1000, enabled: isSimulator })
+  const simNowRef = useRef<number | null>(null)
+  simNowRef.current = simNowEpochSec(clock)
+
+  useEffect(() => {
+    if (!isSimulator) {
+      terminalRef.current?.setTimeSource(null)
+      return
+    }
+    terminalRef.current?.setTimeSource(() => simNowRef.current ?? Math.floor(Date.now() / 1000))
+    return () => terminalRef.current?.setTimeSource(null)
+    // Re-attaches whenever the terminal itself is recreated (same deps as
+    // the effect above that constructs it), not just when isSimulator flips.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSimulator, paneId, apiKey, wsUrl])
 
   /* ── follow the page-level drawing rail ───────────────────────────────── */
   useEffect(() => {

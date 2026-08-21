@@ -347,6 +347,24 @@ export class TradingTerminal {
 
   private ws: InstanceType<typeof OpenAlgoWsFeed> | null = null
   private rest: InstanceType<typeof OpenAlgoDataFeed> | null = null
+
+  /** Overrides "current time" (epoch seconds) for callers that aren't on
+   * real wall-clock time — e.g. a replayed/simulated feed. Unset by default,
+   * in which case `now()` is plain `nowSec()`. See setTimeSource(). */
+  private timeSource: (() => number) | null = null
+
+  /** Swap the terminal's notion of "now" for both live-tick timestamps and
+   * the initial history range, or pass null to go back to the real clock.
+   * Callers should feed a source that tracks their own data feed's clock
+   * (a broker whose ticks aren't real-time, e.g. a market replay). */
+  setTimeSource(source: (() => number) | null): void {
+    this.timeSource = source
+  }
+
+  private now(): number {
+    return this.timeSource ? this.timeSource() : nowSec()
+  }
+
   private trade: TradeFeedInstance | null = null
   private builder: CandleBuilder | null = null
   private offLtp: (() => void) | null = null
@@ -1493,7 +1511,7 @@ export class TradingTerminal {
         )
         const q = j.data || {}
         if (typeof q.ltp === 'number' && q.ltp > 0)
-          this.onTick({ symbol: this.sym.symbol, ltp: q.ltp, timeSec: nowSec() })
+          this.onTick({ symbol: this.sym.symbol, ltp: q.ltp, timeSec: this.now() })
         if (
           this.tradeBtns &&
           typeof q.bid === 'number' &&
@@ -1539,7 +1557,7 @@ export class TradingTerminal {
     if (this.position && this.posLine) this.posLine.setLeftLabel(this.posLabel())
     if (this.tradeBtns && !this.depthActive) this.tradeBtns.setMark(e.ltp)
     if (this.builder) {
-      const u = this.builder.onTick({ time: e.timeSec || nowSec(), price: e.ltp, ltq: e.ltq })
+      const u = this.builder.onTick({ time: e.timeSec || this.now(), price: e.ltp, ltq: e.ltq })
       if (u) {
         this.liveBucket = u.bar.time
         // Key the upsert on time rather than the builder's isNew flag, so a
@@ -1617,7 +1635,7 @@ export class TradingTerminal {
       async () => {
         try {
           if (this.sym && this.rest) {
-            const to = nowSec()
+            const to = this.now()
             const fresh = await this.rest.getBars({
               symbol: this.sym.symbol,
               exchange: this.sym.exchange,
@@ -1706,7 +1724,7 @@ export class TradingTerminal {
     this.lsSet('symbol', JSON.stringify({ symbol: this.sym.symbol, exchange: this.sym.exchange }))
 
     // history
-    const to = nowSec()
+    const to = this.now()
     this.lastLtp = null
     this.prevClose = null
     this.liveBucket = null

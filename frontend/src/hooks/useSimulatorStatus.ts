@@ -58,3 +58,12 @@ export function useSimulatorStatus(options: UseSimulatorStatusOptions = {}) {
 
   return { status, available, clock: status?.clock ?? null }
 }
+
+/** `clock.sim_now` (ISO, IST) as epoch seconds, for feeding TradingTerminal's
+ * setTimeSource() so replayed charts don't stamp candles with wall-clock
+ * time. Null when the simulator isn't reporting a clock. */
+export function simNowEpochSec(clock: SimulatorClock | null): number | null {
+  if (!clock?.sim_now) return null
+  const ms = Date.parse(clock.sim_now)
+  return Number.isFinite(ms) ? Math.floor(ms / 1000) : null
+}
