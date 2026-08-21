@@ -201,6 +201,17 @@ class Stock_simulatorWebSocketAdapter(BaseBrokerWebSocketAdapter):
                     mode_str = _MODE_LABEL.get(mode, "QUOTE")
                     topic = f"{exchange}_{symbol}_{mode_str}"
                     self.publish_market_data(topic, market_data)
+
+                # Push cadence scales with replay speed (capped at 4/sec) so
+                # a faster replay actually delivers ticks more often, not
+                # just bigger sim-time jumps per tick — irrelevant for
+                # genuine live passthrough, where "speed" doesn't apply.
+                # Uses the loop's overall configured mode, not the per-sub
+                # `is_live` (which can flip to False on a live-fetch
+                # fallback and would otherwise reflect only the last
+                # subscription processed).
+                sleep_s = 1.0 if sim_mode_info["mode"] == "live" else svc.emit_interval_seconds()
             except Exception:
                 logger.exception("stock_simulator replay stream tick failed")
-            time.sleep(1.0)
+                sleep_s = 1.0
+            time.sleep(sleep_s)
