@@ -156,10 +156,23 @@ function PageTitleUpdater() {
   return null
 }
 
+// `import.meta.env.BASE_URL` is a build-time constant ('/apps/openalgo/' for
+// a production build — see vite.config.ts) and can't tell us how THIS
+// document actually got served: Flask serves the same dist/ bundle at both
+// the bare origin (:5001/) and the gateway prefix (:8080/apps/openalgo/...),
+// unchanged per request. A basename hardcoded to the gateway prefix makes
+// BrowserRouter refuse to match any bare-origin path (blank page, "Router
+// basename ... is not able to match the URL" in the console). Only adopt the
+// prefix when the browser's own location actually carries it.
+function routerBasename(): string {
+  const base = import.meta.env.BASE_URL.replace(/\/$/, '')
+  return base && window.location.pathname.startsWith(base) ? base : ''
+}
+
 function App() {
   return (
     <Providers>
-      <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/$/, '')}>
+      <BrowserRouter basename={routerBasename()}>
         <PageTitleUpdater />
         <AuthSync>
           <Suspense fallback={<PageLoader />}>

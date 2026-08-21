@@ -153,6 +153,7 @@ dependencies = [
   "zmq==0.0.0",
   "opengreeks>=0.2.0",
   "openstatz==0.4.1",
+  "stockstats>=0.6.8",
 ]
 
 [build-system]
