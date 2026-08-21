@@ -7,18 +7,10 @@ import time
 import pandas as pd
 
 from database.symbol import SymToken, db_session, init_db
-from extensions import socketio
 from utils.logging import get_logger
+from utils.socketio_safe import safe_emit as _safe_socketio_emit
 
 logger = get_logger(__name__)
-
-
-def _safe_socketio_emit(event: str, payload: dict) -> None:
-    try:
-        if getattr(socketio, "server", None) is not None:
-            socketio.emit(event, payload)
-    except Exception as exc:
-        logger.debug("socketio emit skipped: %s", exc)
 
 
 def delete_symtoken_table() -> None:

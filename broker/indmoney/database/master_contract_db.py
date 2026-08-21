@@ -17,19 +17,10 @@ from sqlalchemy.orm import scoped_session, sessionmaker
 
 from database.auth_db import get_auth_token
 from database.engine_factory import create_db_engine
-from extensions import socketio  # Import SocketIO
 from utils.logging import get_logger
+from utils.socketio_safe import safe_emit as _safe_socketio_emit
 
 logger = get_logger(__name__)
-
-def _safe_socketio_emit(event: str, payload: dict) -> None:
-    """Emit progress when Flask-SocketIO is initialized (CLI-safe no-op otherwise)."""
-    try:
-        if getattr(socketio, "server", None) is not None:
-            socketio.emit(event, payload)
-    except Exception as exc:
-        logger.debug("socketio emit skipped: %s", exc)
-
 
 DATABASE_URL = os.getenv("DATABASE_URL")  # Replace with your database path
 
