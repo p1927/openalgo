@@ -73,9 +73,7 @@ def strategy_chart_data():
                 {"status": "error", "message": "underlying and exchange are required"}
             ), 400
         if not isinstance(legs, list) or len(legs) == 0:
-            return jsonify(
-                {"status": "error", "message": "At least one leg is required"}
-            ), 400
+            return jsonify({"status": "error", "message": "At least one leg is required"}), 400
 
         success, response, status_code = get_strategy_chart_data(
             underlying=underlying,
@@ -136,9 +134,7 @@ def multi_strike_oi_data():
                 {"status": "error", "message": "underlying and exchange are required"}
             ), 400
         if not isinstance(legs, list) or len(legs) == 0:
-            return jsonify(
-                {"status": "error", "message": "At least one leg is required"}
-            ), 400
+            return jsonify({"status": "error", "message": "At least one leg is required"}), 400
 
         success, response, status_code = get_multi_strike_oi_data(
             underlying=underlying,
@@ -220,6 +216,32 @@ def strategy_synthesize():
         except (TypeError, ValueError):
             lot_size = 1
 
+        synthesize_kwargs = {}
+        target_max_profit = data.get("target_max_profit")
+        target_max_loss = data.get("target_max_loss")
+        if target_max_profit is not None or target_max_loss is not None:
+            try:
+                if target_max_profit is not None:
+                    synthesize_kwargs["target_max_profit"] = float(target_max_profit)
+                if target_max_loss is not None:
+                    synthesize_kwargs["target_max_loss"] = float(target_max_loss)
+            except (TypeError, ValueError):
+                return jsonify(
+                    {
+                        "status": "error",
+                        "message": "target_max_profit and target_max_loss must be numbers",
+                    }
+                ), 400
+            # A rupee target only affects ranking if it's given real weight;
+            # the shape axis stays primary but yields room for it. Both
+            # halve so the split still sums close to 1 when a rupee target
+            # is in play.
+            synthesize_kwargs["rupee_weight"] = 0.25
+            synthesize_kwargs["shape_weight"] = 0.15
+            synthesize_kwargs["profit_weight"] = 0.20
+            synthesize_kwargs["loss_weight"] = 0.15
+            synthesize_kwargs["win_prob_weight"] = 0.25
+
         success, response, status_code = synthesize_from_option_chain(
             api_key=api_key,
             underlying=underlying,
@@ -228,6 +250,7 @@ def strategy_synthesize():
             target_points=target_points,
             max_legs=max_legs,
             lot_size=lot_size,
+            **synthesize_kwargs,
         )
         return jsonify(response), status_code
 

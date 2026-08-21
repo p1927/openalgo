@@ -12,6 +12,10 @@ export interface SynthesisRequest {
   target_points: [number, number][]
   max_legs: number
   lot_size?: number
+  /** Desired max profit in rupees, per lot. Optional — adds a rupee-closeness scoring axis. */
+  target_max_profit?: number
+  /** Desired max loss in rupees, per lot (a positive number — "don't lose more than this"). */
+  target_max_loss?: number
 }
 
 export interface SynthesizedLegResult {
@@ -49,6 +53,8 @@ export interface SynthesisResult {
   leg_count_penalty: number
   /** P(profit at expiry), 0..1 — 0.5 when the backend had no live spot/IV to estimate from. */
   win_probability: number
+  /** Closeness to the rupee max profit/loss target, 0..1 — null when no rupee target was set. */
+  rupee_score: number | null
   /** null means unlimited (a net-long-calls combo with unbounded upside). */
   max_profit: number | null
   /** null means unlimited (a net-short-calls combo with unbounded loss). */

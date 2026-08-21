@@ -65,6 +65,56 @@ def combo_payoff(prices: np.ndarray, legs: list[SynthesizedLeg], lot_size: int =
     return np.sum([leg_payoff(prices, leg, lot_size) for leg in legs], axis=0)
 
 
+def risk_grid(prices: np.ndarray, legs: list[SynthesizedLeg]) -> np.ndarray:
+    """
+    Builds the price grid `evaluate_risk` should sample a combo's payoff on
+    for max profit/loss, breakevens, and unbounded-detection — corrected
+    against whatever grid the caller happened to pass in (typically built
+    from a user-drawn price range, which has no reason to line up with the
+    combo's own strikes).
+
+    Three corrections over the raw `prices` grid:
+
+    - Inserts every leg's own strike exactly. Intrinsic value is piecewise
+      linear and only ever kinks *at* a leg's strike, so a combo's true max
+      profit/loss always occurs exactly at one of its own strikes (or at
+      the grid's edges) — never strictly between two sampled points. Only
+      sampling the caller's grid can miss that peak by up to half the grid
+      spacing — concretely, an ATM straddle's true max profit sits exactly
+      at its shared strike, which a coarse or misaligned grid can straddle
+      (sample on both sides of) without ever landing on it.
+    - Appends two points beyond the combo's highest strike, so the
+      right-edge unbounded check (see `evaluate_risk`) never samples its
+      slope mid-ramp. Intrinsic value is perfectly linear beyond the
+      highest strike involved in a combo; a spread whose short leg sits
+      past the caller's grid edge would otherwise still look unbounded
+      (the long leg alone is still climbing at that edge).
+    - Inserts price 0.0. A put's intrinsic value (`max(strike - S, 0)`)
+      keeps rising linearly all the way down to S=0 — unlike a call, it
+      never kinks flat below its own strike. So a long put's true max
+      profit (or a short put's true max loss) is realized exactly at S=0,
+      not at whatever the caller's grid happened to sample lowest. Unlike
+      the right edge, no "beyond" points are needed here — the underlying
+      floor at 0 means there's nothing past it to slope-check.
+    """
+    if not legs:
+        return prices
+    points = {float(p) for p in prices}
+    for leg in legs:
+        points.add(float(leg.strike))
+    points.add(0.0)
+    max_strike = max(leg.strike for leg in legs)
+    if len(prices) >= 2:
+        step = float(prices[-1] - prices[-2])
+    else:
+        step = 0.0
+    if step <= 0:
+        step = max(max_strike * 0.01, 1.0)
+    points.add(max_strike + step)
+    points.add(max_strike + 2 * step)
+    return np.array(sorted(points))
+
+
 def _edge_slope(prices: np.ndarray, payoff: np.ndarray) -> float:
     """
     Slope of the payoff's last two grid points. Intrinsic value only ever

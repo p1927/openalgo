@@ -47,7 +47,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .payoff import RiskProfile, SynthesizedLeg, combo_payoff, evaluate_risk
+from .payoff import RiskProfile, SynthesizedLeg, combo_payoff, evaluate_risk, risk_grid
 from .probability import win_probability
 
 
@@ -59,6 +59,9 @@ class ScoredCombo:
     profit_score: float  # 0..1, higher = larger absolute max profit
     loss_score: float  # 0..1, higher = smaller absolute max loss
     win_probability: float  # 0..1, P(profit at expiry); 0.5 (neutral) if spot/iv/years unknown
+    rupee_score: (
+        float | None
+    )  # 0..1, closeness to a user-set rupee profit/loss target; None if unset
     leg_count_penalty: float  # additive subtractor applied to the base score (>= 0)
     score: float  # final ranking score (base blend minus penalty)
 
@@ -139,6 +142,53 @@ def _loss_score(risk: RiskProfile, normalization: float) -> float:
     return max(0.0, min(1.0, 1.0 + risk.max_loss / normalization))
 
 
+def _rupee_score(
+    risk: RiskProfile,
+    target_max_profit: float | None,
+    target_max_loss: float | None,
+) -> float | None:
+    """
+    Closeness of a combo's actual max profit/loss (per lot — one lot per
+    leg, same convention as `RiskProfile.max_profit`/`max_loss`) to rupee
+    targets the user typed in directly, as opposed to inferring "enough
+    profit" from a chain-relative heuristic (see `_profit_score`).
+
+    Returns `None` when neither target is set, so callers can tell "the
+    user didn't ask for a rupee target" apart from "asked for one and
+    missed it" — the former should not affect ranking at all.
+
+    Each side that *is* set contributes independently, then the two are
+    averaged:
+
+    - Profit target is a floor ("I want to make at least this much"):
+      max_profit >= target scores 1.0 (unlimited profit always clears the
+      floor); short of it scales down linearly to 0 at zero profit.
+    - Loss target is a ceiling ("I don't want to lose more than this"):
+      |max_loss| <= target scores 1.0, tapering to 0 as the actual loss
+      grows to double the target; unlimited loss scores 0.
+    """
+    scores: list[float] = []
+    if target_max_profit is not None and target_max_profit > 0:
+        mp = risk.max_profit
+        if mp == math.inf:
+            scores.append(1.0)
+        elif math.isnan(mp) or mp <= 0:
+            scores.append(0.0)
+        else:
+            scores.append(max(0.0, min(1.0, mp / target_max_profit)))
+    if target_max_loss is not None and target_max_loss > 0:
+        ml = risk.max_loss
+        if ml == -math.inf:
+            scores.append(0.0)
+        else:
+            loss_abs = abs(min(0.0, ml))
+            ratio = loss_abs / target_max_loss
+            scores.append(max(0.0, min(1.0, 2.0 - ratio)))
+    if not scores:
+        return None
+    return sum(scores) / len(scores)
+
+
 def score_combo(
     prices: np.ndarray,
     target: np.ndarray,
@@ -153,6 +203,9 @@ def score_combo(
     spot: float | None = None,
     iv: float | None = None,
     years: float | None = None,
+    rupee_weight: float = 0.0,
+    target_max_profit: float | None = None,
+    target_max_loss: float | None = None,
 ) -> ScoredCombo:
     """
     Blend four axes into a base score, then subtract a leg-count penalty:
@@ -174,18 +227,37 @@ def score_combo(
     The final score is clamped at 0 so a long penalty against an
     otherwise-mediocre combo doesn't produce a negative ranking score
     (which would interact oddly with sort orders downstream).
+
+    `rupee_weight`/`target_max_profit`/`target_max_loss` add a fifth,
+    opt-in axis: closeness to a rupee profit/loss the user typed directly
+    (see `_rupee_score`), on top of — not instead of — the four shape/
+    profit/loss/win-prob axes above. Defaulted to inert (weight 0, no
+    targets) so existing callers are unaffected; a caller that wants rupee
+    targets to matter passes a nonzero `rupee_weight` and should reduce the
+    other weights so the total still reflects the intended priority split.
     """
     payoff = combo_payoff(prices, legs, lot_size)
-    risk = evaluate_risk(prices, payoff)
     shape = _shape_score(target, payoff)
+
+    # Risk (max profit/loss, breakevens, unboundedness) is evaluated on a
+    # grid extended to the combo's own strikes — see `risk_grid` — so a leg
+    # past the user-drawn price range doesn't get its boundedness judged
+    # from a slope sampled mid-ramp. Shape stays on the original `prices`/
+    # `target`/`payoff` because the target curve is only defined there.
+    risk_prices = risk_grid(prices, legs)
+    risk_payoff = payoff if risk_prices is prices else combo_payoff(risk_prices, legs, lot_size)
+    risk = evaluate_risk(risk_prices, risk_payoff)
+
     profit_s = _profit_score(risk, profit_normalization)
     loss_s = _loss_score(risk, profit_normalization)
     win_p = win_probability(prices, payoff, spot, iv, years)
+    rupee_s = _rupee_score(risk, target_max_profit, target_max_loss)
     base = (
         shape_weight * shape
         + profit_weight * profit_s
         + loss_weight * loss_s
         + win_prob_weight * win_p
+        + rupee_weight * (rupee_s if rupee_s is not None else 0.0)
     )
     penalty = max(0.0, leg_count_penalty) * max(0, len(legs) - 1)
     total = max(0.0, base - penalty)
@@ -196,6 +268,7 @@ def score_combo(
         profit_score=profit_s,
         loss_score=loss_s,
         win_probability=win_p,
+        rupee_score=rupee_s,
         leg_count_penalty=penalty,
         score=total,
     )

@@ -116,6 +116,12 @@ export default function DrawTargetPayoff({
 }: DrawTargetPayoffProps) {
   const [points, setPoints] = useState<DrawPoint[]>([])
   const [maxLegs, setMaxLegs] = useState(DEFAULT_MAX_LEGS)
+  // Optional rupee targets (per lot) — when set, the backend adds a
+  // closeness-to-these-numbers scoring axis on top of shape matching, so
+  // recommendations aren't just "the right shape" but "the right shape at
+  // roughly the right rupee size." Empty string = not set.
+  const [targetMaxProfit, setTargetMaxProfit] = useState('')
+  const [targetMaxLoss, setTargetMaxLoss] = useState('')
   const [loading, setLoading] = useState(false)
   const [results, setResults] = useState<SynthesisResult[] | null>(null)
   const [applyingIndex, setApplyingIndex] = useState<number | null>(null)
@@ -335,12 +341,16 @@ export default function DrawTargetPayoff({
     setLoading(true)
     setResults(null)
     try {
+      const parsedMaxProfit = Number(targetMaxProfit)
+      const parsedMaxLoss = Number(targetMaxLoss)
       const response = await strategySynthesisApi.synthesize({
         underlying,
         exchange,
         expiry_date: expiry,
         target_points: pointsToTargetPairs(points),
         max_legs: maxLegs,
+        ...(targetMaxProfit && parsedMaxProfit > 0 ? { target_max_profit: parsedMaxProfit } : {}),
+        ...(targetMaxLoss && parsedMaxLoss > 0 ? { target_max_loss: parsedMaxLoss } : {}),
       })
       if (response.status !== 'success' || !response.data) {
         showToast.error(response.message || 'Could not find matching legs for that shape')
@@ -565,6 +575,34 @@ export default function DrawTargetPayoff({
               setMaxLegs(Math.min(6, Math.max(1, Number(e.target.value) || DEFAULT_MAX_LEGS)))
             }
             className="h-8 w-20"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="synthesis-target-profit" className="text-xs">
+            Target max profit (Rs, per lot)
+          </Label>
+          <Input
+            id="synthesis-target-profit"
+            type="number"
+            min={0}
+            placeholder="Optional"
+            value={targetMaxProfit}
+            onChange={(e) => setTargetMaxProfit(e.target.value)}
+            className="h-8 w-36"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="synthesis-target-loss" className="text-xs">
+            Target max loss (Rs, per lot)
+          </Label>
+          <Input
+            id="synthesis-target-loss"
+            type="number"
+            min={0}
+            placeholder="Optional"
+            value={targetMaxLoss}
+            onChange={(e) => setTargetMaxLoss(e.target.value)}
+            className="h-8 w-36"
           />
         </div>
         <Button

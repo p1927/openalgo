@@ -1,0 +1,231 @@
+{
+  "underlying": "NIFTY",
+  "exchange": "NFO",
+  "expiry_date": "08-Sep-2026",
+  "underlying_ltp": 24233.15,
+  "years_to_expiry": 0.049528,
+  "snapshot_timestamp": "2026-08-21T13:38:00+05:30",
+  "source": "Trade monorepo recorded replay data: data/nse/historic_data/replay/hf-india-index-options-1m/options/NIFTY/2026-09-08.csv (LTP=1m close) and index/NIFTY.parquet (spot). implied_volatility derived from these real LTPs via services.option_greeks_service.calculate_chain_greeks (Black-76 solve), the same function openalgo's live option_chain_service uses.",
+  "chain": [
+    {
+      "strike": 23800.0,
+      "ce": {
+        "ltp": 588.1,
+        "implied_volatility": 15.33
+      },
+      "pe": {
+        "ltp": 44.2,
+        "implied_volatility": 8.71
+      }
+    },
+    {
+      "strike": 23850.0,
+      "ce": {
+        "ltp": 562.85,
+        "implied_volatility": 15.8
+      },
+      "pe": {
+        "ltp": 51.3,
+        "implied_volatility": 8.54
+      }
+    },
+    {
+      "strike": 23900.0,
+      "ce": {
+        "ltp": 490.0,
+        "implied_volatility": 13.75
+      },
+      "pe": {
+        "ltp": 60.25,
+        "implied_volatility": 8.42
+      }
+    },
+    {
+      "strike": 23950.0,
+      "ce": {
+        "ltp": 445.6,
+        "implied_volatility": 13.17
+      },
+      "pe": {
+        "ltp": 66.65,
+        "implied_volatility": 8.07
+      }
+    },
+    {
+      "strike": 24000.0,
+      "ce": {
+        "ltp": 406.0,
+        "implied_volatility": 12.79
+      },
+      "pe": {
+        "ltp": 80.4,
+        "implied_volatility": 8.06
+      }
+    },
+    {
+      "strike": 24050.0,
+      "ce": {
+        "ltp": 375.65,
+        "implied_volatility": 12.8
+      },
+      "pe": {
+        "ltp": 91.05,
+        "implied_volatility": 7.79
+      }
+    },
+    {
+      "strike": 24100.0,
+      "ce": {
+        "ltp": 331.65,
+        "implied_volatility": 12.1
+      },
+      "pe": {
+        "ltp": 108.0,
+        "implied_volatility": 7.74
+      }
+    },
+    {
+      "strike": 24150.0,
+      "ce": {
+        "ltp": 304.0,
+        "implied_volatility": 12.12
+      },
+      "pe": {
+        "ltp": 124.6,
+        "implied_volatility": 7.58
+      }
+    },
+    {
+      "strike": 24200.0,
+      "ce": {
+        "ltp": 267.2,
+        "implied_volatility": 11.64
+      },
+      "pe": {
+        "ltp": 141.85,
+        "implied_volatility": 7.34
+      }
+    },
+    {
+      "strike": 24250.0,
+      "ce": {
+        "ltp": 237.7,
+        "implied_volatility": 11.43
+      },
+      "pe": {
+        "ltp": 161.65,
+        "implied_volatility": 7.11
+      }
+    },
+    {
+      "strike": 24300.0,
+      "ce": {
+        "ltp": 207.6,
+        "implied_volatility": 11.12
+      },
+      "pe": {
+        "ltp": 182.5,
+        "implied_volatility": 6.81
+      }
+    },
+    {
+      "strike": 24350.0,
+      "ce": {
+        "ltp": 182.05,
+        "implied_volatility": 10.94
+      },
+      "pe": {
+        "ltp": 202.75,
+        "implied_volatility": 6.33
+      }
+    },
+    {
+      "strike": 24400.0,
+      "ce": {
+        "ltp": 157.0,
+        "implied_volatility": 10.7
+      },
+      "pe": {
+        "ltp": 228.0,
+        "implied_volatility": 5.91
+      }
+    },
+    {
+      "strike": 24450.0,
+      "ce": {
+        "ltp": 138.4,
+        "implied_volatility": 10.68
+      },
+      "pe": {
+        "ltp": 255.25,
+        "implied_volatility": 5.37
+      }
+    },
+    {
+      "strike": 24500.0,
+      "ce": {
+        "ltp": 117.2,
+        "implied_volatility": 10.45
+      },
+      "pe": {
+        "ltp": 294.05,
+        "implied_volatility": 5.29
+      }
+    },
+    {
+      "strike": 24550.0,
+      "ce": {
+        "ltp": 99.65,
+        "implied_volatility": 10.31
+      },
+      "pe": {
+        "ltp": 313.05,
+        "implied_volatility": 0
+      }
+    },
+    {
+      "strike": 24600.0,
+      "ce": {
+        "ltp": 83.6,
+        "implied_volatility": 10.15
+      },
+      "pe": {
+        "ltp": 360.0,
+        "implied_volatility": 0
+      }
+    },
+    {
+      "strike": 24650.0,
+      "ce": {
+        "ltp": 340.0,
+        "implied_volatility": 24.07
+      },
+      "pe": {
+        "ltp": 378.25,
+        "implied_volatility": 0
+      }
+    },
+    {
+      "strike": 24700.0,
+      "ce": {
+        "ltp": 59.05,
+        "implied_volatility": 10.0
+      },
+      "pe": {
+        "ltp": 423.0,
+        "implied_volatility": 0
+      }
+    },
+    {
+      "strike": 24750.0,
+      "ce": {
+        "ltp": 49.05,
+        "implied_volatility": 9.93
+      },
+      "pe": {
+        "ltp": 605.45,
+        "implied_volatility": 12.53
+      }
+    }
+  ]
+}

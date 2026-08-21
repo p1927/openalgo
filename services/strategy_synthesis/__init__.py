@@ -17,6 +17,7 @@ from .payoff import (
     combo_payoff,
     evaluate_risk,
     intrinsic_value,
+    risk_grid,
     risk_reward_ratio,
 )
 from .probability import win_probability
@@ -31,6 +32,7 @@ __all__ = [
     "combo_payoff",
     "evaluate_risk",
     "intrinsic_value",
+    "risk_grid",
     "risk_reward_ratio",
     "score_combo",
     "synthesize",

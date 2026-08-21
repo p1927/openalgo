@@ -47,6 +47,9 @@ class _ScoringContext:
     spot: float | None
     iv: float | None
     years: float | None
+    rupee_weight: float = 0.0
+    target_max_profit: float | None = None
+    target_max_loss: float | None = None
 
 
 def _score(
@@ -66,6 +69,9 @@ def _score(
         ctx.spot,
         ctx.iv,
         ctx.years,
+        ctx.rupee_weight,
+        ctx.target_max_profit,
+        ctx.target_max_loss,
     )
 
 
@@ -177,6 +183,9 @@ def synthesize(
     iv: float | None = None,
     years: float | None = None,
     grid_points: int = 120,
+    rupee_weight: float = 0.0,
+    target_max_profit: float | None = None,
+    target_max_loss: float | None = None,
 ) -> list[ScoredCombo]:
     """
     Finds the top `top_n` leg combinations (from `min_legs` to `max_legs`
@@ -231,6 +240,16 @@ def synthesize(
     score of 1.0; if omitted, it defaults to 5x the highest premium in
     the candidate pool, which puts ordinary multi-leg combos in the
     0.2..0.8 range and saturates naked long calls at 1.0.
+
+    `rupee_weight`/`target_max_profit`/`target_max_loss` add an opt-in
+    fifth axis: how close a combo's actual max profit/loss (per lot) lands
+    to rupee figures the user typed directly, rather than the chain-
+    relative `profit_normalization` heuristic. Both defaults are inert
+    (weight 0, no targets) — existing callers are unaffected. A caller
+    that wants this axis to matter passes a nonzero `rupee_weight` and
+    at least one of `target_max_profit`/`target_max_loss`, and should
+    lower the other weights so the split still sums the way it's meant to
+    (weights are not auto-normalized).
     """
     if not target_points or not candidates or max_legs < 1:
         return []
@@ -239,12 +258,18 @@ def synthesize(
         and 0 <= profit_weight <= 1
         and 0 <= loss_weight <= 1
         and 0 <= win_prob_weight <= 1
+        and 0 <= rupee_weight <= 1
     ):
         raise ValueError(
-            "shape_weight, profit_weight, loss_weight, win_prob_weight must all be in [0, 1]"
+            "shape_weight, profit_weight, loss_weight, win_prob_weight, rupee_weight "
+            "must all be in [0, 1]"
         )
     if leg_count_penalty < 0:
         raise ValueError("leg_count_penalty must be >= 0")
+    if target_max_profit is not None and target_max_profit <= 0:
+        raise ValueError("target_max_profit must be > 0 when provided")
+    if target_max_loss is not None and target_max_loss <= 0:
+        raise ValueError("target_max_loss must be > 0 when provided")
 
     xs = np.array([p[0] for p in target_points], dtype=float)
     ys = np.array([p[1] for p in target_points], dtype=float)
@@ -271,6 +296,9 @@ def synthesize(
         spot=spot,
         iv=iv,
         years=years,
+        rupee_weight=rupee_weight,
+        target_max_profit=target_max_profit,
+        target_max_loss=target_max_loss,
     )
 
     all_results: list[ScoredCombo] = []
