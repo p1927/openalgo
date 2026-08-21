@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Navbar } from '@/components/layout/Navbar'
 import { ChartPane } from '@/components/trading/ChartPane'
 import { DrawingRail } from '@/components/trading/DrawingRail'
+import { SimulatorModeBadge } from '@/components/trading/SimulatorModeBadge'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -10,45 +11,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { useSimulatorStatus } from '@/hooks/useSimulatorStatus'
 import type { DrawStats, TradingTerminal } from '@/lib/trading/terminal'
 import { cn } from '@/lib/utils'
 import { useBrokerStore } from '@/stores/brokerStore'
-
-/** LIVE / REPLAY badge for the stock_simulator broker, sharing the same
- * status hook OptionChain.tsx polls so the trade view never shows
- * unlabeled replay data as if it were live. */
-function SimulatorModeBadge() {
-  const { capabilities } = useBrokerStore()
-  const isSimulator = capabilities?.broker_name === 'stock_simulator'
-  const { status, available } = useSimulatorStatus({ pollMs: 5000, enabled: isSimulator })
-
-  if (!isSimulator || !available || !status) return null
-
-  if (status.mode === 'live') {
-    return (
-      <span className="flex items-center gap-1.5 rounded border border-emerald-600/40 bg-emerald-600/10 px-2 py-0.5 text-xs font-medium text-emerald-500">
-        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-        LIVE
-      </span>
-    )
-  }
-
-  const title =
-    status.reason === 'market_closed_fallback'
-      ? 'Market is closed — showing the most recently recorded day'
-      : 'Replay explicitly started from Sandbox'
-
-  return (
-    <span
-      title={title}
-      className="flex items-center gap-1.5 rounded border border-amber-600/40 bg-amber-600/10 px-2 py-0.5 text-xs font-medium text-amber-500"
-    >
-      <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-      REPLAY{status.replay_date ? ` — ${status.replay_date}` : ''}
-    </span>
-  )
-}
 
 const NO_DRAW: DrawStats = {
   count: 0,
@@ -279,43 +244,43 @@ export default function Trading() {
             />
           )}
           <div className="min-h-0 flex-1">
-          {noApiKey ? (
-            <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
-              <p className="text-sm text-muted-foreground">No API key found for charting.</p>
-              <a href="/apikey" className="text-sm font-medium text-primary underline">
-                Generate an API key
-              </a>
-            </div>
-          ) : apiKey && wsUrl ? (
-            <div
-              className="grid h-full min-h-0 gap-2 p-2"
-              style={{
-                gridTemplateColumns: layout.cols,
-                gridTemplateRows: layout.rows,
-                gridTemplateAreas: layout.areas,
-              }}
-            >
-              {layout.cells.map((cell, i) => (
-                <ChartPane
-                  key={`p${i}`}
-                  paneId={`p${i}`}
-                  apiKey={apiKey}
-                  wsUrl={wsUrl}
-                  style={{ gridArea: cell }}
-                  sharedTool={tool}
-                  sharedMagnet={magnet}
-                  onFocusPane={focusPane}
-                  onDrawStats={setStats}
-                  onToggleRail={() => setShowRail((v) => !v)}
-                  railVisible={showRail}
-                />
-              ))}
-            </div>
-          ) : (
-            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-              Loading charting terminal…
-            </div>
-          )}
+            {noApiKey ? (
+              <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
+                <p className="text-sm text-muted-foreground">No API key found for charting.</p>
+                <a href="/apikey" className="text-sm font-medium text-primary underline">
+                  Generate an API key
+                </a>
+              </div>
+            ) : apiKey && wsUrl ? (
+              <div
+                className="grid h-full min-h-0 gap-2 p-2"
+                style={{
+                  gridTemplateColumns: layout.cols,
+                  gridTemplateRows: layout.rows,
+                  gridTemplateAreas: layout.areas,
+                }}
+              >
+                {layout.cells.map((cell, i) => (
+                  <ChartPane
+                    key={`p${i}`}
+                    paneId={`p${i}`}
+                    apiKey={apiKey}
+                    wsUrl={wsUrl}
+                    style={{ gridArea: cell }}
+                    sharedTool={tool}
+                    sharedMagnet={magnet}
+                    onFocusPane={focusPane}
+                    onDrawStats={setStats}
+                    onToggleRail={() => setShowRail((v) => !v)}
+                    railVisible={showRail}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                Loading charting terminal…
+              </div>
+            )}
           </div>
         </main>
       </div>

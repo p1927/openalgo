@@ -79,6 +79,7 @@ import {
   mergeOptionChainMarketData,
   useOptionChainLive,
 } from '@/hooks/useOptionChainLive'
+import { usePlanState } from '@/hooks/usePlanState'
 import { useSupportedExchanges } from '@/hooks/useSupportedExchanges'
 import { yearsToExpiry } from '@/lib/optionGreeks'
 import {
@@ -262,24 +263,39 @@ export default function StrategyBuilder() {
   const [pendingIdentityChange, setPendingIdentityChange] = useState<PendingIdentityChange | null>(
     null
   )
-  const [loadedPlanName, setLoadedPlanName] = useState<string | null>(null)
-  const [planCharges, setPlanCharges] = useState<PositionsPanelProps['planCharges']>(null)
-  const [planNetPnl, setPlanNetPnl] = useState<PositionsPanelProps['planNetPnl']>(null)
-  const [isChargesLoading, setIsChargesLoading] = useState(false)
-  const [planImplementationSteps, setPlanImplementationSteps] = useState<PlanImplementationStep[]>(
-    []
-  )
-  const [planPrediction, setPlanPrediction] = useState<PlanPrediction | null>(null)
-  const [planRecommendedRationale, setPlanRecommendedRationale] = useState<string | null>(null)
-  const [planRecommendedTier, setPlanRecommendedTier] = useState<string | null>(null)
-  const [planRecommendedScore, setPlanRecommendedScore] = useState<number | null>(null)
-  const [planRankedStrategies, setPlanRankedStrategies] = useState<RankedStrategy[]>([])
-  const [planScenarios, setPlanScenarios] = useState<PlanScenario[]>([])
-  const [planPayoffOverTime, setPlanPayoffOverTime] = useState<PayoffOverTimeSample[]>([])
-  const [planKind, setPlanKind] = useState<'options' | 'stock'>('options')
-  const [stockOrder, setStockOrder] = useState<StockPlanOrder | null>(null)
+  const {
+    loadedPlanName,
+    setLoadedPlanName,
+    planCharges,
+    setPlanCharges,
+    planNetPnl,
+    setPlanNetPnl,
+    isChargesLoading,
+    setIsChargesLoading,
+    planImplementationSteps,
+    setPlanImplementationSteps,
+    planPrediction,
+    setPlanPrediction,
+    planRecommendedRationale,
+    setPlanRecommendedRationale,
+    planRecommendedTier,
+    setPlanRecommendedTier,
+    planRecommendedScore,
+    setPlanRecommendedScore,
+    planRankedStrategies,
+    setPlanRankedStrategies,
+    planScenarios,
+    setPlanScenarios,
+    planPayoffOverTime,
+    setPlanPayoffOverTime,
+    planKind,
+    setPlanKind,
+    stockOrder,
+    setStockOrder,
+    executePlanOpen,
+    setExecutePlanOpen,
+  } = usePlanState()
   const [strikeAdjustBaseline, setStrikeAdjustBaseline] = useState<StrategyLeg[] | null>(null)
-  const [executePlanOpen, setExecutePlanOpen] = useState(false)
   const [activeTab, setActiveTab] = useState('payoff')
   // Within the Payoff tab: 'adjust' shows the read-only chart + strike
   // sliders (fine-tuning an existing strategy); 'draw' shows the
@@ -1409,7 +1425,7 @@ export default function StrategyBuilder() {
       }
     }, 400)
     return () => clearTimeout(handle)
-  }, [legs, spotPrice, selectedExchange, connectedBroker])
+  }, [legs, spotPrice, selectedExchange, connectedBroker, setIsChargesLoading, setPlanCharges])
 
   // Backfill price for legs that were added without one (typically the far-
   // expiry leg of a calendar/diagonal — the loaded chain only covers the
@@ -1831,7 +1847,21 @@ export default function StrategyBuilder() {
     setPlanNetPnl(null)
     setPlanImplementationSteps([])
     setLoadedPlanName(null)
-  }, [])
+  }, [
+    setLoadedPlanName,
+    setPlanCharges,
+    setPlanImplementationSteps,
+    setPlanKind,
+    setPlanNetPnl,
+    setPlanPayoffOverTime,
+    setPlanPrediction,
+    setPlanRankedStrategies,
+    setPlanRecommendedRationale,
+    setPlanRecommendedScore,
+    setPlanRecommendedTier,
+    setPlanScenarios,
+    setStockOrder,
+  ])
   const resetLegs = useCallback(() => {
     setLegs([])
     setSpotShiftPct(0)
@@ -2028,7 +2058,24 @@ export default function StrategyBuilder() {
     return () => {
       cancelled = true
     }
-  }, [searchParams, setSearchParams])
+  }, [
+    searchParams,
+    setSearchParams,
+    setExecutePlanOpen,
+    setLoadedPlanName,
+    setPlanCharges,
+    setPlanImplementationSteps,
+    setPlanKind,
+    setPlanNetPnl,
+    setPlanPayoffOverTime,
+    setPlanPrediction,
+    setPlanRankedStrategies,
+    setPlanRecommendedRationale,
+    setPlanRecommendedScore,
+    setPlanRecommendedTier,
+    setPlanScenarios,
+    setStockOrder,
+  ])
 
   const saveOrUpdateStrategy = useCallback(
     async (name: string, watchlist: Watchlist) => {
