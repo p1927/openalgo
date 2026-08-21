@@ -67,6 +67,7 @@ from blueprints.analyzer import analyzer_bp  # Import the analyzer blueprint
 from blueprints.apikey import api_key_bp
 from blueprints.arbitrage import arbitrage_bp  # Import the Arbitrage blueprint
 from blueprints.auth import auth_bp
+from blueprints.broker_selection import broker_selection_bp  # Broker selection routes (fork-only)
 from blueprints.brlogin import brlogin_bp
 from blueprints.broker_credentials import (
     broker_credentials_bp,  # Import the broker credentials blueprint
@@ -323,6 +324,7 @@ def create_app():
 
     # Register other blueprints
     app.register_blueprint(auth_bp)
+    app.register_blueprint(broker_selection_bp)  # Register broker selection blueprint
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(orders_bp)
     app.register_blueprint(search_bp)

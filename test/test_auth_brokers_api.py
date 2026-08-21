@@ -11,6 +11,7 @@ from flask import Flask, session
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import blueprints.auth as auth_module  # noqa: E402
+import blueprints.broker_selection as broker_selection_module  # noqa: E402
 
 
 @pytest.fixture()
@@ -18,6 +19,7 @@ def app():
     application = Flask(__name__)
     application.secret_key = "test-secret"
     application.register_blueprint(auth_module.auth_bp)
+    application.register_blueprint(broker_selection_module.broker_selection_bp)
     return application
 
 
