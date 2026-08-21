@@ -52,6 +52,10 @@ from database.auth_db import get_auth_token_broker
 from database.symbol import SymToken, db_session
 from database.token_db import get_br_symbol
 from database.token_db_enhanced import fno_search_symbols
+from services.option_chain_ext import (
+    normalize_expiry_to_ddmmmyy,
+    try_extend_master_contract_and_retry,
+)
 from services.option_greeks_service import (
     calculate_chain_greeks,
     calculate_time_to_expiry,
@@ -79,32 +83,6 @@ def _reference_metadata(symbol: str, exchange: str) -> dict[str, str]:
         "underlying_symbol": symbol,
         "underlying_exchange": exchange,
     }
-
-
-def _normalize_expiry_to_ddmmmyy(raw: str | None) -> str | None:
-    """Coerce caller-supplied expiry strings to the ``DDMMMYY`` contract
-    that ``option_symbol_service.get_available_strikes`` (and the symtoken
-    table) actually use.
-
-    Accepts the shapes the rest of the API surface emits:
-        * ``DD-MMM-YY``     (e.g. ``25-AUG-26``)
-        * ``DD-MMM-YYYY``   (e.g. ``25-AUG-2026``)
-        * ``DDMMMYY``       (e.g. ``25AUG26``)
-        * ``YYYY-MM-DD``    (e.g. ``2026-08-25``)
-
-    Returns ``raw`` unchanged when no format matches — better to let the
-    downstream query raise a clear "no such expiry" error than to silently
-    mangle the input.
-    """
-    if not raw:
-        return raw
-    cleaned = raw.strip().upper()
-    for fmt in ("%d%b%y", "%d-%b-%y", "%d-%b-%Y", "%Y-%m-%d"):
-        try:
-            return datetime.strptime(cleaned, fmt).strftime("%d%b%y").upper()
-        except ValueError:
-            continue
-    return raw
 
 
 def get_strikes_with_labels(
@@ -386,7 +364,7 @@ def get_option_chain(
         # table both use. Without this, callers sending 25-AUG-2026 or
         # 25-AUG-26 got a misleading "No strikes found" because the LIKE
         # pattern and expiry filter both assumed the dashless form.
-        final_expiry = _normalize_expiry_to_ddmmmyy(embedded_expiry or expiry_date)
+        final_expiry = normalize_expiry_to_ddmmmyy(embedded_expiry or expiry_date)
 
         if not final_expiry:
             return False, {"status": "error", "message": "Expiry date is required."}, 400
@@ -524,68 +502,18 @@ def get_option_chain(
         available_strikes = get_available_strikes(base_symbol, final_expiry, "CE", options_exchange)
 
         if not available_strikes:
-            # --- BEGIN lazy MC extension (stock_simulator only) -------
-            # The symtoken table is missing rows for this (underlying,
-            # expiry) pair. For real brokers this is a real 404 — the
-            # broker doesn't have the contract. For stock_simulator
-            # the on-disk HF replay bundle may have the data even
-            # though the bulk MC build hasn't covered it yet (e.g. the
-            # user is mid-replay-arm and the async MC rebuild thread
-            # hasn't completed, or the bundle was updated after the
-            # last MC build). Try to extend the MC lazily from the
-            # bundle; if it works, the chain call can proceed.
-            #
-            # Modularity: the extension lives in
-            # ``openalgo/broker/stock_simulator/api/mc_extend.py`` so
-            # the chain service doesn't grow any simulator-specific
-            # knowledge beyond the active_broker check. To remove:
-            # delete mc_extend.py and this block.
-            # ------------------------------------------------------------
-            if active_broker == "stock_simulator":
-                try:
-                    from broker.stock_simulator.api._trade_path import (
-                        ensure_trade_integrations_path,
-                    )
-
-                    ensure_trade_integrations_path()
-
-                    from broker.stock_simulator.api.mc_extend import (
-                        extend_master_contract_for_expiry,
-                    )
-                    from trade_integrations.stock_simulator.replay import (
-                        get_replay_service,
-                    )
-
-                    replay_service = get_replay_service()
-                    extend_master_contract_for_expiry(
-                        base_symbol=base_symbol,
-                        expiry_date=final_expiry,
-                        options_exchange=options_exchange,
-                        replay_service=replay_service,
-                    )
-                    # The strikes cache in option_symbol_service holds
-                    # the empty result from the first call above.
-                    # Without invalidation, the retry would just read
-                    # the cached [] and the lazy extension would be
-                    # a no-op. ``clear_strikes_cache`` is the
-                    # documented entry point for "master contract was
-                    # updated" — see option_symbol_service.py:70.
-                    from services.option_symbol_service import (
-                        clear_strikes_cache,
-                    )
-
-                    clear_strikes_cache()
-                    available_strikes = get_available_strikes(
-                        base_symbol, final_expiry, "CE", options_exchange
-                    )
-                except Exception:
-                    logger.exception(
-                        "lazy MC extension failed for %s expiring %s; "
-                        "falling through to 404",
-                        base_symbol,
-                        final_expiry,
-                    )
-            # --- END lazy MC extension ---------------------------------
+            # stock_simulator's on-disk replay bundle may have the contract
+            # even though the bulk master-contract build hasn't covered it
+            # yet; see services/option_chain_ext.py for why (no-op for
+            # every other broker).
+            available_strikes = try_extend_master_contract_and_retry(
+                active_broker=active_broker,
+                base_symbol=base_symbol,
+                final_expiry=final_expiry,
+                options_exchange=options_exchange,
+                logger=logger,
+                get_available_strikes=get_available_strikes,
+            )
 
         if not available_strikes:
             return (

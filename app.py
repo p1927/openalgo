@@ -106,6 +106,7 @@ from blueprints.react_app import (  # Import React frontend blueprint
     serve_react_app,
 )
 from blueprints.sandbox import sandbox_bp  # Import the sandbox blueprint
+from blueprints.simulator_control import simulator_control_bp  # Import the simulator control blueprint (fork-only, kept out of sandbox.py)
 from blueprints.scalping import scalping_bp  # Import the Scalping terminal blueprint
 from blueprints.search import search_bp
 from blueprints.security import security_bp  # Import the security blueprint
@@ -347,6 +348,7 @@ def create_app():
     app.register_blueprint(whatsapp_bp)  # Register WhatsApp blueprint
     app.register_blueprint(security_bp)  # Register Security blueprint
     app.register_blueprint(sandbox_bp)  # Register Sandbox blueprint
+    app.register_blueprint(simulator_control_bp)  # Register simulator control blueprint
     app.register_blueprint(stock_simulator_control_bp)  # Register stock simulator replay control blueprint
     app.register_blueprint(playground_bp)  # Register API playground blueprint
     app.register_blueprint(logging_bp)  # Register Logging blueprint
