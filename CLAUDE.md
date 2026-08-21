@@ -279,14 +279,17 @@ including drafts for Discord or Telegram. Use plain text labels.
 
 ## Frontend build
 
-`frontend/dist/` is in `.gitignore` so contributors cannot commit half-built
-artifacts — but on `main` it **is tracked**. The `commit-dist` job in
-`.github/workflows/ci.yml` force-adds (`git add -f`) the freshly built dist back
-to `main` after every successful push.
+`frontend/dist/` is in `.gitignore`. This differs from upstream
+`marketcalls/openalgo`, where a `commit-dist` CI job force-adds
+(`git add -f`) the built dist back to `main` after every push so self-hosted
+deployments can upgrade via plain `git pull` with no Node.js. That job has
+been removed on this fork — **plain `git pull` no longer brings a working
+UI**. The Docker image is unaffected (its own multi-stage build always runs
+`npm run build` fresh, see `Dockerfile`), but any bare-metal/direct install
+off this fork's `main` needs an explicit frontend build.
 
-- **Production servers and backend-only contributors need no Node.js.** A plain `git pull` from `main` brings the latest UI. This is the canonical upgrade path.
-- **React developers** run `cd frontend && npm install && npm run build` (or `npm run dev`) locally, since the local `.gitignore` will not track their output. Build only — tests run in CI.
-- **Feature branches** CI has not built may carry stale or missing `dist/`. Build locally or rebase onto recent `main`.
+- **React developers** run `cd frontend && npm install && npm run build` (or `npm run dev`) locally — `dist/` is a local artifact, not pulled from git.
+- **Every checkout** (main, feature branches, after any pull/rebase) may have a stale or missing `dist/`. Build locally before relying on a prebuilt bundle.
 
 Config lives in `.env` (copy from `.sample.env`); `VALID_BROKERS` gates which
 broker plugins load, and plugins are discovered at startup only.

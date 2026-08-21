@@ -1,4 +1,12 @@
-import { BarChart3, BookOpen, FileText, MessageCircle, Search, Zap } from 'lucide-react'
+import {
+  BarChart3,
+  BookOpen,
+  FileText,
+  GraduationCap,
+  MessageCircle,
+  Search,
+  Zap,
+} from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import { Badge } from '@/components/ui/badge'
@@ -253,6 +261,17 @@ export default function Dashboard() {
       iconBg: 'bg-blue-500/20',
       iconColor: 'text-blue-500',
       borderColor: 'border-blue-500/20 hover:border-blue-500/40',
+    },
+    {
+      href: 'https://www.openalgo.in/learn',
+      label: 'OpenVarsity',
+      description: 'Learn algo trading with OpenAlgo',
+      icon: GraduationCap,
+      gradient: 'from-pink-500/10 to-pink-500/5 hover:from-pink-500/20 hover:to-pink-500/10',
+      iconBg: 'bg-pink-500/20',
+      iconColor: 'text-pink-500',
+      borderColor: 'border-pink-500/20 hover:border-pink-500/40',
+      external: true,
     },
     {
       href: '/logs/latency',
