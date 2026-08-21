@@ -169,7 +169,7 @@ class Stock_simulatorWebSocketAdapter(BaseBrokerWebSocketAdapter):
                         "ltp": ltp,
                         "ltt": tick_ms,
                         "simulated": not is_live,
-                        "mode": "live" if is_live else "replay",
+                        "sim_source": "live" if is_live else "replay",
                         "sim_ts": quote.get("sim_ts"),
                     }
                     if mode >= 2:

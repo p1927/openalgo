@@ -4,7 +4,7 @@ from typing import Any
 
 from database.auth_db import get_broker_name, verify_api_key
 from database.settings_db import get_analyze_mode
-from utils.broker_env_sync import get_configured_broker, get_token_sync_status, is_env_token_broker
+from utils.broker_env_sync import get_configured_broker, get_token_sync_status
 from utils.logging import get_logger
 
 logger = get_logger(__name__)

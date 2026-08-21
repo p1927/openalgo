@@ -9,6 +9,16 @@ import pytest
 
 @pytest.mark.unit
 def test_authenticate_broker_from_env(monkeypatch) -> None:
+    # resolve_broker_credentials checks ALPACA_API_KEY/ALPACA_API_SECRET
+    # before falling back to BROKER_API_KEY/BROKER_API_SECRET, and its
+    # _first_env() helper reads straight from the .env file as well as
+    # os.environ — monkeypatch.delenv alone can't shadow a real .env
+    # value, so also stub read_env_key_from_file for this test.
+    from utils import broker_env_sync
+
+    monkeypatch.setattr(broker_env_sync, "read_env_key_from_file", lambda _key: "")
+    monkeypatch.delenv("ALPACA_API_KEY", raising=False)
+    monkeypatch.delenv("ALPACA_API_SECRET", raising=False)
     monkeypatch.setenv("BROKER_API_KEY", "test-key")
     monkeypatch.setenv("BROKER_API_SECRET", "test-secret")
 
@@ -77,6 +87,9 @@ def test_trade_base_paper_when_analyze_on(_analyze) -> None:
 @pytest.mark.unit
 @patch("broker.alpaca.api.baseurl.get_analyze_mode", return_value=False)
 def test_trade_base_live_when_profile_live(_analyze, monkeypatch) -> None:
+    # trade_base() checks ALPACA_API_BASE as an override before consulting
+    # ALPACA_PROFILE — clear it so a real .env value can't shadow the test.
+    monkeypatch.delenv("ALPACA_API_BASE", raising=False)
     monkeypatch.setenv("ALPACA_PROFILE", "live")
     from broker.alpaca.api.baseurl import LIVE_HOST, trade_base
 

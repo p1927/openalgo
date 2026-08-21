@@ -264,15 +264,12 @@ def test_start_triggers_mc_rebuild_when_replay_date_changes(
 
     assert res.status_code == 200
     body = res.get_json()
-    assert body.get("master_contract_refresh") == "started"
+    # The spy is a no-op, so the rebuild thread finishes well inside
+    # the endpoint's 8s join timeout — the endpoint reports "completed",
+    # not "started". "started" is only reported when the thread is
+    # still alive after the join times out.
+    assert body.get("master_contract_refresh") == "completed"
     assert os.environ["NSE_REPLAY_DATE"] == "2024-04-15"
-    # The spy runs synchronously in the endpoint's daemon thread
-    # wrapper; no polling needed (the spy is a no-op, so the thread
-    # exits the moment it's called). Give it a brief moment anyway
-    # to land the append in case the scheduler interleaves.
-    import time
-
-    time.sleep(0.05)
     assert calls == [("stock_simulator",)]
 
 
@@ -333,11 +330,9 @@ def test_start_triggers_mc_rebuild_on_first_arm(
 
     assert res.status_code == 200
     body = res.get_json()
-    assert body.get("master_contract_refresh") == "started"
-    # Spy is a no-op, so the daemon thread exits immediately.
-    import time
-
-    time.sleep(0.05)
+    # Spy is a no-op, so the rebuild thread finishes inside the
+    # endpoint's 8s join timeout and reports "completed".
+    assert body.get("master_contract_refresh") == "completed"
     assert calls == [("stock_simulator",)]
 
 
