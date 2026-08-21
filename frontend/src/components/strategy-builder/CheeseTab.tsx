@@ -9,8 +9,8 @@ import {
 } from '@/components/ui/select'
 import { computeMispricing, type MispricingRow } from '@/lib/optionMispricing'
 import { cn } from '@/lib/utils'
-import { showToast } from '@/utils/toast'
 import type { OptionStrike } from '@/types/option-chain'
+import { showToast } from '@/utils/toast'
 import type { LegDraft, LegDraftType, ResolveLegContract } from './ManualLegBuilder'
 
 export interface CheeseTabProps {
@@ -44,6 +44,22 @@ const GRID_COLS = '12px minmax(0,1fr) minmax(0,1fr) 180px minmax(0,1fr) minmax(0
 function fmtPct(value: number): string {
   const pct = value * 100
   return `${pct > 0 ? '+' : ''}${pct.toFixed(1)}%`
+}
+
+interface ValueSplit {
+  intrinsic: number
+  extrinsic: number
+  extrinsicPct: number
+}
+
+/** Premium = intrinsic + extrinsic. Intrinsic is capped at the premium itself so a stale/crossed
+ *  quote (premium below parity) can't produce a negative extrinsic sliver. */
+function splitValue(premium: number, strike: number, spot: number, type: 'CE' | 'PE'): ValueSplit {
+  const rawIntrinsic = type === 'CE' ? Math.max(spot - strike, 0) : Math.max(strike - spot, 0)
+  const intrinsic = Math.min(rawIntrinsic, premium)
+  const extrinsic = Math.max(premium - intrinsic, 0)
+  const extrinsicPct = premium > 0 ? (extrinsic / premium) * 100 : 0
+  return { intrinsic, extrinsic, extrinsicPct }
 }
 
 /** Light background tint so a cell reads as buy/sell without competing with the strike's bar. */
@@ -94,6 +110,20 @@ export function CheeseTab({
     () => (rows ? spotLineRowIndex(rows, underlyingLtp) : null),
     [rows, underlyingLtp]
   )
+
+  /** Chain-wide ceiling for the gutter heat bars, so a single rich strike doesn't wash out the
+   *  rest of the strip — every row's bar height is relative to the richest extrinsic value seen. */
+  const maxExtrinsic = useMemo(() => {
+    if (!rows || underlyingLtp === null) return 0
+    let max = 0
+    for (const row of rows) {
+      if (row.ce)
+        max = Math.max(max, splitValue(row.ce.price, row.strike, underlyingLtp, 'CE').extrinsic)
+      if (row.pe)
+        max = Math.max(max, splitValue(row.pe.price, row.strike, underlyingLtp, 'PE').extrinsic)
+    }
+    return max
+  }, [rows, underlyingLtp])
 
   const spotChange =
     underlyingLtp !== null && underlyingPrevClose ? underlyingLtp - underlyingPrevClose : null
@@ -207,6 +237,20 @@ export function CheeseTab({
             const barWidth = (pressure: number) =>
               pressure > 0 ? MIN_BAR_PX + pressure * (MAX_BAR_PX - MIN_BAR_PX) : MIN_BAR_PX
 
+            const ceSplit =
+              row.ce && underlyingLtp !== null
+                ? splitValue(row.ce.price, row.strike, underlyingLtp, 'CE')
+                : null
+            const peSplit =
+              row.pe && underlyingLtp !== null
+                ? splitValue(row.pe.price, row.strike, underlyingLtp, 'PE')
+                : null
+            /** Gutter heat bar: height scales with this strike's extrinsic value relative to the
+             *  richest strike in the chain — a glance down the column shows where extrinsic value
+             *  is concentrated (typically near ATM, thinning out toward the wings). */
+            const heatHeightPct = (extrinsic: number | undefined) =>
+              maxExtrinsic > 0 && extrinsic ? Math.max(6, (extrinsic / maxExtrinsic) * 100) : 0
+
             return (
               <div
                 key={row.strike}
@@ -216,7 +260,17 @@ export function CheeseTab({
                   row.strike === atmStrike && 'bg-muted/20'
                 )}
               >
-                <div />
+                <div
+                  className="flex h-full items-end justify-center"
+                  title={
+                    ceSplit ? `Call extrinsic: ${formatCurrency(ceSplit.extrinsic)}` : undefined
+                  }
+                >
+                  <span
+                    className="w-1.5 rounded-full bg-amber-500/70"
+                    style={{ height: `${heatHeightPct(ceSplit?.extrinsic)}%` }}
+                  />
+                </div>
                 <div
                   className="flex h-full cursor-pointer flex-col items-start justify-center transition-opacity hover:opacity-70"
                   style={{ backgroundColor: cellBackground(row.ce?.score) }}
@@ -233,7 +287,8 @@ export function CheeseTab({
                   <div
                     className={cn(
                       'text-[11px] font-normal tabular-nums',
-                      row.ce?.classification === 'cheap' && 'text-emerald-700 dark:text-emerald-400',
+                      row.ce?.classification === 'cheap' &&
+                        'text-emerald-700 dark:text-emerald-400',
                       row.ce?.classification === 'rich' && 'text-rose-700 dark:text-rose-400'
                     )}
                   >
@@ -255,12 +310,35 @@ export function CheeseTab({
                       row.ce.classification === 'cheap' ? 'BUY' : 'SELL'
                     )
                   }
+                  title={
+                    ceSplit
+                      ? `Intrinsic ${formatCurrency(ceSplit.intrinsic)} · Extrinsic ${formatCurrency(ceSplit.extrinsic)}`
+                      : undefined
+                  }
                 >
                   <div className="text-[11px] font-normal tabular-nums">
                     {row.ce ? formatCurrency(row.ce.price) : '—'}
                     {addingKey?.startsWith(`${row.strike}-CE-`) && '…'}
                   </div>
-                  <div className="text-[9px] text-muted-foreground">0.00%</div>
+                  {ceSplit && row.ce ? (
+                    <div className="flex w-full max-w-[72px] flex-col gap-0.5">
+                      <span className="flex h-[3px] w-full overflow-hidden rounded-full bg-muted">
+                        <span
+                          className="h-full bg-slate-400 dark:bg-slate-500"
+                          style={{ width: `${100 - ceSplit.extrinsicPct}%` }}
+                        />
+                        <span
+                          className="h-full bg-amber-500"
+                          style={{ width: `${ceSplit.extrinsicPct}%` }}
+                        />
+                      </span>
+                      <span className="text-[9px] text-muted-foreground">
+                        Extr {formatCurrency(ceSplit.extrinsic)}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="text-[9px] text-muted-foreground">—</div>
+                  )}
                 </div>
 
                 <div className="relative flex items-center justify-center px-2">
@@ -377,12 +455,35 @@ export function CheeseTab({
                       row.pe.classification === 'cheap' ? 'BUY' : 'SELL'
                     )
                   }
+                  title={
+                    peSplit
+                      ? `Intrinsic ${formatCurrency(peSplit.intrinsic)} · Extrinsic ${formatCurrency(peSplit.extrinsic)}`
+                      : undefined
+                  }
                 >
                   <div className="text-[11px] font-normal tabular-nums">
                     {row.pe ? formatCurrency(row.pe.price) : '—'}
                     {addingKey?.startsWith(`${row.strike}-PE-`) && '…'}
                   </div>
-                  <div className="text-[9px] text-muted-foreground">0.00%</div>
+                  {peSplit && row.pe ? (
+                    <div className="flex w-full max-w-[72px] flex-col items-end gap-0.5">
+                      <span className="flex h-[3px] w-full overflow-hidden rounded-full bg-muted">
+                        <span
+                          className="h-full bg-amber-500"
+                          style={{ width: `${peSplit.extrinsicPct}%` }}
+                        />
+                        <span
+                          className="h-full bg-slate-400 dark:bg-slate-500"
+                          style={{ width: `${100 - peSplit.extrinsicPct}%` }}
+                        />
+                      </span>
+                      <span className="text-[9px] text-muted-foreground">
+                        Extr {formatCurrency(peSplit.extrinsic)}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="text-[9px] text-muted-foreground">—</div>
+                  )}
                 </div>
                 <div
                   className="flex h-full cursor-pointer flex-col items-end justify-center transition-opacity hover:opacity-70"
@@ -400,7 +501,8 @@ export function CheeseTab({
                   <div
                     className={cn(
                       'text-[11px] font-normal tabular-nums',
-                      row.pe?.classification === 'cheap' && 'text-emerald-700 dark:text-emerald-400',
+                      row.pe?.classification === 'cheap' &&
+                        'text-emerald-700 dark:text-emerald-400',
                       row.pe?.classification === 'rich' && 'text-rose-700 dark:text-rose-400'
                     )}
                   >
@@ -410,7 +512,17 @@ export function CheeseTab({
                     {row.pe?.fittedIv ? `${row.pe.fittedIv.toFixed(1)} IV` : '—'}
                   </div>
                 </div>
-                <div />
+                <div
+                  className="flex h-full items-end justify-center"
+                  title={
+                    peSplit ? `Put extrinsic: ${formatCurrency(peSplit.extrinsic)}` : undefined
+                  }
+                >
+                  <span
+                    className="w-1.5 rounded-full bg-amber-500/70"
+                    style={{ height: `${heatHeightPct(peSplit?.extrinsic)}%` }}
+                  />
+                </div>
               </div>
             )
           })}
@@ -464,6 +576,14 @@ export function CheeseTab({
           <span className="flex items-center gap-1.5">
             <span className="inline-block h-1.5 w-3 rounded-full bg-rose-500" />
             Rich
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-1.5 w-3 rounded-full bg-slate-400 dark:bg-slate-500" />
+            Intrinsic
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-1.5 w-3 rounded-full bg-amber-500" />
+            Extrinsic
           </span>
         </div>
         <div className="flex items-center gap-1.5 rounded-full border bg-background px-1.5 py-0.5">

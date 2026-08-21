@@ -11,6 +11,12 @@ Contract with the caller (``openalgo/blueprints/search.py::api_expiries``)
 
 * ``None``  -> "I have no opinion; please use the default SymToken path."
 * ``dict``  -> ``{"status": "success", "expiries": [...], "source": "simulator_replay"}``
+  or ``{"status": "success", ..., "source": "simulator_live"}``
+* ``dict``  -> ``{"status": "error", "expiries": [], "source": "simulator_live_unavailable"}``
+  when live mode's INDmoney fetch fails. This is intentionally NOT ``None``:
+  in live mode the symtoken default path is guaranteed stale (frozen at the
+  replay-anchored master-contract build), so we surface the failure instead
+  of silently falling back to wrong dates.
 
 Returning ``None`` instead of raising is the **removal property**: if this
 file is deleted, the import in ``search.py`` fails, the surrounding
@@ -102,16 +108,33 @@ def _is_master_contract_ready() -> bool:
     return bool(status.get("is_ready"))
 
 
-def _live_expiries_override(underlying: str) -> dict[str, Any] | None:
+_LIVE_EXPIRIES_UNAVAILABLE: dict[str, Any] = {
+    "status": "error",
+    "message": (
+        "Live expiries are unavailable right now (simulator is in live mode "
+        "and the INDmoney F&O master could not be reached). Not falling back "
+        "to the replay-anchored symtoken table — those dates would be stale."
+    ),
+    "expiries": [],
+    "source": "simulator_live_unavailable",
+}
+
+
+def _live_expiries_override(underlying: str) -> dict[str, Any]:
     """Live-mode counterpart of the replay-bundle path below.
 
     Queries INDmoney's real F&O scrip master (via
     ``LiveQuoteService.list_expiries``, which shares the recorder's
-    ``IndClient``/rate limiter) for ``underlying``'s live expiries, so
-    the dropdown has something to show even though the symtoken table
-    is only ever populated by the replay-anchored master-contract
-    build. Returns ``None`` (opt out to the — likely empty — symtoken
-    path) on any failure or an empty result, never raises.
+    ``IndClient``/rate limiter) for ``underlying``'s live expiries.
+
+    Deliberately does NOT return ``None`` on failure. ``None`` means
+    "opt out, use the default symtoken path" — but in live mode the
+    symtoken table is only ever refreshed by the replay-anchored
+    master-contract build, so it is guaranteed stale (wrong dates, not
+    just missing ones). Falling back to it here would silently show
+    the user expiries that don't exist any more. Instead, any failure
+    or empty result returns an explicit error payload so the caller
+    can surface "expiries unavailable" rather than wrong dates.
     """
     try:
         from broker.stock_simulator.api._trade_path import (
@@ -122,17 +145,28 @@ def _live_expiries_override(underlying: str) -> dict[str, Any] | None:
 
         from trade_integrations.stock_simulator.live_quotes import get_live_quote_service
     except Exception:
-        logger.exception("simulator expiry override: live import/setup failed; opting out")
-        return None
+        logger.exception(
+            "simulator expiry override: live import/setup failed; "
+            "returning unavailable (not falling back to stale symtoken table)"
+        )
+        return dict(_LIVE_EXPIRIES_UNAVAILABLE)
 
     try:
         expiries = get_live_quote_service().list_expiries(underlying)
     except Exception:
-        logger.exception("simulator expiry override: live expiry fetch failed; opting out")
-        return None
+        logger.exception(
+            "simulator expiry override: live expiry fetch failed; "
+            "returning unavailable (not falling back to stale symtoken table)"
+        )
+        return dict(_LIVE_EXPIRIES_UNAVAILABLE)
 
     if not expiries:
-        return None
+        logger.warning(
+            "simulator expiry override: live expiry fetch returned no expiries "
+            "for %s; returning unavailable (not falling back to stale symtoken table)",
+            underlying,
+        )
+        return dict(_LIVE_EXPIRIES_UNAVAILABLE)
 
     return {
         "status": "success",
@@ -156,11 +190,17 @@ def get_expiries_override(underlying: str, exchange: str) -> dict[str, Any] | No
         ``None`` when:
           * the replay service cannot be loaded (no env config, no
             bundle on disk, import error inside the simulator package),
-          * no replay date is armed AND the live INDmoney expiry fetch
-            also fails or returns nothing (see ``_live_expiries_override``),
           * the underlying does not map to a known bundle slug,
           * the master contract is not in a ready state (mid-download
             or error) — see ``_is_master_contract_ready``.
+          These are the cases where the default symtoken path is a
+          *reasonable* answer (possibly empty, but not wrong).
+        A dict with ``status: "error"`` and ``source:
+        "simulator_live_unavailable"`` when no replay date is armed
+        (live mode) and the live INDmoney expiry fetch fails or
+        returns nothing — deliberately NOT ``None``, because falling
+        through to the symtoken table here would show stale dates,
+        not just missing ones. See ``_live_expiries_override``.
         Otherwise a dict matching OpenAlgo's expiry endpoint response,
         augmented with ``source: "simulator_replay"`` or
         ``source: "simulator_live"`` so the frontend can label the
@@ -197,7 +237,9 @@ def get_expiries_override(underlying: str, exchange: str) -> dict[str, Any] | No
         # table is only ever refreshed by the replay-anchored
         # master-contract build, so it has no reliable answer for
         # today's live expiries — ask INDmoney directly instead of
-        # opting out into an empty/stale dropdown.
+        # opting out into a stale dropdown. Always returns a dict
+        # (success or explicit error), never None, so this never
+        # falls through to the stale symtoken path.
         return _live_expiries_override(underlying)
 
     try:

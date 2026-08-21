@@ -16,6 +16,7 @@ interface AuthSyncProps {
  */
 export function AuthSync({ children }: AuthSyncProps) {
   const [isChecking, setIsChecking] = useState(true)
+  const [syncError, setSyncError] = useState(false)
   const { setUser, setApiKey, logout } = useAuthStore()
   const { fetchCapabilities, clearCapabilities } = useBrokerStore()
   const { setActiveSessionCount } = useSessionStore()
@@ -71,7 +72,14 @@ export function AuthSync({ children }: AuthSyncProps) {
           clearCapabilities()
         }
       } catch (_error) {
-        // On error, don't change auth state - let existing state persist
+        // The session-status check itself failed (network error, backend
+        // mid-restart during a broker switch, etc). Rendering children
+        // against stale persisted auth/broker state here is what produces
+        // a silent blank screen - clear the stale state instead and show
+        // a retry so the user gets a signal rather than nothing.
+        logout()
+        clearCapabilities()
+        setSyncError(true)
       } finally {
         setIsChecking(false)
       }
@@ -85,6 +93,25 @@ export function AuthSync({ children }: AuthSyncProps) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    )
+  }
+
+  if (syncError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Could not verify your session. Please log in again.
+          </p>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="text-sm underline text-primary"
+          >
+            Retry
+          </button>
+        </div>
       </div>
     )
   }
