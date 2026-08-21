@@ -42,13 +42,18 @@ import { showToast } from '@/utils/toast'
 
 // FNO_EXCHANGES and DEFAULT_UNDERLYINGS are now provided by useSupportedExchanges() hook
 
+// Exchanges revise these periodically (SEBI's contract-size revisions) —
+// this table is a client-side placeholder used before the real per-symbol
+// lot size loads from the broker's master contract; it can silently drift
+// stale otherwise. Mirrors flow_executor_service.py's _FALLBACK_LOT_SIZES,
+// which carries the same caveat — keep both in sync on a revision.
 const LOT_SIZE_DEFAULTS: Record<string, number> = {
   NIFTY: 65,
   BANKNIFTY: 30,
   FINNIFTY: 60,
   MIDCPNIFTY: 120,
   NIFTYNXT50: 25,
-  SENSEX: 10,
+  SENSEX: 20,
   BANKEX: 15,
 }
 
