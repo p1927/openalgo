@@ -147,15 +147,19 @@ function calculateTotals(chain: OptionStrike[]): {
   return { ceVolume, peVolume, ceOi, peOi }
 }
 
-function getMaxValue(chain: OptionStrike[], dataSource: BarDataSource): number {
-  let maxVal = 0
+function getMaxValues(
+  chain: OptionStrike[],
+  dataSource: BarDataSource
+): { ceMax: number; peMax: number } {
+  let ceMax = 0
+  let peMax = 0
   chain.forEach((strike) => {
     const ceVal = dataSource === 'oi' ? strike.ce?.oi : strike.ce?.volume
     const peVal = dataSource === 'oi' ? strike.pe?.oi : strike.pe?.volume
-    if (ceVal && ceVal > maxVal) maxVal = ceVal
-    if (peVal && peVal > maxVal) maxVal = peVal
+    if (ceVal && ceVal > ceMax) ceMax = ceVal
+    if (peVal && peVal > peMax) peMax = peVal
   })
-  return maxVal || 1
+  return { ceMax: ceMax || 1, peMax: peMax || 1 }
 }
 
 interface PlaceOrderParams {
@@ -169,7 +173,8 @@ interface PlaceOrderParams {
 interface OptionChainRowProps {
   strike: OptionStrike
   previousStrike: OptionStrike | undefined
-  maxBarValue: number
+  maxCeBarValue: number
+  maxPeBarValue: number
   visibleCeColumns: ColumnKey[]
   visiblePeColumns: ColumnKey[]
   barDataSource: BarDataSource
@@ -182,7 +187,8 @@ interface OptionChainRowProps {
 const OptionChainRow = React.memo(function OptionChainRow({
   strike,
   previousStrike,
-  maxBarValue,
+  maxCeBarValue,
+  maxPeBarValue,
   visibleCeColumns,
   visiblePeColumns,
   barDataSource,
@@ -226,8 +232,8 @@ const OptionChainRow = React.memo(function OptionChainRow({
   // Bar values based on data source
   const ceBarValue = barDataSource === 'oi' ? ce?.oi : ce?.volume
   const peBarValue = barDataSource === 'oi' ? pe?.oi : pe?.volume
-  const ceBarPercent = ceBarValue ? Math.min((ceBarValue / maxBarValue) * 100, 100) : 0
-  const peBarPercent = peBarValue ? Math.min((peBarValue / maxBarValue) * 100, 100) : 0
+  const ceBarPercent = ceBarValue ? Math.min((ceBarValue / maxCeBarValue) * 100, 100) : 0
+  const peBarPercent = peBarValue ? Math.min((peBarValue / maxPeBarValue) * 100, 100) : 0
 
   // Bar styles
   const ceBarClass =
@@ -767,8 +773,8 @@ export default function OptionChain() {
       data?.chain ? calculateTotals(data.chain) : { ceVolume: 0, peVolume: 0, ceOi: 0, peOi: 0 },
     [data?.chain]
   )
-  const maxBarValue = useMemo(
-    () => (data?.chain ? getMaxValue(data.chain, barDataSource) : 1),
+  const { ceMax: maxCeBarValue, peMax: maxPeBarValue } = useMemo(
+    () => (data?.chain ? getMaxValues(data.chain, barDataSource) : { ceMax: 1, peMax: 1 }),
     [data?.chain, barDataSource]
   )
 
@@ -1054,7 +1060,8 @@ export default function OptionChain() {
                         key={strike.strike}
                         strike={strike}
                         previousStrike={previousDataRef.current.get(strike.strike)}
-                        maxBarValue={maxBarValue}
+                        maxCeBarValue={maxCeBarValue}
+                        maxPeBarValue={maxPeBarValue}
                         visibleCeColumns={visibleCeColumns}
                         visiblePeColumns={visiblePeColumns}
                         barDataSource={barDataSource}

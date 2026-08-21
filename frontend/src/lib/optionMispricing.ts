@@ -170,7 +170,14 @@ function scoreLeg(
   const edgePct = edge / fairValue
   const liquid = isTwoSided(leg)
   const halfSpread = liquid ? (leg.ask - leg.bid) / 2 : 0
-  const noiseFloor = Math.max(halfSpread, leg.tick_size || 0)
+  // Some brokers/feeds report a `tick_size` that isn't actually a price
+  // increment (e.g. IndMoney has been observed sending values like 5 or 500
+  // for instruments that trade in 0.05 ticks). Trusting it unbounded as the
+  // noise floor would swallow every real edge for such feeds, so its
+  // contribution is capped relative to the option's own fair value rather
+  // than reported verbatim.
+  const tickFloor = Math.min(leg.tick_size || 0, fairValue * 0.02)
+  const noiseFloor = Math.max(halfSpread, tickFloor)
   const netEdge = Math.abs(edge) - noiseFloor
   const netEdgePct = netEdge > 0 ? (netEdge / fairValue) * Math.sign(edge) : 0
   const score = netEdge <= 0 ? 0 : clamp(netEdgePct / COLOR_SATURATION_PCT, -1, 1)

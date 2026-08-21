@@ -324,11 +324,11 @@ export function CheeseTab({
                     <div className="flex w-full max-w-[72px] flex-col gap-0.5">
                       <span className="flex h-[3px] w-full overflow-hidden rounded-full bg-muted">
                         <span
-                          className="h-full bg-slate-400 dark:bg-slate-500"
+                          className="h-full bg-emerald-500"
                           style={{ width: `${100 - ceSplit.extrinsicPct}%` }}
                         />
                         <span
-                          className="h-full bg-amber-500"
+                          className="h-full bg-rose-500"
                           style={{ width: `${ceSplit.extrinsicPct}%` }}
                         />
                       </span>
@@ -387,15 +387,20 @@ export function CheeseTab({
 
                   <div className="flex flex-col items-center gap-1">
                     <span className="text-[12px] font-semibold tabular-nums">{row.strike}</span>
-                    <span className="flex h-1 w-[90px] items-center justify-center gap-0.5">
-                      <span
-                        className="h-1 rounded-full bg-rose-500"
-                        style={{ width: barWidth(sellPressure) }}
-                      />
-                      <span
-                        className="h-1 rounded-full bg-emerald-500"
-                        style={{ width: barWidth(buyPressure) }}
-                      />
+                    <span className="flex h-1 w-[90px] items-center">
+                      <span className="flex h-1 flex-1 justify-end">
+                        <span
+                          className="h-1 rounded-full bg-rose-500"
+                          style={{ width: barWidth(sellPressure) }}
+                        />
+                      </span>
+                      <span className="h-1 w-1" />
+                      <span className="flex h-1 flex-1 justify-start">
+                        <span
+                          className="h-1 rounded-full bg-emerald-500"
+                          style={{ width: barWidth(buyPressure) }}
+                        />
+                      </span>
                     </span>
                   </div>
 
@@ -469,11 +474,11 @@ export function CheeseTab({
                     <div className="flex w-full max-w-[72px] flex-col items-end gap-0.5">
                       <span className="flex h-[3px] w-full overflow-hidden rounded-full bg-muted">
                         <span
-                          className="h-full bg-amber-500"
+                          className="h-full bg-rose-500"
                           style={{ width: `${peSplit.extrinsicPct}%` }}
                         />
                         <span
-                          className="h-full bg-slate-400 dark:bg-slate-500"
+                          className="h-full bg-emerald-500"
                           style={{ width: `${100 - peSplit.extrinsicPct}%` }}
                         />
                       </span>
@@ -534,14 +539,8 @@ export function CheeseTab({
               className="pointer-events-none absolute inset-x-0 z-10 flex flex-col items-center justify-center"
               style={{ top: spotRowIndex * ROW_HEIGHT, transform: 'translateY(-8px)' }}
             >
-              <div
-                className="absolute inset-x-0 h-px"
-                style={{
-                  background:
-                    'linear-gradient(90deg, transparent 0%, hsl(var(--muted-foreground)) 40%, hsl(var(--muted-foreground)) 60%, transparent 100%)',
-                }}
-              />
-              <div className="relative z-10 flex min-w-[150px] items-center justify-center whitespace-nowrap rounded-full bg-gray-500 px-3 py-0.5 text-white shadow dark:bg-gray-600">
+              <div className="absolute inset-x-0 h-px bg-muted-foreground/50" />
+              <div className="relative z-10 flex min-w-[150px] items-center justify-center whitespace-nowrap rounded-full border border-white/20 bg-zinc-800 px-3 py-0.5 text-white shadow">
                 <div className="flex items-center gap-1.5">
                   <span className="text-[10px] font-normal">{formatCurrency(underlyingLtp)}</span>
                   {spotChange !== null && spotChangePct !== null && (
@@ -550,7 +549,7 @@ export function CheeseTab({
                       <span
                         className={cn(
                           'text-[10px] font-normal',
-                          spotChange >= 0 ? 'text-emerald-200' : 'text-rose-200'
+                          spotChange >= 0 ? 'text-emerald-500' : 'text-rose-500'
                         )}
                       >
                         {spotChange >= 0 ? '+' : ''}
@@ -578,11 +577,11 @@ export function CheeseTab({
             Rich
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="inline-block h-1.5 w-3 rounded-full bg-slate-400 dark:bg-slate-500" />
+            <span className="inline-block h-1.5 w-3 rounded-full bg-emerald-500" />
             Intrinsic
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="inline-block h-1.5 w-3 rounded-full bg-amber-500" />
+            <span className="inline-block h-1.5 w-3 rounded-full bg-rose-500" />
             Extrinsic
           </span>
         </div>
