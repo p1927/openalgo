@@ -80,6 +80,7 @@ import {
   useOptionChainLive,
 } from '@/hooks/useOptionChainLive'
 import { usePlanState } from '@/hooks/usePlanState'
+import { cloneLegs, useStrikeAdjustment } from '@/hooks/useStrikeAdjustment'
 import { useSupportedExchanges } from '@/hooks/useSupportedExchanges'
 import { yearsToExpiry } from '@/lib/optionGreeks'
 import {
@@ -140,44 +141,6 @@ interface PendingIdentityChange {
 interface LiveOptionContract {
   chain: ListedOptionChainResponse
   contract: NonNullable<ListedOptionChainResponse['chain'][number]['ce']>
-}
-
-function cloneLegs(legs: StrategyLeg[]): StrategyLeg[] {
-  return legs.map((l) => ({ ...l }))
-}
-
-/**
- * Nearest listed strike to a dragged/snapped price, not an exact match.
- *
- * This used to require an exact hit (`Math.abs(s.strike - strike) < 0.01`),
- * which silently dropped the update whenever it didn't land on a real row —
- * and it very often didn't: `strikeStep` (below) is a single global value
- * derived from the *tightest* gap anywhere in the chain, but many index
- * option chains widen their strike interval away from spot (e.g. 50pt near
- * ATM, 100-200pt further out). Snapping a chart-drag to that global step
- * then lands on a price no row actually has for anything but the tightest
- * region, and the leg just doesn't move — which reads as "dragging is
- * broken" even though the line itself moved fine. Finding the closest real
- * row instead means every drag lands on a tradable strike; `maxDistance`
- * only guards against snapping across a genuine gap in the loaded chain
- * (e.g. dragging past its edge) to some arbitrarily distant strike.
- */
-function findChainRow(
-  chain: ListedOptionChainResponse['chain'] | null | undefined,
-  strike: number,
-  maxDistance = Infinity
-) {
-  if (!chain || chain.length === 0) return undefined
-  let closest: ListedOptionChainResponse['chain'][number] | undefined
-  let closestDistance = Infinity
-  for (const row of chain) {
-    const distance = Math.abs(row.strike - strike)
-    if (distance < closestDistance) {
-      closestDistance = distance
-      closest = row
-    }
-  }
-  return closest && closestDistance <= maxDistance ? closest : undefined
 }
 
 /**
@@ -295,7 +258,6 @@ export default function StrategyBuilder() {
     executePlanOpen,
     setExecutePlanOpen,
   } = usePlanState()
-  const [strikeAdjustBaseline, setStrikeAdjustBaseline] = useState<StrategyLeg[] | null>(null)
   const [activeTab, setActiveTab] = useState('payoff')
   // Within the Payoff tab: 'adjust' shows the read-only chart + strike
   // sliders (fine-tuning an existing strategy); 'draw' shows the
@@ -897,6 +859,13 @@ export default function StrategyBuilder() {
     }
     return Number.isFinite(minDiff) ? minDiff : 50
   }, [activeChain])
+
+  const {
+    setStrikeAdjustBaseline,
+    handleStrikeFromChart,
+    resetStrikesToBaseline,
+    canResetStrikes,
+  } = useStrikeAdjustment({ legs, setLegs, chainData, strikeStep })
 
   const resolveOptionChain = useCallback<ResolveOptionChain>(
     async (expiry) => {
@@ -1642,6 +1611,7 @@ export default function StrategyBuilder() {
       selectedExchange,
       requestIdentity.exchange,
       rememberSupplementalChain,
+      setStrikeAdjustBaseline,
     ]
   )
 
@@ -1777,58 +1747,6 @@ export default function StrategyBuilder() {
     )
     setEditLegId(null)
   }, [])
-  const handleStrikeFromChart = useCallback(
-    (legId: string, strike: number) => {
-      setLegs((prev) =>
-        prev.map((l) => {
-          if (l.id !== legId || l.segment !== 'OPTION' || !l.optionType) return l
-          // A drag can land a few rupees off whatever real strikes the chain
-          // actually lists (see findChainRow's docstring) — snap to the
-          // nearest one within a few steps rather than requiring an exact
-          // hit, or requiring a hit at all along a widened part of the chain.
-          const row = findChainRow(chainData?.chain, strike, strikeStep * 3)
-          const side = l.optionType === 'CE' ? row?.ce : row?.pe
-          // No listed contract near this strike (chain not loaded / dragged
-          // past its edge) — skip rather than fabricate a symbol the backend
-          // can't fill.
-          if (!row || !side?.symbol) return l
-          return {
-            ...l,
-            // Use the resolved row's own strike, not the raw dragged value —
-            // `symbol` below is *for* that strike, and letting them diverge
-            // silently mismatches the leg's payoff math against what it
-            // would actually trade.
-            strike: row.strike,
-            expiry: normalizeExpiryCode(l.expiry),
-            symbol: side.symbol,
-            price: side.ltp && side.ltp > 0 ? side.ltp : l.price,
-            lotSize: side.lotsize ?? l.lotSize,
-          }
-        })
-      )
-    },
-    [chainData, strikeStep]
-  )
-
-  const resetStrikesToBaseline = useCallback(() => {
-    if (!strikeAdjustBaseline?.length) return
-    setLegs(cloneLegs(strikeAdjustBaseline))
-    showToast.success('Strikes reset to loaded plan')
-  }, [strikeAdjustBaseline])
-
-  const canResetStrikes = useMemo(() => {
-    if (!strikeAdjustBaseline?.length) return false
-    return strikeAdjustBaseline.some((b) => {
-      const cur = legs.find((l) => l.id === b.id)
-      return (
-        !cur ||
-        cur.strike !== b.strike ||
-        cur.price !== b.price ||
-        cur.symbol !== b.symbol ||
-        cur.optionType !== b.optionType
-      )
-    })
-  }, [legs, strikeAdjustBaseline])
   const toggleAll = useCallback((active: boolean) => {
     setLegs((prev) => prev.map((l) => ({ ...l, active })))
   }, [])
@@ -1861,6 +1779,7 @@ export default function StrategyBuilder() {
     setPlanRecommendedTier,
     setPlanScenarios,
     setStockOrder,
+    setStrikeAdjustBaseline,
   ])
   const resetLegs = useCallback(() => {
     setLegs([])
@@ -2075,6 +1994,7 @@ export default function StrategyBuilder() {
     setPlanRecommendedTier,
     setPlanScenarios,
     setStockOrder,
+    setStrikeAdjustBaseline,
   ])
 
   const saveOrUpdateStrategy = useCallback(

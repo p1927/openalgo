@@ -109,6 +109,23 @@ def get_underlying_ltp(
         return False, None, str(e)
 
 
+def resolve_explicit_leg_symbol(
+    leg_data: dict[str, Any], common_data: dict[str, Any]
+) -> tuple[str, str] | None:
+    """Return (symbol, exchange) when a leg specifies an explicit option
+    symbol instead of an offset-based strike lookup, else None.
+
+    A leg with both `symbol` and `offset` set still resolves via offset —
+    `offset` signals "figure out the symbol for me", so an explicit
+    `symbol` alongside it is treated as stale rather than authoritative.
+    """
+    explicit_symbol = str(leg_data.get("symbol") or "").strip().upper()
+    if not explicit_symbol or leg_data.get("offset"):
+        return None
+    exchange = str(leg_data.get("exchange") or common_data.get("exchange") or "NFO").upper()
+    return explicit_symbol, exchange
+
+
 def emit_analyzer_error(request_data: dict[str, Any], error_message: str) -> dict[str, Any]:
     """Helper function to emit analyzer error events via the event bus."""
     error_response = {"mode": "analyze", "status": "error", "message": error_message}
@@ -221,14 +238,11 @@ def resolve_and_place_leg(
     """
     try:
         # Step 1: Resolve option symbol (explicit symbol or offset-based lookup)
-        explicit_symbol = str(leg_data.get("symbol") or "").strip().upper()
         leg_expiry = leg_data.get("expiry_date") or common_data.get("expiry_date")
 
-        if explicit_symbol and not leg_data.get("offset"):
-            resolved_symbol = explicit_symbol
-            resolved_exchange = str(
-                leg_data.get("exchange") or common_data.get("exchange") or "NFO"
-            ).upper()
+        explicit = resolve_explicit_leg_symbol(leg_data, common_data)
+        if explicit:
+            resolved_symbol, resolved_exchange = explicit
         else:
             success, symbol_response, status_code = get_option_symbol(
                 underlying=common_data.get("underlying"),
@@ -479,16 +493,9 @@ def process_multiorder_with_auth(
             # Resolve all option symbols first (DB lookups, fast)
             resolved_symbols = []
             for _, leg in buy_legs + sell_legs:
-                explicit = str(leg.get("symbol") or "").strip().upper()
-                if explicit and not leg.get("offset"):
-                    resolved_symbols.append(
-                        {
-                            "symbol": explicit,
-                            "exchange": str(
-                                leg.get("exchange") or common_data.get("exchange") or "NFO"
-                            ).upper(),
-                        }
-                    )
+                explicit = resolve_explicit_leg_symbol(leg, common_data)
+                if explicit:
+                    resolved_symbols.append({"symbol": explicit[0], "exchange": explicit[1]})
                     continue
                 leg_expiry = leg.get("expiry_date") or common_data.get("expiry_date")
                 success_sym, sym_response, _ = get_option_symbol(
