@@ -1142,6 +1142,15 @@ def load_and_check_env_variables() -> None:
     if not check_env_version_compatibility():
         sys.exit(1)
 
+    # Load the parent repo's root .env first, as a fallback layer (override=False —
+    # never clobbers a value openalgo/.env or the process env already set). This lets
+    # single-sourced settings like NSE_REPLAY_DATA_ROOT reach openalgo even when it's
+    # launched directly (e.g. `python app.py`) instead of via start.sh, which normally
+    # exports the root .env into the shell before forking this process.
+    repo_root_env_path = os.path.join(os.path.dirname(__file__), "..", "..", ".env")
+    if os.path.exists(repo_root_env_path):
+        load_dotenv(dotenv_path=repo_root_env_path, override=False)
+
     # Define the path to the .env file in the main application path
     env_path = os.path.join(os.path.dirname(__file__), "..", ".env")
 

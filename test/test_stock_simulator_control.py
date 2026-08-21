@@ -447,14 +447,25 @@ def test_calendar_returns_empty_days_when_no_data(
     assert body["underlyings"] == ["NIFTY", "BANKNIFTY", "SENSEX"]
 
 
-def test_calendar_returns_per_day_coverage(control_app, control_token, monkeypatch) -> None:
-    """calendar() constructs its own ReplayCatalog(data_root) per request — it
-    does not read ``service.catalog`` — so this patches the ReplayCatalog
-    class the blueprint actually imports, not the fake service fixture."""
+def test_calendar_returns_per_day_coverage(
+    control_app, control_token, monkeypatch, tmp_path
+) -> None:
+    """calendar() now reads via stock_history.api.StockHistory.recorded_index_day_counts,
+    which delegates to parquet_index_store.list_recorded_index_day_counts — the module
+    that actually constructs ReplayCatalog today (it imports the class into its own
+    namespace, so patching trade_integrations.stock_simulator.catalog.ReplayCatalog no
+    longer has any effect on this call path — patch it where it's actually bound).
+
+    Also pins NSE_REPLAY_DATA_ROOT at a unique tmp dir, both so the fake catalog's
+    result isn't shadowed by any real recorded data on the dev machine, and so this
+    test's cache key in parquet_index_store's mtime-keyed cache can't collide with
+    another test using the same data_root string.
+    """
     try:
         import pandas  # noqa: F401
     except ImportError:
         pytest.skip("pandas not importable in this venv (numpy ABI mismatch)")
+    monkeypatch.setenv("NSE_REPLAY_DATA_ROOT", str(tmp_path))
 
     class _CatalogWithRows:
         def __init__(self, data_root) -> None:
@@ -478,9 +489,10 @@ def test_calendar_returns_per_day_coverage(control_app, control_token, monkeypat
             days = self.available_dates(symbol, exchange)
             return {day: self.day_row_count(symbol, exchange, day) for day in days}
 
-    from trade_integrations.stock_simulator import catalog as cat_mod
+    from trade_integrations.stock_history.store import parquet_index_store as store_mod
 
-    monkeypatch.setattr(cat_mod, "ReplayCatalog", _CatalogWithRows)
+    monkeypatch.setattr(store_mod, "ReplayCatalog", _CatalogWithRows)
+    store_mod._INDEX_DAY_COUNTS_CACHE.clear()
 
     client = control_app.test_client()
     res = client.get(

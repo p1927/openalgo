@@ -1,8 +1,17 @@
 # utils/config.py
 
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
+
+# Load the parent repo's root .env first, as a fallback layer (override=False — never
+# clobbers a value openalgo/.env or the process env already set). Lets single-sourced
+# settings like NSE_REPLAY_DATA_ROOT reach openalgo even when launched directly instead
+# of via start.sh (which normally exports the root .env before forking this process).
+_repo_root_env = Path(__file__).resolve().parents[2] / ".env"
+if _repo_root_env.is_file():
+    load_dotenv(dotenv_path=_repo_root_env, override=False)
 
 # Load environment variables from .env file with override=True to ensure values are updated.
 #

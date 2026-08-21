@@ -318,7 +318,7 @@ class BrokerData:
         slug = index_slug(symbol, exchange)
         if not slug:
             return []
-        frame = catalog._load_symbol(symbol, exchange)
+        frame = catalog.frame(symbol, exchange)
         if frame.empty:
             return []
         day_frame = frame[(frame["day"] >= start) & (frame["day"] <= end)].copy()

@@ -268,6 +268,47 @@ def seek_replay():
     return jsonify({"status": "ok", **service.status()})
 
 
+@stock_simulator_control_bp.route("/replay/speed", methods=["POST"])
+@limiter.limit(API_RATE_LIMIT)
+def set_replay_speed():
+    """Change the simulator's replay rate live, without unloading the clock.
+
+    Unlike `/replay/start`, this does not touch the replay date/week rotation
+    or trigger a master-contract rebuild — it's a lightweight rate change on
+    the already-armed clock (`SimClock.set_speed`), so the frontend's speed
+    control doesn't need to be locked while a replay is running.
+    """
+    unauthorized = _require_control_token()
+    if unauthorized is not None:
+        return unauthorized
+
+    body = request.get_json(silent=True) or {}
+    speed = body.get("speed")
+    try:
+        speed = float(speed)
+    except (TypeError, ValueError):
+        return jsonify({"status": "error", "message": "speed must be a number"}), 400
+    if speed < 0:
+        return jsonify({"status": "error", "message": "speed must be >= 0"}), 400
+
+    try:
+        service = _get_replay_service()
+    except Exception as exc:
+        logger.exception("failed to load replay service for speed change")
+        return jsonify({"status": "error", "message": str(exc)}), 500
+
+    service.set_speed(speed)
+    os.environ["NSE_REPLAY_SPEED"] = str(service.clock.speed)
+    try:
+        from database.sandbox_db import set_config
+
+        set_config("sim_replay_speed", service.clock.speed)
+    except Exception:
+        logger.exception("failed to persist simulator replay speed to sandbox_db")
+
+    return jsonify({"status": "ok", **service.status()})
+
+
 @stock_simulator_control_bp.route("/replay/stop", methods=["POST"])
 @limiter.limit(API_RATE_LIMIT)
 def stop_replay():
@@ -320,14 +361,12 @@ def replay_calendar():
         from broker.stock_simulator.api._trade_path import ensure_trade_integrations_path
 
         ensure_trade_integrations_path()
-        from trade_integrations.stock_simulator.catalog import ReplayCatalog
-        from trade_integrations.stock_simulator.config import load_sim_config
+        from trade_integrations.stock_history.api import StockHistory
     except Exception as exc:
         logger.exception("failed to load simulator modules for calendar")
         return jsonify({"status": "error", "message": str(exc)}), 500
 
-    data_root = load_sim_config().data_root
-    catalog = ReplayCatalog(data_root)
+    history = StockHistory()
     underlyings = (
         ("NIFTY", "NSE_INDEX"),
         ("BANKNIFTY", "NSE_INDEX"),
@@ -335,7 +374,7 @@ def replay_calendar():
     )
     by_day: dict[str, dict[str, object]] = {}
     for symbol, exchange in underlyings:
-        counts = catalog.day_counts(symbol, exchange)
+        counts = history.recorded_index_day_counts(symbol=symbol, exchange=exchange)
         for day, count in counts.items():
             row = by_day.setdefault(
                 day,
