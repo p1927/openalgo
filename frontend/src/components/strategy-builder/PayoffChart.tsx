@@ -117,19 +117,44 @@ function selectEvenly<T>(items: T[], limit: number): T[] {
  */
 function extendToAxis(xs: number[], ys: number[], axisLo: number, axisHi: number) {
   if (xs.length < 2) return { xs, ys }
-  const outXs = [...xs]
-  const outYs = [...ys]
-  if (axisLo < xs[0]) {
-    const slope = (ys[1] - ys[0]) / (xs[1] - xs[0])
-    outXs.unshift(axisLo)
-    outYs.unshift(ys[0] + slope * (axisLo - xs[0]))
-  }
+
+  // Value of the piecewise-linear series at an arbitrary x: interpolated
+  // within the sampled domain, extrapolated (via the outermost segment's
+  // slope) outside it. Used for both directions this function now handles:
+  // widening past the sample domain (axisLo/axisHi outside [xs[0], xs.at(-1)])
+  // and cropping within it (axisLo/axisHi inside that range — see the
+  // symmetric-axis comment above, which can compute a window narrower than
+  // the raw sampled domain when the strikes/breakevens are skewed to one
+  // side of spot).
   const lastIdx = xs.length - 1
-  if (axisHi > xs[lastIdx]) {
-    const slope = (ys[lastIdx] - ys[lastIdx - 1]) / (xs[lastIdx] - xs[lastIdx - 1])
-    outXs.push(axisHi)
-    outYs.push(ys[lastIdx] + slope * (axisHi - xs[lastIdx]))
+  const valueAt = (x: number): number => {
+    if (x <= xs[0]) {
+      const slope = (ys[1] - ys[0]) / (xs[1] - xs[0])
+      return ys[0] + slope * (x - xs[0])
+    }
+    if (x >= xs[lastIdx]) {
+      const slope = (ys[lastIdx] - ys[lastIdx - 1]) / (xs[lastIdx] - xs[lastIdx - 1])
+      return ys[lastIdx] + slope * (x - xs[lastIdx])
+    }
+    for (let i = 0; i < lastIdx; i++) {
+      if (xs[i] <= x && x <= xs[i + 1]) {
+        const t = (x - xs[i]) / (xs[i + 1] - xs[i])
+        return ys[i] + t * (ys[i + 1] - ys[i])
+      }
+    }
+    return ys[lastIdx]
   }
+
+  const outXs = [axisLo]
+  const outYs = [valueAt(axisLo)]
+  for (let i = 0; i < xs.length; i++) {
+    if (xs[i] > axisLo && xs[i] < axisHi) {
+      outXs.push(xs[i])
+      outYs.push(ys[i])
+    }
+  }
+  outXs.push(axisHi)
+  outYs.push(valueAt(axisHi))
   return { xs: outXs, ys: outYs }
 }
 
@@ -223,6 +248,9 @@ export function PayoffChart({
       ceStrike: isDark ? '#4ade80' : '#16a34a',
       peStrike: isDark ? '#f87171' : '#dc2626',
       sigmaTick: isDark ? 'rgba(148,163,184,0.30)' : 'rgba(15,23,42,0.18)',
+      // Stepped σ bands: inner ±1σ darker, outer ±2σ lighter.
+      sigma1Band: isDark ? 'rgba(148,163,184,0.22)' : 'rgba(100,116,139,0.16)',
+      sigma2Band: isDark ? 'rgba(148,163,184,0.10)' : 'rgba(100,116,139,0.07)',
       cardBorder: isDark ? 'rgba(148,163,184,0.10)' : 'rgba(15,23,42,0.08)',
     }),
     [isDark, isAnalyzer]
@@ -243,6 +271,7 @@ export function PayoffChart({
     const rawYsExpiry = samples.map((s) => s.expiry)
     const rawYsT0 = samples.map((s) => s.tplus0)
 
+    const b1 = lognormalPriceBand(spot, iv, remainingYears, 1)
     const b2 = lognormalPriceBand(spot, iv, remainingYears, 2)
     const domainLo = rawXs[0]
     const domainHi = rawXs[rawXs.length - 1]
@@ -428,6 +457,55 @@ export function PayoffChart({
 
     const shapes: Partial<PlotlyTypes.Shape>[] = []
 
+    // Stepped σ bands: the wider 2σ band is drawn first so the 1σ band
+    // overlays on top of it, producing a visually distinct inner (darker)
+    // and outer (lighter) zone rather than one uniform wash. Clipped to the
+    // visible axis window (axisLo/axisHi, computed above) rather than the
+    // raw sample domain, since that's the window this chart actually
+    // autoranges to.
+    const inAxisDomain = (x: number) => x >= axisLo && x <= axisHi
+    const clipToAxisDomain = (x: number) => Math.min(axisHi, Math.max(axisLo, x))
+    if (b1 && b2) {
+      const pushBand = (x0: number, x1: number, fillcolor: string) => {
+        const clippedX0 = clipToAxisDomain(x0)
+        const clippedX1 = clipToAxisDomain(x1)
+        if (clippedX1 <= clippedX0) return
+        shapes.push({
+          type: 'rect',
+          xref: 'x',
+          x0: clippedX0,
+          x1: clippedX1,
+          yref: 'paper',
+          y0: 0,
+          y1: 1,
+          fillcolor,
+          line: { width: 0 },
+          layer: 'below',
+        })
+      }
+      // Left outer band: from -2σ to -1σ
+      pushBand(b2.lower, b1.lower, colors.sigma2Band)
+      // Right outer band: from +1σ to +2σ
+      pushBand(b1.upper, b2.upper, colors.sigma2Band)
+      // Inner 1σ band
+      pushBand(b1.lower, b1.upper, colors.sigma1Band)
+      // Thin vertical ticks at each σ boundary
+      for (const x of [b2.lower, b1.lower, b1.upper, b2.upper]) {
+        if (!inAxisDomain(x)) continue
+        shapes.push({
+          type: 'line',
+          xref: 'x',
+          x0: x,
+          x1: x,
+          yref: 'paper',
+          y0: 0,
+          y1: 1,
+          line: { color: colors.sigmaTick, width: 1, dash: 'dot' },
+          layer: 'below',
+        })
+      }
+    }
+
     // Cluster legs whose strikes fall within one offset-step of each other
     // (e.g. a straddle/strangle collapsed to one strike, or a calendar
     // spread) and assign each a small deterministic x-offset so their lines
@@ -550,6 +628,28 @@ export function PayoffChart({
       font: { size: 12, color: colors.spotLine },
     })
 
+    if (b1 && b2) {
+      const sigmaLabels: Array<{ x: number; text: string }> = [
+        { x: b2.lower, text: '-2σ' },
+        { x: b1.lower, text: '-1σ' },
+        { x: b1.upper, text: '+1σ' },
+        { x: b2.upper, text: '+2σ' },
+      ]
+      for (const s of sigmaLabels) {
+        if (!inAxisDomain(s.x)) continue
+        annotations.push({
+          x: s.x,
+          y: 1.05,
+          xref: 'x',
+          yref: 'paper',
+          text: s.text,
+          showarrow: false,
+          yanchor: 'bottom',
+          font: { size: 11, color: colors.mutedText },
+        })
+      }
+    }
+
     annotations.push({
       x: 1,
       y: 0,
@@ -597,7 +697,15 @@ export function PayoffChart({
         tickfont: { color: colors.text, size: 10 },
         gridcolor: colors.grid,
         zeroline: false,
-        range: [axisLo, axisHi],
+        // Deliberately autoranged rather than pinned to [axisLo, axisHi].
+        // `uirevision` only preserves a user's zoom while the supplied value
+        // of the attribute is unchanged; an explicit range recomputed from
+        // the samples drifts with every live tick, so Plotly reads it as an
+        // intentional programmatic change and discards the zoom immediately.
+        // A literal `true` cannot drift. This is safe because `xs` (via
+        // extendToAxis above) is already widened to exactly [axisLo, axisHi],
+        // so the autoranged window matches our computed default zoom.
+        autorange: true,
         // Caps how many gridlines/labels Plotly packs in — without this it
         // can pick a small dtick that crowds ticks together on a narrow
         // strike spread, which is also what made the curves look clubbed up.

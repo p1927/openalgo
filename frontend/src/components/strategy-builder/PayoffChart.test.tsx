@@ -28,6 +28,15 @@ const BASE_SCENARIO: ScenarioState = {
 }
 const formatCurrency = makeFormatCurrency(null)
 
+// The x-axis is autoranged (see PayoffChart's xaxis.autorange comment) so
+// its extent isn't in layout.xaxis.range anymore; it's exactly the extent
+// of the (extendToAxis-widened) trace x-data instead. Any trace works since
+// they all share the same `xs`.
+function plottedXRange(): [number, number] {
+  const xs = plotCapture.props?.data[0]?.x as number[]
+  return [Math.min(...xs), Math.max(...xs)]
+}
+
 function leg(
   id: string,
   side: 'BUY' | 'SELL',
@@ -127,7 +136,7 @@ describe('PayoffChart exact geometry', () => {
       />
     )
 
-    expect(plotCapture.props?.layout.xaxis?.range).toEqual([40, 160])
+    expect(plottedXRange()).toEqual([40, 160])
     const sigmaShapes = plotCapture.props?.layout.shapes?.filter(
       (shape) => shape.xref === 'x' && typeof shape.x0 === 'number'
     )
@@ -159,7 +168,7 @@ describe('PayoffChart exact geometry', () => {
         formatCurrency={formatCurrency}
       />
     )
-    const uncappedRange = plotCapture.props?.layout.xaxis?.range as [number, number]
+    const uncappedRange = plottedXRange()
     expect(uncappedRange[1] - spot).toBeGreaterThan(800)
     uncapped.unmount()
     plotCapture.props = null
@@ -174,7 +183,7 @@ describe('PayoffChart exact geometry', () => {
         underlyingSymbol="NIFTY"
       />
     )
-    expect(plotCapture.props?.layout.xaxis?.range).toEqual([spot - 600, spot + 600])
+    expect(plottedXRange()).toEqual([spot - 600, spot + 600])
     plotCapture.props = null
 
     render(
@@ -187,7 +196,7 @@ describe('PayoffChart exact geometry', () => {
         underlyingSymbol="sensex"
       />
     )
-    expect(plotCapture.props?.layout.xaxis?.range).toEqual([spot - 800, spot + 800])
+    expect(plottedXRange()).toEqual([spot - 800, spot + 800])
   })
 
   it('never crops a real strike even when it lies beyond the underlying move cap', () => {
@@ -217,7 +226,7 @@ describe('PayoffChart exact geometry', () => {
       />
     )
 
-    const range = plotCapture.props?.layout.xaxis?.range as [number, number]
+    const range = plottedXRange()
     expect(range[1]).toBeGreaterThanOrEqual(farStrike)
   })
 
@@ -726,7 +735,7 @@ describe('PayoffChart exact geometry', () => {
       />
     )
 
-    const range = plotCapture.props?.layout.xaxis?.range as [number, number]
+    const range = plottedXRange()
     expect(range[1] - 100).toBeCloseTo(100 - range[0], 6)
   })
 })
