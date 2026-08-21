@@ -75,9 +75,13 @@ export const oiProfileApi = {
     return response.data
   },
 
-  getExpiries: async (exchange: string, underlying: string): Promise<ExpiriesResponse> => {
+  getExpiries: async (
+    exchange: string,
+    underlying: string,
+    instrumenttype: string = 'options'
+  ): Promise<ExpiriesResponse> => {
     const response = await webClient.get<ExpiriesResponse>(
-      `/search/api/expiries?exchange=${exchange}&underlying=${underlying}&instrumenttype=options`
+      `/search/api/expiries?exchange=${exchange}&underlying=${underlying}&instrumenttype=${instrumenttype}`
     )
     return response.data
   },

@@ -31,12 +31,11 @@ vi.mock('@/api/client', () => ({
 }))
 
 vi.mock('@/api/oi-profile', () => ({
-  oiProfileApi: { getUnderlyings: mocks.getUnderlyings },
+  oiProfileApi: { getUnderlyings: mocks.getUnderlyings, getExpiries: mocks.getExpiries },
 }))
 
 vi.mock('@/api/option-chain', () => ({
   optionChainApi: {
-    getExpiries: mocks.getExpiries,
     getOptionChain: mocks.getOptionChain,
   },
 }))
@@ -281,9 +280,9 @@ beforeEach(() => {
     underlyings: ['NIFTY', 'BANKNIFTY', 'RELIANCE'],
   })
   mocks.getExpiries.mockImplementation(
-    async (_apiKey: string, _symbol: string, _exchange: string, instrument: string) => ({
+    async (_exchange: string, _symbol: string, instrument: string) => ({
       status: 'success',
-      data: instrument === 'futures' ? ['27AUG26'] : ['13AUG26', '18AUG26'],
+      expiries: instrument === 'futures' ? ['27AUG26'] : ['13AUG26', '18AUG26'],
     })
   )
   mocks.getOptionChain.mockImplementation(
@@ -365,12 +364,7 @@ describe('StrategyBuilder live request orchestration', () => {
 
     await waitFor(() => expect(mocks.getUnderlyings).toHaveBeenCalledWith('NCDEX'))
     await waitFor(() =>
-      expect(mocks.getExpiries).toHaveBeenCalledWith(
-        'test-api-key',
-        'GUARSEED',
-        'NCDEX',
-        'options'
-      )
+      expect(mocks.getExpiries).toHaveBeenCalledWith('NCDEX', 'GUARSEED', 'options')
     )
     expect(screen.getByRole('combobox', { name: 'Derivative exchange' })).toHaveTextContent(
       'NCDEX'
@@ -1509,13 +1503,15 @@ describe('StrategyBuilder identity orchestration', () => {
   it('hydrates a saved non-default identity and legs before defaulting or fetch effects run', async () => {
     const portfolio = deferred<PortfolioEntry>()
     const underlyings = deferred<{ status: 'success'; underlyings: string[] }>()
-    const optionExpiries = deferred<{ status: 'success'; data: string[] }>()
+    const optionExpiries = deferred<{ status: 'success'; expiries: string[] }>()
     const savedChain = deferred<OptionChainResponse>()
     mocks.getPortfolioEntry.mockReturnValue(portfolio.promise)
     mocks.getUnderlyings.mockReturnValue(underlyings.promise)
     mocks.getExpiries.mockImplementation(
-      async (_apiKey: string, _symbol: string, _exchange: string, instrument: string) =>
-        instrument === 'options' ? optionExpiries.promise : { status: 'success', data: ['27AUG26'] }
+      async (_exchange: string, _symbol: string, instrument: string) =>
+        instrument === 'options'
+          ? optionExpiries.promise
+          : { status: 'success', expiries: ['27AUG26'] }
     )
     vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
@@ -1542,7 +1538,7 @@ describe('StrategyBuilder identity orchestration', () => {
         status: 'success',
         underlyings: ['NIFTY', 'BANKNIFTY', 'RELIANCE'],
       })
-      optionExpiries.resolve({ status: 'success', data: ['13AUG26', '18AUG26'] })
+      optionExpiries.resolve({ status: 'success', expiries: ['13AUG26', '18AUG26'] })
       await Promise.all([underlyings.promise, optionExpiries.promise])
     })
     await waitFor(() => expect(requests('/api/v1/optionchain')).toHaveLength(1))
@@ -1602,13 +1598,13 @@ describe('StrategyBuilder identity orchestration', () => {
         symbol: 'STALE_FUTURE',
       },
     ]
-    const futuresExpiries = deferred<{ status: 'success'; data: string[] }>()
+    const futuresExpiries = deferred<{ status: 'success'; expiries: string[] }>()
     mocks.getPortfolioEntry.mockResolvedValue(saved)
     mocks.getExpiries.mockImplementation(
-      async (_apiKey: string, _symbol: string, _exchange: string, instrument: string) =>
+      async (_exchange: string, _symbol: string, instrument: string) =>
         instrument === 'futures'
           ? futuresExpiries.promise
-          : { status: 'success' as const, data: ['18AUG26'] }
+          : { status: 'success' as const, expiries: ['18AUG26'] }
     )
     mocks.getFutures.mockResolvedValue({
       status: 'success',
@@ -1628,7 +1624,7 @@ describe('StrategyBuilder identity orchestration', () => {
     expect(mocks.getFutures).not.toHaveBeenCalled()
 
     await act(async () => {
-      futuresExpiries.resolve({ status: 'success', data: ['27AUG26'] })
+      futuresExpiries.resolve({ status: 'success', expiries: ['27AUG26'] })
       await futuresExpiries.promise
     })
 

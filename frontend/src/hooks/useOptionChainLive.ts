@@ -7,11 +7,18 @@ import { useOptionChainPolling } from './useOptionChainPolling'
 
 // Round price to nearest tick size (e.g., 0.05 for options)
 // Fixes broker WebSocket data that may not be aligned to tick size
+//
+// Returns undefined (not 0) for a non-positive price so callers using `??`
+// to fall back to the last polled value treat a depth-only/partial tick
+// (ltp/bid/ask reported as 0 because that field wasn't part of this
+// particular WS message) the same as a missing one, instead of overwriting
+// a perfectly good polled price with a literal 0 -- which silently zeroes
+// every downstream Greek/IV computation for that leg.
 function roundToTickSize(
   price: number | undefined,
   tickSize: number | undefined
 ): number | undefined {
-  if (price === undefined || price === null) return undefined
+  if (price === undefined || price === null || !(price > 0)) return undefined
   if (!tickSize || tickSize <= 0) return price
   // Round to nearest tick and fix floating point precision
   return Number((Math.round(price / tickSize) * tickSize).toFixed(2))

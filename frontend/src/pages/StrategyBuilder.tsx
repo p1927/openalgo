@@ -742,7 +742,7 @@ export default function StrategyBuilder() {
   // consistent string — otherwise the Edit dialog can't match leg.expiry
   // ("21APR26") against the raw API value ("21-APR-2026") and the field blanks.
   useEffect(() => {
-    if (isHydrating || !apiKey || !selectedUnderlying) return
+    if (isHydrating || !selectedUnderlying) return
     // IMPORTANT: clear expiries + selectedExpiry + chainData synchronously
     // BEFORE the fetch starts. Otherwise live-chain orchestration sees the previous underlying's
     // selectedExpiry (e.g. NIFTY's 21APR26) alongside the new
@@ -771,16 +771,21 @@ export default function StrategyBuilder() {
     ;(async () => {
       try {
         const optionExchange = optionExchangeFor(selectedExchange)
-        // Serialize the two `/expiry` calls through the page queue so they
-        // don't multiplex with each other or with the other mount-time
-        // fetches below.
+        // Serialize the two `/search/api/expiries` calls through the page
+        // queue so they don't multiplex with each other or with the other
+        // mount-time fetches below. This session-authenticated endpoint
+        // mirrors the Option Chain page and needs no OpenAlgo API key, unlike
+        // the apikey-gated `/expiry` REST endpoint — a user who is logged in
+        // and has a broker connected but has never generated an API key
+        // would otherwise see this fetch skipped entirely and the chain
+        // (every tab, including Find the Cheese) stay permanently empty.
         const optsRes = await queuedFetch(() =>
-          optionChainApi.getExpiries(apiKey, selectedUnderlying, optionExchange, 'options')
+          oiProfileApi.getExpiries(optionExchange, selectedUnderlying, 'options')
         )
         const futsRes = await queuedFetch(() =>
-          optionChainApi
-            .getExpiries(apiKey, selectedUnderlying, optionExchange, 'futures')
-            .catch(() => ({ status: 'error' as const, data: [] as string[] }))
+          oiProfileApi
+            .getExpiries(optionExchange, selectedUnderlying, 'futures')
+            .catch(() => ({ status: 'error' as const, expiries: [] as string[] }))
         )
         if (cancelled) return
         const normaliseList = (list: string[]) =>
@@ -788,18 +793,18 @@ export default function StrategyBuilder() {
           Array.from(new Set(list.filter(Boolean).map(normalizeExpiryCode)))
         if (
           optsRes.status === 'success' &&
-          Array.isArray(optsRes.data) &&
-          optsRes.data.length > 0
+          Array.isArray(optsRes.expiries) &&
+          optsRes.expiries.length > 0
         ) {
-          const normalised = normaliseList(optsRes.data)
+          const normalised = normaliseList(optsRes.expiries)
           setExpiries(normalised)
           setSelectedExpiry((prev) => (normalised.includes(prev) ? prev : normalised[0]))
         } else {
           setExpiries([])
           setSelectedExpiry('')
         }
-        if (futsRes.status === 'success' && Array.isArray(futsRes.data)) {
-          setFutureExpiries(normaliseList(futsRes.data))
+        if (futsRes.status === 'success' && Array.isArray(futsRes.expiries)) {
+          setFutureExpiries(normaliseList(futsRes.expiries))
         } else {
           setFutureExpiries([])
         }
@@ -812,7 +817,7 @@ export default function StrategyBuilder() {
     return () => {
       cancelled = true
     }
-  }, [apiKey, selectedUnderlying, selectedExchange, isHydrating])
+  }, [selectedUnderlying, selectedExchange, isHydrating])
 
   // Derived: ATM strike, lot size, spot
   const spotPrice = activeChain?.underlying_ltp ?? null

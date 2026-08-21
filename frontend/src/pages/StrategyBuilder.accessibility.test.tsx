@@ -46,12 +46,11 @@ vi.mock('@/api/client', () => ({
 }))
 
 vi.mock('@/api/oi-profile', () => ({
-  oiProfileApi: { getUnderlyings: mocks.getUnderlyings },
+  oiProfileApi: { getUnderlyings: mocks.getUnderlyings, getExpiries: mocks.getExpiries },
 }))
 
 vi.mock('@/api/option-chain', () => ({
   optionChainApi: {
-    getExpiries: mocks.getExpiries,
     getOptionChain: vi.fn(async () => mocks.liveData),
   },
 }))
@@ -168,9 +167,9 @@ beforeEach(() => {
   mocks.enabledLiveResult.data = mocks.liveData
   mocks.getUnderlyings.mockResolvedValue({ status: 'success', underlyings: ['NIFTY'] })
   mocks.getExpiries.mockImplementation(
-    async (_apiKey: string, _symbol: string, _exchange: string, instrument: string) => ({
+    async (_exchange: string, _symbol: string, instrument: string) => ({
       status: 'success',
-      data: instrument === 'options' ? ['04AUG26', '11AUG26'] : ['28AUG26'],
+      expiries: instrument === 'options' ? ['04AUG26', '11AUG26'] : ['28AUG26'],
     })
   )
   Element.prototype.scrollIntoView = vi.fn()
