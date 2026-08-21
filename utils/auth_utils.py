@@ -105,60 +105,11 @@ def should_download_master_contract(broker):
         return True, f"Broker changed from {last_broker} to {broker}, symtoken needs refresh"
 
     if broker == "stock_simulator":
-        broker_status = get_status(broker)
-        stats = broker_status.get("exchange_stats") or {}
-        if broker_status.get("status") == "error":
-            return True, "Simulator master contract last download failed"
-        try:
-            from database.token_db import get_symbol_count
+        from broker.stock_simulator.api.mc_freshness import (
+            should_download_stock_simulator_contract,
+        )
 
-            if get_symbol_count() == 0:
-                return True, "Simulator symtoken table is empty"
-        except Exception:
-            pass
-        replay_date = os.getenv("NSE_REPLAY_DATE", "2021-03-25").strip()[:10]
-        if stats.get("replay_date") != replay_date:
-            return True, f"Simulator replay date changed to {replay_date}"
-        try:
-            from broker.stock_simulator.api._trade_path import ensure_trade_integrations_path
-
-            ensure_trade_integrations_path()
-            from trade_integrations.stock_simulator.config import load_sim_config
-            from trade_integrations.stock_simulator.master_contract import (
-                load_mc_equities,
-                load_mc_max_expiries,
-                load_mc_underlyings,
-            )
-
-            wanted = load_mc_underlyings()
-            max_expiries_wanted = load_mc_max_expiries()
-            equities_wanted = load_mc_equities(load_sim_config().data_root)
-        except Exception:
-            wanted = [
-                u.strip().upper()
-                for u in os.getenv("SIM_MC_UNDERLYINGS", "NIFTY,BANKNIFTY,SENSEX").split(",")
-                if u.strip()
-            ]
-            try:
-                max_expiries_wanted = int(os.getenv("SIM_MC_MAX_EXPIRIES", "12") or "12")
-            except ValueError:
-                max_expiries_wanted = 12
-            equities_wanted = []
-        cached = stats.get("underlyings")
-        if wanted:
-            if not cached:
-                return True, "Simulator underlying universe not cached"
-            if sorted(wanted) != sorted(cached):
-                return True, "Simulator underlying universe changed"
-        cached_max = stats.get("max_expiries")
-        if cached_max is None:
-            return True, "Simulator max expiries not cached"
-        if cached_max != max_expiries_wanted:
-            return True, "Simulator max expiries changed"
-        cached_equities = sorted(stats.get("equities") or [])
-        if sorted(equities_wanted) != cached_equities:
-            return True, "Simulator recorded equities changed"
-        return False, "Simulator master contract matches replay fingerprint"
+        return should_download_stock_simulator_contract()
 
     # Get cutoff time and reference timezone for this broker
     cutoff_hour, cutoff_minute, tz = get_master_contract_cutoff(broker)
