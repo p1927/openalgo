@@ -71,6 +71,7 @@ from blueprints.brlogin import brlogin_bp
 from blueprints.broker_credentials import (
     broker_credentials_bp,  # Import the broker credentials blueprint
 )
+from blueprints.indmoney_credentials import indmoney_credentials_bp  # IndMoney credential routes (fork-only)
 from blueprints.chart_test import chart_test_bp  # Standalone chart test page (dev/testing only)
 from blueprints.chartink import chartink_bp  # Import the chartink blueprint
 from blueprints.core import core_bp
@@ -115,6 +116,7 @@ from blueprints.stock_simulator_control import stock_simulator_control_bp  # Imp
 from blueprints.straddle_chart import straddle_bp  # Import the straddle chart blueprint
 from blueprints.strategy import strategy_bp  # Import the strategy blueprint
 from blueprints.strategy_chart import strategy_chart_bp  # Import the strategy chart blueprint
+from blueprints.strategy_synthesis import strategy_synthesis_bp  # Strategy synthesis route (fork-only)
 from blueprints.strategy_portfolio import strategy_portfolio_bp  # Strategy Builder portfolio
 from blueprints.trade_plan import trade_plan_bp  # Trade-stack hub plans for Strategy Builder
 from blueprints.trade_charges import trade_charges_bp  # Per-leg F&O charges for Strategy Builder
@@ -360,6 +362,7 @@ def create_app():
     app.register_blueprint(gamma_density_bp)  # Register Gamma Density blueprint
     app.register_blueprint(straddle_bp)  # Register straddle chart blueprint
     app.register_blueprint(strategy_chart_bp)  # Register strategy chart blueprint
+    app.register_blueprint(strategy_synthesis_bp)  # Register strategy synthesis blueprint
     app.register_blueprint(custom_straddle_bp)  # Register custom straddle blueprint
     app.register_blueprint(vol_surface_bp)  # Register vol surface blueprint
     app.register_blueprint(gex_bp)  # Register GEX blueprint
@@ -368,6 +371,7 @@ def create_app():
     app.register_blueprint(arbitrage_bp)  # Register Arbitrage blueprint
     app.register_blueprint(flow_bp)  # Register Flow blueprint
     app.register_blueprint(broker_credentials_bp)  # Register Broker credentials blueprint
+    app.register_blueprint(indmoney_credentials_bp)  # Register IndMoney credentials blueprint
     app.register_blueprint(system_permissions_bp)  # Register System permissions blueprint
     app.register_blueprint(strategy_portfolio_bp)  # Register Strategy Portfolio blueprint
     app.register_blueprint(trade_plan_bp)  # Register trade-stack hub plan loader
