@@ -149,3 +149,11 @@ zmq==0.0.0
 # Portfolio analytics for the Portfolio Backtester (metrics + tearsheets).
 # Pure-NumPy kernels -- no Numba, so nothing pins numpy's upper bound.
 openstatz==0.4.1
+
+# TimescaleDB driver for stock_simulator/live_quotes.py's recorder-cache read path
+# (trade_integrations.hub_storage.timescale_ticks._connect() imports psycopg v3).
+# Without this, every recorder-cache lookup from this process silently fails and falls
+# through to a live INDmoney call -- see
+# .claude/backlog/items/2026-08-21-stock-simulator-channel-live-data.md's "driver mismatch"
+# section. Same version spec as the root pyproject.toml's psycopg[binary]>=3.1.
+psycopg[binary]>=3.1
