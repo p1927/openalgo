@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
 import time
@@ -14,6 +15,8 @@ from websocket_proxy.base_adapter import BaseBrokerWebSocketAdapter
 logger = logging.getLogger("stock_simulator_websocket")
 
 _MODE_LABEL = {1: "LTP", 2: "QUOTE", 3: "DEPTH", 4: "DEPTH", 5: "DEPTH"}
+_RECV_POLL_TIMEOUT_S = 1.0
+_MAX_BACKOFF_S = 10.0
 
 
 def _sim_timestamp_ms(sim_ts: str | None) -> int:
@@ -27,7 +30,22 @@ def _sim_timestamp_ms(sim_ts: str | None) -> int:
 
 
 class Stock_simulatorWebSocketAdapter(BaseBrokerWebSocketAdapter):
-    """Push replay quotes over the OpenAlgo WebSocket proxy (REST-backed ticks)."""
+    """Push replay quotes over the OpenAlgo WebSocket proxy.
+
+    Consumes the shared `stock_simulator` service's own `/stream` WS route
+    (one persistent connection, server pushes ticks on its own cadence)
+    instead of polling REST `/data/quote` once per subscribed symbol per
+    tick — see
+    .claude/backlog/items/2026-08-21-stock-simulator-ws-adapter-subscribe-stream.md.
+
+    Uses `websockets.sync.client`, which is built on plain blocking
+    `socket`/`ssl` calls rather than `asyncio`, so it stays safe under
+    gunicorn+eventlet (eventlet monkey-patches `socket` but forbids
+    `asyncio` — see openalgo/CLAUDE.md's "No asyncio... under
+    eventlet+gunicorn" invariant and `telegram_bot_service.py`'s
+    `_render_plotly_png` docstring for why an asyncio-based client would be
+    a landmine here).
+    """
 
     def __init__(self) -> None:
         super().__init__()
@@ -52,7 +70,7 @@ class Stock_simulatorWebSocketAdapter(BaseBrokerWebSocketAdapter):
             self.running = True
             self.connected = True
             self._stream_thread = threading.Thread(
-                target=self._replay_stream_loop,
+                target=self._stream_loop,
                 daemon=True,
                 name="StockSimulatorReplayWS",
             )
@@ -100,114 +118,130 @@ class Stock_simulatorWebSocketAdapter(BaseBrokerWebSocketAdapter):
             self._last_sim_ts.pop(sub_key, None)
             return {"status": "success", "message": f"Unsubscribed from {symbol}"}
 
-    def _replay_stream_loop(self) -> None:
+    def _desired_subscriptions(self) -> set[tuple[str, str]]:
+        with self.lock:
+            return {(sub["symbol"], sub["exchange"]) for sub in self.subscriptions.values()}
+
+    def _mode_for(self, symbol: str, exchange: str) -> int:
+        with self.lock:
+            sub = self.subscriptions.get(f"{exchange}_{symbol}")
+            return int(sub.get("mode") or 2) if sub else 2
+
+    def _stream_loop(self) -> None:
         ensure_trade_integrations_path()
-        from trade_integrations.stock_simulator.client import StockSimulatorClient, StockSimulatorClientError
+        import websockets.sync.client as ws_client
+        from websockets.exceptions import WebSocketException
+
+        from trade_integrations.stock_simulator.client import StockSimulatorClient
 
         client = StockSimulatorClient()
+        backoff = 1.0
 
         while self.running:
+            if not client.is_configured:
+                # No control token configured — same fail-closed posture as
+                # StockSimulatorClient.is_configured. Wait rather than spin.
+                time.sleep(1.0)
+                continue
             try:
-                with self.lock:
-                    subs = list(self.subscriptions.values())
-                if not subs:
-                    time.sleep(0.25)
-                    continue
+                with ws_client.connect(client.stream_url, open_timeout=10) as ws:
+                    logger.info("stock_simulator stream connected")
+                    backoff = 1.0
+                    sent_subs: set[tuple[str, str]] = set()
+                    while self.running:
+                        desired = self._desired_subscriptions()
+                        for sym, exch in desired - sent_subs:
+                            ws.send(json.dumps({"action": "subscribe", "symbol": sym, "exchange": exch}))
+                        for sym, exch in sent_subs - desired:
+                            ws.send(json.dumps({"action": "unsubscribe", "symbol": sym, "exchange": exch}))
+                        sent_subs = desired
 
-                # A single status call resolves live-vs-replay once per loop
-                # iteration (server-side, via the shared service) — no local
-                # branching between two service objects any more.
-                try:
-                    sim_status = client.data_status()
-                except StockSimulatorClientError:
-                    sim_status = {"mode": {"mode": "replay"}, "replay": {"clock": {"emit_interval_ms": 1000}}}
-                sim_mode_info = sim_status["mode"]
-
-                for sub in subs:
-                    symbol = sub["symbol"]
-                    exchange = sub["exchange"]
-                    mode = int(sub.get("mode") or 2)
-                    sub_key = f"{exchange}_{symbol}"
-                    is_live = sim_mode_info.get("mode") == "live"
-                    try:
-                        result = client.get_quote(symbol, exchange)
-                        quote = result["data"]
-                        is_live = result["mode"] == "live"
-                    except StockSimulatorClientError as exc:
-                        logger.debug("simulator quote miss %s/%s: %s", symbol, exchange, exc)
-                        continue
-
-                    ltp = float(quote.get("ltp") or 0)
-                    if ltp <= 0:
-                        continue
-                    sim_ts_str = quote.get("sim_ts")
-                    prev_ltp = self._last_ltp.get(sub_key)
-                    prev_sim = self._last_sim_ts.get(sub_key)
-                    if (
-                        prev_ltp is not None
-                        and prev_sim == sim_ts_str
-                        and abs(prev_ltp - ltp) < 0.001
-                    ):
-                        continue
-                    self._last_ltp[sub_key] = ltp
-                    self._last_sim_ts[sub_key] = sim_ts_str
-
-                    tick_ms = _sim_timestamp_ms(sim_ts_str)
-                    market_data: dict[str, Any] = {
-                        "symbol": symbol,
-                        "exchange": exchange,
-                        "mode": mode,
-                        "timestamp": tick_ms,
-                        "ltp": ltp,
-                        "ltt": tick_ms,
-                        "simulated": not is_live,
-                        "sim_source": "live" if is_live else "replay",
-                        "sim_ts": quote.get("sim_ts"),
-                    }
-                    if mode >= 2:
-                        bid = float(quote.get("bid") or ltp)
-                        ask = float(quote.get("ask") or ltp)
-                        market_data.update(
-                            {
-                                "volume": int(quote.get("volume") or 0),
-                                "oi": int(quote.get("oi") or 0),
-                                "open": float(quote.get("open") or ltp),
-                                "high": float(quote.get("high") or ltp),
-                                "low": float(quote.get("low") or ltp),
-                                "close": float(quote.get("close") or ltp),
-                                "bid": bid,
-                                "ask": ask,
-                                "bid_price": bid,
-                                "ask_price": ask,
-                                "bid_size": 100,
-                                "ask_size": 100,
-                            }
-                        )
-                    if mode >= 3:
-                        bid = float(market_data.get("bid") or ltp)
-                        ask = float(market_data.get("ask") or ltp)
-                        market_data["depth"] = {
-                            "buy": [{"price": bid, "quantity": 100}],
-                            "sell": [{"price": ask, "quantity": 100}],
-                        }
-                    mode_str = _MODE_LABEL.get(mode, "QUOTE")
-                    topic = f"{exchange}_{symbol}_{mode_str}"
-                    self.publish_market_data(topic, market_data)
-
-                # Push cadence scales with replay speed (capped at 4/sec) so
-                # a faster replay actually delivers ticks more often, not
-                # just bigger sim-time jumps per tick — irrelevant for
-                # genuine live passthrough, where "speed" doesn't apply.
-                # Uses the loop's overall configured mode, not the per-sub
-                # `is_live` (which can flip to False on a live-fetch
-                # fallback and would otherwise reflect only the last
-                # subscription processed).
-                if sim_mode_info.get("mode") == "live":
-                    sleep_s = 1.0
-                else:
-                    emit_ms = (sim_status.get("replay") or {}).get("clock", {}).get("emit_interval_ms", 1000)
-                    sleep_s = max(0.05, float(emit_ms) / 1000.0)
+                        try:
+                            raw = ws.recv(timeout=_RECV_POLL_TIMEOUT_S)
+                        except TimeoutError:
+                            continue
+                        try:
+                            payload = json.loads(raw)
+                        except (TypeError, ValueError):
+                            continue
+                        self._handle_snapshot(payload)
+            except (WebSocketException, OSError, TimeoutError) as exc:
+                logger.warning("stock_simulator stream disconnected: %s", exc)
             except Exception:
-                logger.exception("stock_simulator replay stream tick failed")
-                sleep_s = 1.0
-            time.sleep(sleep_s)
+                logger.exception("stock_simulator stream loop failed")
+            if not self.running:
+                break
+            time.sleep(backoff)
+            backoff = min(backoff * 2, _MAX_BACKOFF_S)
+
+    def _handle_snapshot(self, payload: dict[str, Any]) -> None:
+        mode_info = payload.get("mode") or {}
+        is_live = mode_info.get("mode") == "live"
+        for entry in payload.get("quotes") or []:
+            symbol = entry.get("symbol")
+            exchange = entry.get("exchange")
+            quote = entry.get("data")
+            if not symbol or not exchange or not quote:
+                continue
+            self._publish_quote(symbol, exchange, quote, is_live=is_live)
+
+    def _publish_quote(self, symbol: str, exchange: str, quote: dict[str, Any], *, is_live: bool) -> None:
+        sub_key = f"{exchange}_{symbol}"
+        mode = self._mode_for(symbol, exchange)
+
+        ltp = float(quote.get("ltp") or 0)
+        if ltp <= 0:
+            return
+        sim_ts_str = quote.get("sim_ts")
+        prev_ltp = self._last_ltp.get(sub_key)
+        prev_sim = self._last_sim_ts.get(sub_key)
+        if (
+            prev_ltp is not None
+            and prev_sim == sim_ts_str
+            and abs(prev_ltp - ltp) < 0.001
+        ):
+            return
+        self._last_ltp[sub_key] = ltp
+        self._last_sim_ts[sub_key] = sim_ts_str
+
+        tick_ms = _sim_timestamp_ms(sim_ts_str)
+        market_data: dict[str, Any] = {
+            "symbol": symbol,
+            "exchange": exchange,
+            "mode": mode,
+            "timestamp": tick_ms,
+            "ltp": ltp,
+            "ltt": tick_ms,
+            "simulated": not is_live,
+            "sim_source": "live" if is_live else "replay",
+            "sim_ts": quote.get("sim_ts"),
+        }
+        if mode >= 2:
+            bid = float(quote.get("bid") or ltp)
+            ask = float(quote.get("ask") or ltp)
+            market_data.update(
+                {
+                    "volume": int(quote.get("volume") or 0),
+                    "oi": int(quote.get("oi") or 0),
+                    "open": float(quote.get("open") or ltp),
+                    "high": float(quote.get("high") or ltp),
+                    "low": float(quote.get("low") or ltp),
+                    "close": float(quote.get("close") or ltp),
+                    "bid": bid,
+                    "ask": ask,
+                    "bid_price": bid,
+                    "ask_price": ask,
+                    "bid_size": 100,
+                    "ask_size": 100,
+                }
+            )
+        if mode >= 3:
+            bid = float(market_data.get("bid") or ltp)
+            ask = float(market_data.get("ask") or ltp)
+            market_data["depth"] = {
+                "buy": [{"price": bid, "quantity": 100}],
+                "sell": [{"price": ask, "quantity": 100}],
+            }
+        mode_str = _MODE_LABEL.get(mode, "QUOTE")
+        topic = f"{exchange}_{symbol}_{mode_str}"
+        self.publish_market_data(topic, market_data)
