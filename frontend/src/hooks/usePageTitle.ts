@@ -21,6 +21,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/tradingview': 'TradingView',
   '/gocharting': 'GoCharting',
   '/pnl-tracker': 'P&L Tracker',
+  '/portfolio-ledger': 'Portfolio Ledger',
   '/sandbox': 'Sandbox',
   '/sandbox/mypnl': 'Sandbox P&L',
   '/analyzer': 'Analyzer',
