@@ -27,6 +27,9 @@ api = Namespace("strategyperformance", description="Portfolio Ledger Strategy Pe
 logger = get_logger(__name__)
 
 strategy_performance_schema = StrategyPerformanceSchema()
+# Same two fields (apikey, optional strategy) as strategy-performance -- reused rather than
+# duplicated.
+strategy_legs_schema = StrategyPerformanceSchema()
 
 
 @api.route("/", strict_slashes=False)
@@ -51,6 +54,50 @@ class StrategyPerformance(Resource):
             return make_response(jsonify({"status": "error", "message": err.messages}), 400)
         except Exception as e:
             logger.exception(f"Unexpected error in strategy performance endpoint: {e}")
+            return make_response(
+                jsonify({"status": "error", "message": "An unexpected error occurred"}), 500
+            )
+
+
+@api.route("/legs", strict_slashes=False)
+class StrategyLegs(Resource):
+    @limiter.limit(API_RATE_LIMIT)
+    def post(self):
+        """Every currently-tracked open strategy leg (symbol/exchange/product/quantity,
+        tagged by strategy name), all-time or scoped to one strategy via the optional
+        `strategy` field.
+
+        This is the multi-leg position-grouping convention for module 7's execution
+        advisor (see .claude/backlog/items/2026-08-22-realtime-execution-position-advisor.md
+        step 1) -- reuses module 9's existing per-strategy position book
+        (database.strategy_book_db.StrategyPosition) rather than adding a new
+        SandboxPositions column, since it already tags every filled order by strategy
+        via the same (symbol, exchange, product) key OpenAlgo's positionbook uses.
+        """
+        from database.strategy_book_db import StrategyBookUnavailable, get_strategy_legs
+
+        try:
+            data = strategy_legs_schema.load(request.json)
+
+            user_id = verify_api_key(data["apikey"])
+            if not user_id:
+                return make_response(
+                    jsonify({"status": "error", "message": "Invalid openalgo apikey"}), 403
+                )
+
+            try:
+                legs = get_strategy_legs(user_id=user_id, strategy=data["strategy"])
+            except StrategyBookUnavailable:
+                # Book not initialized -- degrade to "no grouping known" rather than a
+                # 500, same discipline as the other portfolio-ledger endpoints when
+                # their underlying store isn't ready.
+                return make_response(jsonify({"status": "unavailable", "legs": []}), 200)
+            return make_response(jsonify({"status": "ok", "legs": legs}), 200)
+
+        except ValidationError as err:
+            return make_response(jsonify({"status": "error", "message": err.messages}), 400)
+        except Exception as e:
+            logger.exception(f"Unexpected error in strategy legs endpoint: {e}")
             return make_response(
                 jsonify({"status": "error", "message": "An unexpected error occurred"}), 500
             )
