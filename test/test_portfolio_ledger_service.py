@@ -44,7 +44,9 @@ def _open_funds(user_id: str, *, realized_pnl: float = 0.0):
     db_session.commit()
 
 
-def _add_leg(user_id: str, strategy: str, symbol: str, quantity: float, average_price: float = 100.0):
+def _add_leg(
+    user_id: str, strategy: str, symbol: str, quantity: float, average_price: float = 100.0
+):
     from database.strategy_book_db import StrategyPosition, db_session
 
     db_session.add(

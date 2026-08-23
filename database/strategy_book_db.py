@@ -161,9 +161,7 @@ class StrategyRiskProfile(Base):
     """
 
     __tablename__ = "strategy_risk_profiles"
-    __table_args__ = (
-        UniqueConstraint("user_id", "strategy", name="uq_strategy_risk_profile"),
-    )
+    __table_args__ = (UniqueConstraint("user_id", "strategy", name="uq_strategy_risk_profile"),)
 
     id = Column(Integer, primary_key=True)
     user_id = Column(String(64), nullable=False, index=True)
@@ -203,9 +201,7 @@ def set_strategy_risk_profile(
 
 def get_strategy_risk_profile(user_id: str, strategy: str) -> dict | None:
     row = (
-        db_session.query(StrategyRiskProfile)
-        .filter_by(user_id=user_id, strategy=strategy)
-        .first()
+        db_session.query(StrategyRiskProfile).filter_by(user_id=user_id, strategy=strategy).first()
     )
     if row is None:
         return None
