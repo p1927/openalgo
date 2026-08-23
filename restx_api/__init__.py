@@ -49,6 +49,7 @@ from .place_order import api as place_order_ns
 from .place_smart_order import api as place_smart_order_ns
 from .pnl_symbols import api as pnl_symbols_ns
 from .portfolio import api as portfolio_ns
+from .portfolio_ledger import api as strategy_performance_ns  # Portfolio ledger routes (fork-only)
 from .sip import api as sip_ns
 from .positionbook import api as positionbook_ns
 from .quotes import api as quotes_ns
@@ -77,6 +78,7 @@ api.add_namespace(depth_ns, path="/depth")
 api.add_namespace(option_chain_ns, path="/optionchain")
 api.add_namespace(intervals_ns, path="/intervals")
 api.add_namespace(funds_ns, path="/funds")
+api.add_namespace(strategy_performance_ns, path="/strategyperformance")  # fork-only
 api.add_namespace(orderbook_ns, path="/orderbook")
 api.add_namespace(tradebook_ns, path="/tradebook")
 api.add_namespace(positionbook_ns, path="/positionbook")

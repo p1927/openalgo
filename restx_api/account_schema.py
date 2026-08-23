@@ -66,3 +66,8 @@ class ChartSchema(Schema):
 
 class PnlSymbolsSchema(Schema):
     apikey = fields.Str(required=True, validate=validate.Length(min=1, max=256))
+
+
+class StrategyPerformanceSchema(Schema):
+    apikey = fields.Str(required=True, validate=validate.Length(min=1, max=256))
+    strategy = fields.Str(load_default=None, allow_none=True)
