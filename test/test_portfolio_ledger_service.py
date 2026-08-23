@@ -203,3 +203,138 @@ class TestStrategyRiskProfileCrud:
         from database.strategy_book_db import clear_strategy_risk_profile
 
         assert clear_strategy_risk_profile(user_id, "never-traded") is False
+
+
+def _add_closed_trade(
+    user_id: str,
+    strategy: str,
+    realized_pnl: float,
+    *,
+    symbol: str = "SYM",
+    closed_quantity: float = 65.0,
+    entry_price: float = 100.0,
+    exit_price: float = 100.0,
+):
+    from database.strategy_book_db import StrategyClosedTrade, db_session
+
+    db_session.add(
+        StrategyClosedTrade(
+            user_id=user_id,
+            strategy=strategy,
+            symbol=symbol,
+            exchange="NFO",
+            product="NRML",
+            closed_quantity=closed_quantity,
+            entry_price=entry_price,
+            exit_price=exit_price,
+            realized_pnl=realized_pnl,
+        )
+    )
+    db_session.commit()
+
+
+class TestClosedTradeLog:
+    def test_apply_fill_open_then_close_writes_one_closed_trade_row(self, user_id):
+        """End-to-end through the real fill-application path, not a direct-row
+        fixture — proves the write hook in `_apply_fill_locked` actually
+        fires on a realistic open-then-close fill sequence."""
+        from database.strategy_book_db import apply_fill, get_closed_trades, record_order_tag
+
+        record_order_tag(f"{user_id}-OPEN", user_id, "e2e_strategy", "SYM", "NFO", "NRML")
+        apply_fill(f"{user_id}-OPEN", filled_quantity=65, average_price=100.0, action="BUY")
+
+        record_order_tag(f"{user_id}-CLOSE", user_id, "e2e_strategy", "SYM", "NFO", "NRML")
+        apply_fill(f"{user_id}-CLOSE", filled_quantity=65, average_price=120.0, action="SELL")
+
+        trades = get_closed_trades(user_id=user_id, strategy="e2e_strategy")
+        assert len(trades) == 1
+        trade = trades[0]
+        assert trade["closed_quantity"] == 65.0
+        assert trade["entry_price"] == 100.0
+        assert trade["exit_price"] == 120.0
+        assert trade["realized_pnl"] == pytest.approx(65.0 * (120.0 - 100.0))
+
+    def test_partial_close_writes_its_own_row_not_the_whole_leg(self, user_id):
+        from database.strategy_book_db import apply_fill, get_closed_trades, record_order_tag
+
+        record_order_tag(f"{user_id}-OPEN2", user_id, "partial_strategy", "SYM2", "NFO", "NRML")
+        apply_fill(f"{user_id}-OPEN2", filled_quantity=100, average_price=50.0, action="BUY")
+
+        record_order_tag(f"{user_id}-PARTIAL", user_id, "partial_strategy", "SYM2", "NFO", "NRML")
+        apply_fill(f"{user_id}-PARTIAL", filled_quantity=40, average_price=60.0, action="SELL")
+
+        trades = get_closed_trades(user_id=user_id, strategy="partial_strategy")
+        assert len(trades) == 1
+        assert trades[0]["closed_quantity"] == 40.0
+        assert trades[0]["realized_pnl"] == pytest.approx(40.0 * (60.0 - 50.0))
+
+    def test_get_closed_trades_filters_by_strategy(self, user_id):
+        from database.strategy_book_db import get_closed_trades
+
+        _add_closed_trade(user_id, "strat_a", realized_pnl=100.0)
+        _add_closed_trade(user_id, "strat_b", realized_pnl=-50.0)
+
+        assert len(get_closed_trades(user_id=user_id, strategy="strat_a")) == 1
+        assert len(get_closed_trades(user_id=user_id)) == 2
+
+
+class TestGetStrategyPerformance:
+    def test_no_trades_returns_empty_shape_not_an_error(self, user_id):
+        from services.portfolio_ledger_service import get_strategy_performance
+
+        result = get_strategy_performance(user_id)
+        assert result["status"] == "success"
+        assert result["trade_count"] == 0
+        assert result["win_rate"] is None
+        assert result["expectancy"] is None
+
+    def test_win_rate_and_expectancy_over_mixed_trades(self, user_id):
+        from services.portfolio_ledger_service import get_strategy_performance
+
+        _add_closed_trade(user_id, "s", realized_pnl=200.0)
+        _add_closed_trade(user_id, "s", realized_pnl=300.0)
+        _add_closed_trade(user_id, "s", realized_pnl=-100.0)
+
+        result = get_strategy_performance(user_id, strategy="s")
+        assert result["trade_count"] == 3
+        assert result["win_count"] == 2
+        assert result["loss_count"] == 1
+        assert result["win_rate"] == pytest.approx(2 / 3, abs=1e-4)
+        assert result["average_win"] == pytest.approx(250.0)
+        assert result["average_loss"] == pytest.approx(-100.0)
+        # expectancy = (2/3 * 250) + (1/3 * -100)
+        assert result["expectancy"] == pytest.approx((2 / 3) * 250.0 + (1 / 3) * -100.0, abs=1e-2)
+        assert result["net_pnl"] == pytest.approx(400.0)
+        assert result["gross_profit"] == pytest.approx(500.0)
+        assert result["gross_loss"] == pytest.approx(-100.0)
+
+    def test_all_losing_trades_gives_zero_win_rate(self, user_id):
+        from services.portfolio_ledger_service import get_strategy_performance
+
+        _add_closed_trade(user_id, "losers", realized_pnl=-50.0)
+        _add_closed_trade(user_id, "losers", realized_pnl=-75.0)
+
+        result = get_strategy_performance(user_id, strategy="losers")
+        assert result["win_rate"] == 0.0
+        assert result["average_win"] == 0.0
+        assert result["expectancy"] == pytest.approx(-62.5)
+
+    def test_scoped_to_one_strategy_excludes_others(self, user_id):
+        from services.portfolio_ledger_service import get_strategy_performance
+
+        _add_closed_trade(user_id, "only_this", realized_pnl=100.0)
+        _add_closed_trade(user_id, "not_this", realized_pnl=-1000.0)
+
+        result = get_strategy_performance(user_id, strategy="only_this")
+        assert result["trade_count"] == 1
+        assert result["net_pnl"] == pytest.approx(100.0)
+
+    def test_no_strategy_filter_aggregates_across_all(self, user_id):
+        from services.portfolio_ledger_service import get_strategy_performance
+
+        _add_closed_trade(user_id, "a", realized_pnl=100.0)
+        _add_closed_trade(user_id, "b", realized_pnl=50.0)
+
+        result = get_strategy_performance(user_id)
+        assert result["trade_count"] == 2
+        assert result["net_pnl"] == pytest.approx(150.0)

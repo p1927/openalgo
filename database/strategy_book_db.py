@@ -67,6 +67,7 @@ _initialized = False
 class StrategyBookUnavailable(RuntimeError):
     """The per-strategy book could not be read, so its figures are unknown."""
 
+
 engine = create_db_engine()
 
 db_session = scoped_session(sessionmaker(autocommit=False, autoflush=False, bind=engine))
@@ -172,6 +173,70 @@ class StrategyRiskProfile(Base):
     max_profit = Column(Float, nullable=True)
     recorded_at = Column(DateTime, nullable=False, default=datetime.now)
     updated_at = Column(DateTime, nullable=False, default=datetime.now, onupdate=datetime.now)
+
+
+class StrategyClosedTrade(Base):
+    """One row per realized-P&L event, written at the exact point
+    `_apply_fill_locked` computes `realized` for a closing fill.
+
+    `StrategyPosition.realized_pnl` only accumulates a running total — this
+    table persists each discrete realization so win-rate/expectancy can be
+    computed over individual trade-closure events, not just the sum.
+
+    A partial close is its own row here, same as how a partial fill is its
+    own row in `SandboxTrades` — this counts "how many realization events
+    were profitable", not "how many round-trips to fully flat", since a leg
+    reopening the same day makes lifecycle boundaries ambiguous to infer
+    reliably from fills alone. That matches how win-rate is conventionally
+    reported in trade journals.
+    """
+
+    __tablename__ = "strategy_closed_trades"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(String(64), nullable=False, index=True)
+    strategy = Column(String(120), nullable=False, index=True)
+    symbol = Column(String(64), nullable=False)
+    exchange = Column(String(20), nullable=False)
+    product = Column(String(20), nullable=False)
+    closed_quantity = Column(Float, nullable=False)
+    entry_price = Column(Float, nullable=False)
+    exit_price = Column(Float, nullable=False)
+    realized_pnl = Column(Float, nullable=False)
+    trade_date = Column(String(10), nullable=True)
+    closed_at = Column(DateTime, nullable=False, default=datetime.now)
+
+
+def get_closed_trades(
+    user_id: str | None = None,
+    strategy: str | None = None,
+    *,
+    limit: int | None = None,
+) -> list[dict]:
+    """Realized-trade log, newest first. Feeds win-rate/expectancy stats."""
+    query = db_session.query(StrategyClosedTrade)
+    if user_id:
+        query = query.filter(StrategyClosedTrade.user_id == user_id)
+    if strategy:
+        query = query.filter(StrategyClosedTrade.strategy == strategy)
+    query = query.order_by(StrategyClosedTrade.closed_at.desc())
+    if limit:
+        query = query.limit(limit)
+    return [
+        {
+            "strategy": row.strategy,
+            "symbol": row.symbol,
+            "exchange": row.exchange,
+            "product": row.product,
+            "closed_quantity": round(float(row.closed_quantity), 4),
+            "entry_price": round(float(row.entry_price), 4),
+            "exit_price": round(float(row.exit_price), 4),
+            "realized_pnl": round(float(row.realized_pnl), 4),
+            "trade_date": row.trade_date,
+            "closed_at": row.closed_at.isoformat() if row.closed_at else None,
+        }
+        for row in query.all()
+    ]
 
 
 def set_strategy_risk_profile(
@@ -540,6 +605,20 @@ def _apply_fill_locked(
             realized = closing * (price - avg) * direction
             leg.realized_pnl = float(leg.realized_pnl or 0) + realized
             leg.today_realized_pnl = float(leg.today_realized_pnl or 0) + realized
+            db_session.add(
+                StrategyClosedTrade(
+                    user_id=tag.user_id,
+                    strategy=tag.strategy,
+                    symbol=tag.symbol,
+                    exchange=tag.exchange,
+                    product=tag.product,
+                    closed_quantity=closing,
+                    entry_price=avg,
+                    exit_price=price,
+                    realized_pnl=realized,
+                    trade_date=today,
+                )
+            )
             remaining = abs(signed) - closing
             leg.quantity = qty + signed
             if abs(leg.quantity) < 1e-9:

@@ -123,3 +123,64 @@ def get_portfolio_rollup(user_id: str) -> dict[str, Any]:
         "open_strategies": open_strategies,
         "unprofiled_open_strategies": unprofiled_open_strategies,
     }
+
+
+def get_strategy_performance(user_id: str, strategy: str | None = None) -> dict[str, Any]:
+    """Win-rate/expectancy stats over realized-trade-closure events.
+
+    `strategy=None` aggregates every closed trade across the whole account;
+    pass a specific strategy tag to scope to just that one. Each row in
+    `strategy_book_db.StrategyClosedTrade` is one realization event (a fill
+    that closed some or all of an open leg) — a partial close counts as its
+    own event, not a fraction of a "round trip", same as this codebase's
+    fill-level P&L accounting elsewhere.
+
+    Expectancy is `win_rate * average_win + loss_rate * average_loss`
+    (`average_loss` is negative) — the standard "expected P&L per trade"
+    figure, distinct from `get_portfolio_rollup`'s point-in-time risk
+    snapshot: this answers "is the system making money over time", that
+    answers "how much is at risk right now".
+    """
+    from database.strategy_book_db import get_closed_trades
+
+    trades = get_closed_trades(user_id=user_id, strategy=strategy)
+    if not trades:
+        return {
+            "status": "success",
+            "trade_count": 0,
+            "win_count": 0,
+            "loss_count": 0,
+            "breakeven_count": 0,
+            "win_rate": None,
+            "expectancy": None,
+            "average_win": None,
+            "average_loss": None,
+            "gross_profit": 0.0,
+            "gross_loss": 0.0,
+            "net_pnl": 0.0,
+        }
+
+    pnls = [t["realized_pnl"] for t in trades]
+    wins = [p for p in pnls if p > 0]
+    losses = [p for p in pnls if p < 0]
+    trade_count = len(pnls)
+    win_rate = len(wins) / trade_count
+    loss_rate = len(losses) / trade_count
+    average_win = (sum(wins) / len(wins)) if wins else 0.0
+    average_loss = (sum(losses) / len(losses)) if losses else 0.0
+    expectancy = (win_rate * average_win) + (loss_rate * average_loss)
+
+    return {
+        "status": "success",
+        "trade_count": trade_count,
+        "win_count": len(wins),
+        "loss_count": len(losses),
+        "breakeven_count": trade_count - len(wins) - len(losses),
+        "win_rate": round(win_rate, 4),
+        "expectancy": round(expectancy, 2),
+        "average_win": round(average_win, 2),
+        "average_loss": round(average_loss, 2),
+        "gross_profit": round(sum(wins), 2),
+        "gross_loss": round(sum(losses), 2),
+        "net_pnl": round(sum(pnls), 2),
+    }
