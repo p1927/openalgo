@@ -99,6 +99,7 @@ from blueprints.orders import orders_bp
 from blueprints.platforms import platforms_bp
 from blueprints.playground import playground_bp  # Import the API playground blueprint
 from blueprints.pnltracker import pnltracker_bp  # Import the pnl tracker blueprint
+from blueprints.portfolio_ledger import portfolio_ledger_bp  # Portfolio ledger routes (fork-only)
 from blueprints.postback import postback_bp  # Import broker postback (order updates) blueprint
 from blueprints.python_strategy import initialize_with_app_context as init_python_strategy
 from blueprints.python_strategy import python_strategy_bp  # Import the python strategy blueprint
@@ -365,6 +366,7 @@ def create_app():
     app.register_blueprint(straddle_bp)  # Register straddle chart blueprint
     app.register_blueprint(strategy_chart_bp)  # Register strategy chart blueprint
     app.register_blueprint(strategy_synthesis_bp)  # Register strategy synthesis blueprint
+    app.register_blueprint(portfolio_ledger_bp)  # Register portfolio ledger blueprint (fork-only)
     app.register_blueprint(custom_straddle_bp)  # Register custom straddle blueprint
     app.register_blueprint(vol_surface_bp)  # Register vol surface blueprint
     app.register_blueprint(gex_bp)  # Register GEX blueprint
