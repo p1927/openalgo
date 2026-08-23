@@ -174,3 +174,30 @@ def sync_env_secret_to_auth_db(
         "updated_users": updated_users,
         "env_matches_db": len(updated_users) == 0,
     }
+
+
+def sync_env_token_brokers_on_startup() -> None:
+    """Apply broker credentials and sync an env-token broker's secret into the auth DB.
+
+    Called once from app.py's create_app() after the DB tables are ready. Never raises —
+    startup should proceed even if the sync fails, same as every other best-effort startup
+    step in create_app().
+    """
+    try:
+        from utils.broker_credentials import apply_broker_credentials
+
+        apply_broker_credentials(get_configured_broker())
+        if is_env_token_broker():
+            sync_result = sync_env_secret_to_auth_db(reload_env=False)
+            if sync_result.get("synced"):
+                logger.info(
+                    "Broker env sync on startup: updated %s",
+                    ", ".join(sync_result.get("updated_users") or []),
+                )
+            else:
+                logger.debug(
+                    "Broker env sync on startup: %s",
+                    sync_result.get("reason", "skipped"),
+                )
+    except Exception as e:
+        logger.warning(f"Broker env sync on startup failed: {e}")

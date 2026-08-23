@@ -821,25 +821,9 @@ def setup_environment(app):
                 )
 
             # Sync env-token brokers (IndMoney daily JWT) from .env → auth DB
-            try:
-                from utils.broker_credentials import apply_broker_credentials
-                from utils.broker_env_sync import get_configured_broker, is_env_token_broker, sync_env_secret_to_auth_db
+            from utils.broker_env_sync import sync_env_token_brokers_on_startup
 
-                apply_broker_credentials(get_configured_broker())
-                if is_env_token_broker():
-                    sync_result = sync_env_secret_to_auth_db(reload_env=False)
-                    if sync_result.get("synced"):
-                        logger.info(
-                            "Broker env sync on startup: updated %s",
-                            ", ".join(sync_result.get("updated_users") or []),
-                        )
-                    else:
-                        logger.debug(
-                            "Broker env sync on startup: %s",
-                            sync_result.get("reason", "skipped"),
-                        )
-            except Exception as e:
-                logger.warning(f"Broker env sync on startup failed: {e}")
+            sync_env_token_brokers_on_startup()
 
             # Signal that DB tables are ready (unblocks cache restoration)
             app.db_ready.set()
