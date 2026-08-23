@@ -147,153 +147,20 @@ class StrategyPosition(Base):
     updated_at = Column(DateTime, nullable=False, default=datetime.now, onupdate=datetime.now)
 
 
-class StrategyRiskProfile(Base):
-    """Max-risk / max-profit snapshot for one strategy group, recorded once at
-    entry (typically by the risk-adjusted-selector's ranking output) and read
-    back by the portfolio-ledger rollup to answer "how much capital is
-    currently committed as risk".
-
-    Deliberately separate from `StrategyPosition`: that table is fed
-    continuously from the event bus and reflects live quantity/cost basis,
-    while this one is a point-in-time figure fixed at open time (a spread's
-    max loss does not change as the market moves, only its live P&L within
-    that fixed band does). One row per (user, strategy) — a strategy is
-    re-profiled by upserting, not by inserting a new row.
-    """
-
-    __tablename__ = "strategy_risk_profiles"
-    __table_args__ = (UniqueConstraint("user_id", "strategy", name="uq_strategy_risk_profile"),)
-
-    id = Column(Integer, primary_key=True)
-    user_id = Column(String(64), nullable=False, index=True)
-    strategy = Column(String(120), nullable=False, index=True)
-    max_risk = Column(Float, nullable=False)
-    # None for an undefined-risk position (e.g. a long single option) whose
-    # profit is uncapped — never a stand-in for "unknown".
-    max_profit = Column(Float, nullable=True)
-    recorded_at = Column(DateTime, nullable=False, default=datetime.now)
-    updated_at = Column(DateTime, nullable=False, default=datetime.now, onupdate=datetime.now)
-
-
-class StrategyClosedTrade(Base):
-    """One row per realized-P&L event, written at the exact point
-    `_apply_fill_locked` computes `realized` for a closing fill.
-
-    `StrategyPosition.realized_pnl` only accumulates a running total — this
-    table persists each discrete realization so win-rate/expectancy can be
-    computed over individual trade-closure events, not just the sum.
-
-    A partial close is its own row here, same as how a partial fill is its
-    own row in `SandboxTrades` — this counts "how many realization events
-    were profitable", not "how many round-trips to fully flat", since a leg
-    reopening the same day makes lifecycle boundaries ambiguous to infer
-    reliably from fills alone. That matches how win-rate is conventionally
-    reported in trade journals.
-    """
-
-    __tablename__ = "strategy_closed_trades"
-
-    id = Column(Integer, primary_key=True)
-    user_id = Column(String(64), nullable=False, index=True)
-    strategy = Column(String(120), nullable=False, index=True)
-    symbol = Column(String(64), nullable=False)
-    exchange = Column(String(20), nullable=False)
-    product = Column(String(20), nullable=False)
-    closed_quantity = Column(Float, nullable=False)
-    entry_price = Column(Float, nullable=False)
-    exit_price = Column(Float, nullable=False)
-    realized_pnl = Column(Float, nullable=False)
-    trade_date = Column(String(10), nullable=True)
-    closed_at = Column(DateTime, nullable=False, default=datetime.now)
-
-
-def get_closed_trades(
-    user_id: str | None = None,
-    strategy: str | None = None,
-    *,
-    limit: int | None = None,
-) -> list[dict]:
-    """Realized-trade log, newest first. Feeds win-rate/expectancy stats."""
-    query = db_session.query(StrategyClosedTrade)
-    if user_id:
-        query = query.filter(StrategyClosedTrade.user_id == user_id)
-    if strategy:
-        query = query.filter(StrategyClosedTrade.strategy == strategy)
-    query = query.order_by(StrategyClosedTrade.closed_at.desc())
-    if limit:
-        query = query.limit(limit)
-    return [
-        {
-            "strategy": row.strategy,
-            "symbol": row.symbol,
-            "exchange": row.exchange,
-            "product": row.product,
-            "closed_quantity": round(float(row.closed_quantity), 4),
-            "entry_price": round(float(row.entry_price), 4),
-            "exit_price": round(float(row.exit_price), 4),
-            "realized_pnl": round(float(row.realized_pnl), 4),
-            "trade_date": row.trade_date,
-            "closed_at": row.closed_at.isoformat() if row.closed_at else None,
-        }
-        for row in query.all()
-    ]
-
-
-def set_strategy_risk_profile(
-    user_id: str, strategy: str, max_risk: float, max_profit: float | None = None
-) -> None:
-    """Record (or replace) the max-risk/max-profit-at-entry figures for one
-    strategy group. Idempotent — re-recording the same strategy overwrites its
-    prior snapshot rather than accumulating rows."""
-    try:
-        row = (
-            db_session.query(StrategyRiskProfile)
-            .filter_by(user_id=user_id, strategy=strategy)
-            .first()
-        )
-        if row is None:
-            row = StrategyRiskProfile(user_id=user_id, strategy=strategy)
-            db_session.add(row)
-        row.max_risk = max_risk
-        row.max_profit = max_profit
-        row.updated_at = datetime.now()
-        db_session.commit()
-    except Exception:
-        db_session.rollback()
-        logger.exception(f"Could not set risk profile for strategy {strategy}")
-        raise
-
-
-def get_strategy_risk_profile(user_id: str, strategy: str) -> dict | None:
-    row = (
-        db_session.query(StrategyRiskProfile).filter_by(user_id=user_id, strategy=strategy).first()
-    )
-    if row is None:
-        return None
-    return {
-        "strategy": row.strategy,
-        "max_risk": row.max_risk,
-        "max_profit": row.max_profit,
-        "recorded_at": row.recorded_at.isoformat() if row.recorded_at else None,
-        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
-    }
-
-
-def clear_strategy_risk_profile(user_id: str, strategy: str) -> bool:
-    """Drop a strategy's risk-profile snapshot, e.g. once it has fully closed
-    and should no longer count toward capital-at-risk."""
-    try:
-        n = (
-            db_session.query(StrategyRiskProfile)
-            .filter_by(user_id=user_id, strategy=strategy)
-            .delete()
-        )
-        db_session.commit()
-        return n > 0
-    except Exception:
-        db_session.rollback()
-        logger.exception(f"Could not clear risk profile for strategy {strategy}")
-        return False
+# Module 9 (portfolio-ledger) risk-profile/closed-trade tables and CRUD live in
+# strategy_risk_book_db.py (sidecar, per docs/FORK_CONVENTIONS.md) — re-exported
+# here so existing `from database.strategy_book_db import X` call sites are
+# unaffected. Imported here (rather than only from callers) so these models
+# register on `Base.metadata` before `init_strategy_book_db()` runs below.
+from database.strategy_risk_book_db import (  # noqa: E402
+    StrategyClosedTrade,
+    StrategyRiskProfile,
+    clear_strategy_risk_profile,
+    get_closed_trades,
+    get_strategy_risk_profile,
+    record_closed_trade,
+    set_strategy_risk_profile,
+)
 
 
 def init_strategy_book_db() -> None:
@@ -605,19 +472,17 @@ def _apply_fill_locked(
             realized = closing * (price - avg) * direction
             leg.realized_pnl = float(leg.realized_pnl or 0) + realized
             leg.today_realized_pnl = float(leg.today_realized_pnl or 0) + realized
-            db_session.add(
-                StrategyClosedTrade(
-                    user_id=tag.user_id,
-                    strategy=tag.strategy,
-                    symbol=tag.symbol,
-                    exchange=tag.exchange,
-                    product=tag.product,
-                    closed_quantity=closing,
-                    entry_price=avg,
-                    exit_price=price,
-                    realized_pnl=realized,
-                    trade_date=today,
-                )
+            record_closed_trade(
+                user_id=tag.user_id,
+                strategy=tag.strategy,
+                symbol=tag.symbol,
+                exchange=tag.exchange,
+                product=tag.product,
+                closed_quantity=closing,
+                entry_price=avg,
+                exit_price=price,
+                realized_pnl=realized,
+                trade_date=today,
             )
             remaining = abs(signed) - closing
             leg.quantity = qty + signed
