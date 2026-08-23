@@ -71,3 +71,10 @@ class PnlSymbolsSchema(Schema):
 class StrategyPerformanceSchema(Schema):
     apikey = fields.Str(required=True, validate=validate.Length(min=1, max=256))
     strategy = fields.Str(load_default=None, allow_none=True)
+
+
+class StrategyRiskProfileSchema(Schema):
+    apikey = fields.Str(required=True, validate=validate.Length(min=1, max=256))
+    strategy = fields.Str(required=True, validate=validate.Length(min=1, max=100))
+    max_risk = fields.Float(required=True, validate=validate.Range(min=0))
+    max_profit = fields.Float(load_default=None, allow_none=True, validate=validate.Range(min=0))

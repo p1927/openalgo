@@ -19,7 +19,7 @@ from limiter import limiter
 from services.portfolio_ledger_service import get_strategy_performance
 from utils.logging import get_logger
 
-from .account_schema import StrategyPerformanceSchema
+from .account_schema import StrategyPerformanceSchema, StrategyRiskProfileSchema
 
 API_RATE_LIMIT = os.getenv("API_RATE_LIMIT", "10 per second")
 api = Namespace("strategyperformance", description="Portfolio Ledger Strategy Performance API")
@@ -30,6 +30,7 @@ strategy_performance_schema = StrategyPerformanceSchema()
 # Same two fields (apikey, optional strategy) as strategy-performance -- reused rather than
 # duplicated.
 strategy_legs_schema = StrategyPerformanceSchema()
+strategy_risk_profile_schema = StrategyRiskProfileSchema()
 
 
 @api.route("/", strict_slashes=False)
@@ -98,6 +99,64 @@ class StrategyLegs(Resource):
             return make_response(jsonify({"status": "error", "message": err.messages}), 400)
         except Exception as e:
             logger.exception(f"Unexpected error in strategy legs endpoint: {e}")
+            return make_response(
+                jsonify({"status": "error", "message": "An unexpected error occurred"}), 500
+            )
+
+
+@api.route("/riskprofile", strict_slashes=False)
+class StrategyRiskProfile(Resource):
+    @limiter.limit(API_RATE_LIMIT)
+    def post(self):
+        """Record (or replace) the max-risk/max-profit-at-entry figures for one
+        strategy group.
+
+        The write counterpart `get_portfolio_rollup` already reads from --
+        `set_strategy_risk_profile` had zero production callers anywhere in
+        the codebase before this (only this module's own tests called it; see
+        .claude/backlog/items/2026-08-22-profit-accumulation-portfolio-ledger.md's
+        2026-08-24 attempt), so the rollup's `capital_at_risk` figure has never
+        reflected a real trade outside tests. Module 5's selector
+        (`GET /options/india/selector`) computes exactly these numbers per
+        candidate already -- this is the endpoint a caller (a UI "commit this
+        trade" action, or a future execution module) would call to persist
+        them once a candidate is actually acted on. Idempotent -- re-recording
+        the same strategy overwrites its prior snapshot, matching
+        `set_strategy_risk_profile`'s own contract.
+        """
+        from database.strategy_book_db import set_strategy_risk_profile
+
+        try:
+            data = strategy_risk_profile_schema.load(request.json)
+
+            user_id = verify_api_key(data["apikey"])
+            if not user_id:
+                return make_response(
+                    jsonify({"status": "error", "message": "Invalid openalgo apikey"}), 403
+                )
+
+            set_strategy_risk_profile(
+                user_id,
+                data["strategy"],
+                data["max_risk"],
+                max_profit=data["max_profit"],
+            )
+            return make_response(
+                jsonify(
+                    {
+                        "status": "success",
+                        "strategy": data["strategy"],
+                        "max_risk": data["max_risk"],
+                        "max_profit": data["max_profit"],
+                    }
+                ),
+                200,
+            )
+
+        except ValidationError as err:
+            return make_response(jsonify({"status": "error", "message": err.messages}), 400)
+        except Exception as e:
+            logger.exception(f"Unexpected error in strategy risk profile endpoint: {e}")
             return make_response(
                 jsonify({"status": "error", "message": "An unexpected error occurred"}), 500
             )

@@ -159,3 +159,97 @@ def test_legs_degrades_gracefully_when_book_unavailable(client, monkeypatch):
 
     assert response.status_code == 200
     assert response.get_json() == {"status": "unavailable", "legs": []}
+
+
+@pytest.mark.unit
+def test_riskprofile_rejects_an_invalid_api_key(client, monkeypatch):
+    monkeypatch.setattr(portfolio_ledger_api, "verify_api_key", lambda _key: None)
+
+    response = client.post(
+        "/strategyperformance/riskprofile",
+        json={"apikey": "bad-key", "strategy": "iron-condor-1", "max_risk": 500},
+    )
+
+    assert response.status_code == 403
+    assert response.get_json()["message"] == "Invalid openalgo apikey"
+
+
+@pytest.mark.unit
+def test_riskprofile_rejects_missing_required_fields(client):
+    response = client.post("/strategyperformance/riskprofile", json={"apikey": "key"})
+
+    assert response.status_code == 400
+    body = response.get_json()
+    assert "strategy" in body["message"]
+    assert "max_risk" in body["message"]
+
+
+@pytest.mark.unit
+def test_riskprofile_rejects_a_negative_max_risk(client, monkeypatch):
+    monkeypatch.setattr(portfolio_ledger_api, "verify_api_key", lambda _key: "user-1")
+
+    response = client.post(
+        "/strategyperformance/riskprofile",
+        json={"apikey": "key", "strategy": "iron-condor-1", "max_risk": -500},
+    )
+
+    assert response.status_code == 400
+
+
+@pytest.mark.unit
+def test_riskprofile_persists_max_risk_and_max_profit(client, monkeypatch):
+    monkeypatch.setattr(portfolio_ledger_api, "verify_api_key", lambda _key: "user-1")
+
+    captured = {}
+
+    def fake_set_strategy_risk_profile(user_id, strategy, max_risk, max_profit=None):
+        captured["user_id"] = user_id
+        captured["strategy"] = strategy
+        captured["max_risk"] = max_risk
+        captured["max_profit"] = max_profit
+
+    monkeypatch.setattr(
+        "database.strategy_book_db.set_strategy_risk_profile", fake_set_strategy_risk_profile
+    )
+
+    response = client.post(
+        "/strategyperformance/riskprofile",
+        json={"apikey": "key", "strategy": "iron-condor-1", "max_risk": 500, "max_profit": 1200},
+    )
+
+    assert response.status_code == 200
+    assert response.get_json() == {
+        "status": "success",
+        "strategy": "iron-condor-1",
+        "max_risk": 500,
+        "max_profit": 1200,
+    }
+    assert captured == {
+        "user_id": "user-1",
+        "strategy": "iron-condor-1",
+        "max_risk": 500.0,
+        "max_profit": 1200.0,
+    }
+
+
+@pytest.mark.unit
+def test_riskprofile_defaults_max_profit_to_none_for_undefined_risk_positions(client, monkeypatch):
+    monkeypatch.setattr(portfolio_ledger_api, "verify_api_key", lambda _key: "user-1")
+
+    captured = {}
+
+    def fake_set_strategy_risk_profile(user_id, strategy, max_risk, max_profit=None):
+        captured["max_profit"] = max_profit
+
+    monkeypatch.setattr(
+        "database.strategy_book_db.set_strategy_risk_profile", fake_set_strategy_risk_profile
+    )
+
+    response = client.post(
+        "/strategyperformance/riskprofile",
+        json={"apikey": "key", "strategy": "long-call-1", "max_risk": 350},
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["max_profit"] is None
+    assert captured["max_profit"] is None
