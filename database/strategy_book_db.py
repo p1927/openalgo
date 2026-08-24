@@ -193,8 +193,15 @@ def _prune_old_tags() -> None:
             .filter(StrategyOrderTag.created_at < cutoff)
             .delete(synchronize_session=False)
         )
+        # Commit unconditionally: .delete() always opens a transaction on the
+        # scoped session's connection, even when it matches zero rows (the
+        # common case). Committing only inside `if removed` left that
+        # transaction open indefinitely whenever there was nothing to prune,
+        # holding SQLite's WAL writer lock for the lifetime of the process and
+        # blocking every other writer (including other processes) to the same
+        # database file - not just this table.
+        db_session.commit()
         if removed:
-            db_session.commit()
             logger.info(f"Strategy book: pruned {removed} order tag(s) past retention")
     except Exception:
         db_session.rollback()

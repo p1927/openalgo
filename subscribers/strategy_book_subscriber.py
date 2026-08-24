@@ -15,6 +15,7 @@ covers either mode, and orders placed through ``/api/v1`` are tracked exactly
 like Flow-placed ones as long as they carry a ``strategy``.
 """
 
+from database.auth_db import verify_api_key
 from database.strategy_book_db import apply_fill, record_order_tag
 from utils.logging import get_logger
 
@@ -26,6 +27,29 @@ _FILLABLE = {"complete", "filled", "partially filled", "partial"}
 
 
 def _user_id(event) -> str:
+    """Resolve the strategy book's user_id for an order event.
+
+    Real callers (TradingView, Amibroker, /api/v1 clients, Flow) authenticate
+    with an apikey and never send a literal "user_id" field, so
+    request_data["user_id"] - the only thing this used to check - is empty in
+    production traffic and every StrategyOrderTag/StrategyClosedTrade row
+    ended up with user_id="" (only ever caught here because nothing had
+    placed a real order through the event bus before; every test called
+    record_order_tag directly with an explicit user_id, bypassing this
+    function entirely). event.api_key is populated by place_order_service for
+    both live and sandbox orders, so resolve through that first and keep the
+    request_data lookup only as a fallback for a caller that already supplies
+    user_id explicitly.
+    """
+    api_key = (getattr(event, "api_key", "") or "").strip()
+    if api_key:
+        try:
+            resolved = verify_api_key(api_key)
+        except Exception:
+            resolved = None
+            logger.exception("Strategy book: could not resolve user_id from api_key")
+        if resolved:
+            return str(resolved)
     return _request_field(event, "user_id")
 
 
