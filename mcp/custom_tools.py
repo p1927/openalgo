@@ -873,6 +873,39 @@ def register(mcpserver):
 
 
     @mcp.tool()
+    def submit_partial_close(
+        agent_id: str,
+        fraction: float,
+        rationale: str,
+        underlying: str | None = None,
+    ) -> str:
+        """
+        Reduce (not flatten) an India autonomous agent's open position by `fraction`.
+
+        Use when the position should carry less risk but the thesis isn't dead yet —
+        e.g. after a drawdown-duration or trailing-stop review flags sustained loss.
+        For a full flatten use submit_bridge_execution_intent with action="EXIT".
+
+        Args:
+            agent_id: aa_* agent id
+            fraction: strictly between 0 and 1 (e.g. 0.5 halves the position)
+            rationale: why this reduction is being made
+            underlying: optional, defaults to the agent's own handoff/primary symbol
+        """
+        try:
+            actions = _import_autonomous_agents()
+            result = actions.mcp_submit_partial_close(
+                agent_id=agent_id,
+                fraction=fraction,
+                rationale=rationale,
+                underlying=underlying,
+            )
+            return json.dumps(result, indent=2, default=str)
+        except Exception as e:
+            return json.dumps({"status": "error", "error": str(e)}, indent=2)
+
+
+    @mcp.tool()
     def get_research_status(
         ticker: str,
         asset_type: str = "stock",
