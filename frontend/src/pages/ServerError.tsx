@@ -5,6 +5,7 @@ import { fetchCSRFToken } from '@/api/client'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { showToast } from '@/utils/toast'
+import { API_BASE_URL } from '@/api/client'
 
 export default function ServerError() {
   const [isLoggingOut, setIsLoggingOut] = useState(false)
@@ -13,7 +14,7 @@ export default function ServerError() {
     setIsLoggingOut(true)
     try {
       const csrfToken = await fetchCSRFToken()
-      const response = await fetch('/auth/logout', {
+      const response = await fetch(`${API_BASE_URL}/auth/logout`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

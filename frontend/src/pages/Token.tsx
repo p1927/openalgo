@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { useSupportedExchanges } from '@/hooks/useSupportedExchanges'
+import { API_BASE_URL } from '@/api/client'
 
 interface SearchResult {
   symbol: string
@@ -153,10 +154,10 @@ export default function Token() {
           // include_futures=true so MCX commodities with only live FUT contracts
           // (NATURALGASMINI, COPPER, LEADMINI, ...) appear in the dropdown.
           // Option-chain pages keep the default (options-only) behaviour.
-          fetch(`/search/api/underlyings?exchange=${exchange}&include_futures=true`, {
+          fetch(`${API_BASE_URL}/search/api/underlyings?exchange=${exchange}&include_futures=true`, {
             credentials: 'include',
           }),
-          fetch(`/search/api/expiries?exchange=${exchange}`, { credentials: 'include' }),
+          fetch(`${API_BASE_URL}/search/api/expiries?exchange=${exchange}`, { credentials: 'include' }),
         ])
 
         // Ignore if this is a stale request
@@ -233,7 +234,7 @@ export default function Token() {
         if (strikeMin) params.append('strike_min', strikeMin)
         if (strikeMax) params.append('strike_max', strikeMax)
 
-        const response = await fetch(`/search/api/search?${params}`, {
+        const response = await fetch(`${API_BASE_URL}/search/api/search?${params}`, {
           credentials: 'include',
         })
         const data = await response.json()

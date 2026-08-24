@@ -1,3 +1,4 @@
+import { API_BASE_URL } from '@/api/client'
 /**
  * MarketDataManager - Singleton class for shared WebSocket connection management
  *
@@ -83,7 +84,7 @@ interface SubscriptionEntry {
 
 // Fetch CSRF token for authenticated requests
 async function fetchCSRFToken(): Promise<string> {
-  const response = await fetch('/auth/csrf-token', { credentials: 'include' })
+  const response = await fetch(`${API_BASE_URL}/auth/csrf-token`, { credentials: 'include' })
   const data = await response.json()
   return data.csrf_token
 }
@@ -368,7 +369,7 @@ export class MarketDataManager {
       }
 
       // Get WebSocket config
-      const configResponse = await fetch('/api/websocket/config', {
+      const configResponse = await fetch(`${API_BASE_URL}/api/websocket/config`, {
         headers: { 'X-CSRFToken': csrfToken },
         credentials: 'include',
         signal: abortSignal,
@@ -408,7 +409,7 @@ export class MarketDataManager {
             return
           }
 
-          const apiKeyResponse = await fetch('/api/websocket/apikey', {
+          const apiKeyResponse = await fetch(`${API_BASE_URL}/api/websocket/apikey`, {
             headers: { 'X-CSRFToken': authCsrfToken },
             credentials: 'include',
           })
@@ -737,7 +738,7 @@ export class MarketDataManager {
   private async fetchApiKeyForFallback(): Promise<void> {
     try {
       const csrfToken = await fetchCSRFToken()
-      const response = await fetch('/api/websocket/apikey', {
+      const response = await fetch(`${API_BASE_URL}/api/websocket/apikey`, {
         headers: { 'X-CSRFToken': csrfToken },
         credentials: 'include',
       })
@@ -794,7 +795,7 @@ export class MarketDataManager {
       if (symbolsArray.length === 0) return
 
       // Call multiquotes API
-      const response = await fetch('/api/v1/multiquotes', {
+      const response = await fetch(`${API_BASE_URL}/api/v1/multiquotes`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -21,9 +21,10 @@ import { Progress } from '@/components/ui/progress'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
 import { showToast } from '@/utils/toast'
+import { API_BASE_URL } from '@/api/client'
 
 async function fetchCSRFToken(): Promise<string> {
-  const response = await fetch('/auth/csrf-token', {
+  const response = await fetch(`${API_BASE_URL}/auth/csrf-token`, {
     credentials: 'include',
   })
   const data = await response.json()
@@ -154,7 +155,7 @@ export default function MasterContract() {
   const fetchIndMoneyToken = useCallback(async () => {
     setIsLoadingIndMoney(true)
     try {
-      const response = await fetch('/api/broker/indmoney-token', {
+      const response = await fetch(`${API_BASE_URL}/api/broker/indmoney-token`, {
         credentials: 'include',
       })
       if (response.ok) {
@@ -172,7 +173,7 @@ export default function MasterContract() {
 
   const fetchStatus = useCallback(async () => {
     try {
-      const response = await fetch('/api/master-contract/smart-status', {
+      const response = await fetch(`${API_BASE_URL}/api/master-contract/smart-status`, {
         credentials: 'include',
       })
       if (response.ok) {
@@ -196,7 +197,7 @@ export default function MasterContract() {
 
   const fetchCacheHealth = useCallback(async () => {
     try {
-      const response = await fetch('/api/cache/health', {
+      const response = await fetch(`${API_BASE_URL}/api/cache/health`, {
         credentials: 'include',
       })
       if (response.ok) {
@@ -231,7 +232,7 @@ export default function MasterContract() {
     setIsDownloading(true)
     try {
       const csrfToken = await fetchCSRFToken()
-      const response = await fetch('/api/master-contract/download', {
+      const response = await fetch(`${API_BASE_URL}/api/master-contract/download`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -265,7 +266,7 @@ export default function MasterContract() {
     setIsReloadingCache(true)
     try {
       const csrfToken = await fetchCSRFToken()
-      const response = await fetch('/api/cache/reload', {
+      const response = await fetch(`${API_BASE_URL}/api/cache/reload`, {
         method: 'POST',
         headers: {
           'X-CSRFToken': csrfToken,
@@ -292,7 +293,7 @@ export default function MasterContract() {
     setIsSavingIndMoney(true)
     try {
       const csrfToken = await fetchCSRFToken()
-      const response = await fetch('/api/broker/indmoney-token', {
+      const response = await fetch(`${API_BASE_URL}/api/broker/indmoney-token`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -324,7 +325,7 @@ export default function MasterContract() {
     setIsSyncingIndMoney(true)
     try {
       const csrfToken = await fetchCSRFToken()
-      const response = await fetch('/api/broker/indmoney-token/sync', {
+      const response = await fetch(`${API_BASE_URL}/api/broker/indmoney-token/sync`, {
         method: 'POST',
         headers: {
           'X-CSRFToken': csrfToken,

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { API_BASE_URL } from '@/api/client'
 
 interface MarketTiming {
   exchange: string
@@ -29,7 +30,7 @@ interface MarketStatusState {
 
 // Fetch CSRF token for authenticated requests
 async function fetchCSRFToken(): Promise<string> {
-  const response = await fetch('/auth/csrf-token', { credentials: 'include' })
+  const response = await fetch(`${API_BASE_URL}/auth/csrf-token`, { credentials: 'include' })
   const data = await response.json()
   return data.csrf_token
 }
@@ -57,8 +58,8 @@ export function useMarketStatus() {
         // Fetch market timings and holidays in parallel
         // Note: These endpoints are under the admin blueprint (/admin prefix)
         const [timingsRes, holidaysRes] = await Promise.all([
-          fetch('/admin/api/timings', { headers, credentials: 'include' }),
-          fetch('/admin/api/holidays', { headers, credentials: 'include' }),
+          fetch(`${API_BASE_URL}/admin/api/timings`, { headers, credentials: 'include' }),
+          fetch(`${API_BASE_URL}/admin/api/holidays`, { headers, credentials: 'include' }),
         ])
 
         const timingsData = await timingsRes.json()

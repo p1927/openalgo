@@ -88,6 +88,7 @@ import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/authStore'
 import { useThemeStore } from '@/stores/themeStore'
 import { showToast } from '@/utils/toast'
+import { API_BASE_URL } from '@/api/client'
 
 // Types
 interface SearchResult {
@@ -232,7 +233,7 @@ interface ScheduleExecution {
 
 // Helper functions
 async function fetchCSRFToken(): Promise<string> {
-  const response = await fetch('/auth/csrf-token', { credentials: 'include' })
+  const response = await fetch(`${API_BASE_URL}/auth/csrf-token`, { credentials: 'include' })
   const data = await response.json()
   return data.csrf_token
 }
@@ -635,7 +636,7 @@ export default function Historify() {
   // API Functions
   const loadWatchlist = async () => {
     try {
-      const response = await fetch('/historify/api/watchlist', { credentials: 'include' })
+      const response = await fetch(`${API_BASE_URL}/historify/api/watchlist`, { credentials: 'include' })
       const data = await response.json()
       if (data.status === 'success') setWatchlist(data.data || [])
     } catch (_error) {}
@@ -643,7 +644,7 @@ export default function Historify() {
 
   const loadCatalog = async () => {
     try {
-      const response = await fetch('/historify/api/catalog', { credentials: 'include' })
+      const response = await fetch(`${API_BASE_URL}/historify/api/catalog`, { credentials: 'include' })
       const data = await response.json()
       if (data.status === 'success') setCatalog(data.data || [])
     } catch (_error) {}
@@ -651,7 +652,7 @@ export default function Historify() {
 
   const loadIntervals = async () => {
     try {
-      const response = await fetch('/historify/api/intervals', { credentials: 'include' })
+      const response = await fetch(`${API_BASE_URL}/historify/api/intervals`, { credentials: 'include' })
       const data = await response.json()
       if (data.status === 'success') setIntervals(data.data)
     } catch (_error) {}
@@ -659,7 +660,7 @@ export default function Historify() {
 
   const loadHistorifyIntervals = async () => {
     try {
-      const response = await fetch('/historify/api/historify-intervals', { credentials: 'include' })
+      const response = await fetch(`${API_BASE_URL}/historify/api/historify-intervals`, { credentials: 'include' })
       const data = await response.json()
       if (data.status === 'success') {
         setHistorifyIntervals({
@@ -673,7 +674,7 @@ export default function Historify() {
 
   const loadStats = async () => {
     try {
-      const response = await fetch('/historify/api/stats', { credentials: 'include' })
+      const response = await fetch(`${API_BASE_URL}/historify/api/stats`, { credentials: 'include' })
       const data = await response.json()
       if (data.status === 'success') setStats(data.data)
     } catch (_error) {}
@@ -681,7 +682,7 @@ export default function Historify() {
 
   const loadExchanges = async () => {
     try {
-      const response = await fetch('/historify/api/exchanges', { credentials: 'include' })
+      const response = await fetch(`${API_BASE_URL}/historify/api/exchanges`, { credentials: 'include' })
       const data = await response.json()
       if (data.status === 'success' && data.data?.length > 0) setExchanges(data.data)
     } catch (_error) {}
@@ -690,7 +691,7 @@ export default function Historify() {
   const loadJobs = async () => {
     setJobsLoading(true)
     try {
-      const response = await fetch('/historify/api/jobs?limit=50', { credentials: 'include' })
+      const response = await fetch(`${API_BASE_URL}/historify/api/jobs?limit=50`, { credentials: 'include' })
       const data = await response.json()
       if (data.status === 'success') setJobs(data.data || [])
     } catch (_error) {
@@ -703,7 +704,7 @@ export default function Historify() {
   const loadSchedules = async () => {
     setSchedulesLoading(true)
     try {
-      const response = await fetch('/historify/api/schedules', { credentials: 'include' })
+      const response = await fetch(`${API_BASE_URL}/historify/api/schedules`, { credentials: 'include' })
       const data = await response.json()
       if (data.status === 'success') setSchedules(data.data || [])
     } catch (_error) {
@@ -714,7 +715,7 @@ export default function Historify() {
 
   const loadScheduleExecutions = async (scheduleId: string) => {
     try {
-      const response = await fetch(`/historify/api/schedules/${scheduleId}/executions?limit=10`, {
+      const response = await fetch(`${API_BASE_URL}/historify/api/schedules/${scheduleId}/executions?limit=10`, {
         credentials: 'include',
       })
       const data = await response.json()
@@ -808,7 +809,7 @@ export default function Historify() {
   const handleDeleteSchedule = async (scheduleId: string) => {
     try {
       const csrfToken = await fetchCSRFToken()
-      const response = await fetch(`/historify/api/schedules/${scheduleId}`, {
+      const response = await fetch(`${API_BASE_URL}/historify/api/schedules/${scheduleId}`, {
         method: 'DELETE',
         headers: { 'X-CSRFToken': csrfToken },
         credentials: 'include',
@@ -829,7 +830,7 @@ export default function Historify() {
     try {
       const csrfToken = await fetchCSRFToken()
       const endpoint = schedule.is_enabled ? 'disable' : 'enable'
-      const response = await fetch(`/historify/api/schedules/${schedule.id}/${endpoint}`, {
+      const response = await fetch(`${API_BASE_URL}/historify/api/schedules/${schedule.id}/${endpoint}`, {
         method: 'POST',
         headers: { 'X-CSRFToken': csrfToken },
         credentials: 'include',
@@ -850,7 +851,7 @@ export default function Historify() {
     try {
       const csrfToken = await fetchCSRFToken()
       const endpoint = schedule.is_paused ? 'resume' : 'pause'
-      const response = await fetch(`/historify/api/schedules/${schedule.id}/${endpoint}`, {
+      const response = await fetch(`${API_BASE_URL}/historify/api/schedules/${schedule.id}/${endpoint}`, {
         method: 'POST',
         headers: { 'X-CSRFToken': csrfToken },
         credentials: 'include',
@@ -870,7 +871,7 @@ export default function Historify() {
   const handleTriggerSchedule = async (scheduleId: string) => {
     try {
       const csrfToken = await fetchCSRFToken()
-      const response = await fetch(`/historify/api/schedules/${scheduleId}/trigger`, {
+      const response = await fetch(`${API_BASE_URL}/historify/api/schedules/${scheduleId}/trigger`, {
         method: 'POST',
         headers: { 'X-CSRFToken': csrfToken },
         credentials: 'include',
@@ -929,7 +930,7 @@ export default function Historify() {
     try {
       const params = new URLSearchParams({ q: query })
       if (newExchange) params.append('exchange', newExchange)
-      const response = await fetch(`/search/api/search?${params}`, { credentials: 'include' })
+      const response = await fetch(`${API_BASE_URL}/search/api/search?${params}`, { credentials: 'include' })
       const data = await response.json()
       setSearchResults((data.results || []).slice(0, 10))
       setShowSearchResults(true)
@@ -946,7 +947,7 @@ export default function Historify() {
     }
     try {
       const csrfToken = await fetchCSRFToken()
-      const response = await fetch('/historify/api/watchlist', {
+      const response = await fetch(`${API_BASE_URL}/historify/api/watchlist`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
         credentials: 'include',
@@ -969,7 +970,7 @@ export default function Historify() {
   const removeFromWatchlist = async (symbol: string, exchange: string) => {
     try {
       const csrfToken = await fetchCSRFToken()
-      const response = await fetch('/historify/api/watchlist', {
+      const response = await fetch(`${API_BASE_URL}/historify/api/watchlist`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
         credentials: 'include',
@@ -1005,7 +1006,7 @@ export default function Historify() {
     setIsBulkAdding(true)
     try {
       const csrfToken = await fetchCSRFToken()
-      const response = await fetch('/historify/api/watchlist/bulk', {
+      const response = await fetch(`${API_BASE_URL}/historify/api/watchlist/bulk`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
         credentials: 'include',
@@ -1100,7 +1101,7 @@ export default function Historify() {
     }
     try {
       const csrfToken = await fetchCSRFToken()
-      const response = await fetch('/historify/api/jobs', {
+      const response = await fetch(`${API_BASE_URL}/historify/api/jobs`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
         credentials: 'include',
@@ -1138,7 +1139,7 @@ export default function Historify() {
   const pauseJob = async (jobId: string) => {
     try {
       const csrfToken = await fetchCSRFToken()
-      const response = await fetch(`/historify/api/jobs/${jobId}/pause`, {
+      const response = await fetch(`${API_BASE_URL}/historify/api/jobs/${jobId}/pause`, {
         method: 'POST',
         headers: { 'X-CSRFToken': csrfToken },
         credentials: 'include',
@@ -1158,7 +1159,7 @@ export default function Historify() {
   const resumeJob = async (jobId: string) => {
     try {
       const csrfToken = await fetchCSRFToken()
-      const response = await fetch(`/historify/api/jobs/${jobId}/resume`, {
+      const response = await fetch(`${API_BASE_URL}/historify/api/jobs/${jobId}/resume`, {
         method: 'POST',
         headers: { 'X-CSRFToken': csrfToken },
         credentials: 'include',
@@ -1178,7 +1179,7 @@ export default function Historify() {
   const cancelJob = async (jobId: string) => {
     try {
       const csrfToken = await fetchCSRFToken()
-      const response = await fetch(`/historify/api/jobs/${jobId}/cancel`, {
+      const response = await fetch(`${API_BASE_URL}/historify/api/jobs/${jobId}/cancel`, {
         method: 'POST',
         headers: { 'X-CSRFToken': csrfToken },
         credentials: 'include',
@@ -1198,7 +1199,7 @@ export default function Historify() {
   const retryJob = async (jobId: string) => {
     try {
       const csrfToken = await fetchCSRFToken()
-      const response = await fetch(`/historify/api/jobs/${jobId}/retry`, {
+      const response = await fetch(`${API_BASE_URL}/historify/api/jobs/${jobId}/retry`, {
         method: 'POST',
         headers: { 'X-CSRFToken': csrfToken },
         credentials: 'include',
@@ -1218,7 +1219,7 @@ export default function Historify() {
   const deleteJob = async (jobId: string) => {
     try {
       const csrfToken = await fetchCSRFToken()
-      const response = await fetch(`/historify/api/jobs/${jobId}`, {
+      const response = await fetch(`${API_BASE_URL}/historify/api/jobs/${jobId}`, {
         method: 'DELETE',
         headers: { 'X-CSRFToken': csrfToken },
         credentials: 'include',
@@ -1243,7 +1244,7 @@ export default function Historify() {
     if (!deleteTarget) return
     try {
       const csrfToken = await fetchCSRFToken()
-      const response = await fetch('/historify/api/delete', {
+      const response = await fetch(`${API_BASE_URL}/historify/api/delete`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
         credentials: 'include',
@@ -1275,7 +1276,7 @@ export default function Historify() {
         const [symbol, exchange] = key.split(':')
         return { symbol, exchange }
       })
-      const response = await fetch('/historify/api/delete/bulk', {
+      const response = await fetch(`${API_BASE_URL}/historify/api/delete/bulk`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
         credentials: 'include',
@@ -1308,7 +1309,7 @@ export default function Historify() {
         const [symbol, exchange] = key.split(':')
         return { symbol, exchange }
       })
-      const response = await fetch('/historify/api/watchlist/bulk/delete', {
+      const response = await fetch(`${API_BASE_URL}/historify/api/watchlist/bulk/delete`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
         credentials: 'include',
@@ -1361,7 +1362,7 @@ export default function Historify() {
       formData.append('exchange', uploadExchange)
       formData.append('interval', uploadInterval)
 
-      const response = await fetch('/historify/api/upload', {
+      const response = await fetch(`${API_BASE_URL}/historify/api/upload`, {
         method: 'POST',
         headers: { 'X-CSRFToken': csrfToken },
         credentials: 'include',
@@ -1402,7 +1403,7 @@ export default function Historify() {
       // Convert Set to array for API
       const intervalsArray = Array.from(exportIntervals)
 
-      const response = await fetch('/historify/api/export/bulk', {
+      const response = await fetch(`${API_BASE_URL}/historify/api/export/bulk`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
         credentials: 'include',

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { OptionChainDataIdentity, OptionChainResponse } from '@/types/option-chain'
 import { usePageVisibility } from './usePageVisibility'
+import { API_BASE_URL } from '@/api/client'
 
 interface UseOptionChainPollingOptions {
   enabled: boolean
@@ -106,7 +107,7 @@ export function useOptionChainPolling(
     try {
       abortControllerRef.current = controller
 
-      const response = await fetch('/api/v1/optionchain', {
+      const response = await fetch(`${API_BASE_URL}/api/v1/optionchain`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

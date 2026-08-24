@@ -46,6 +46,7 @@ import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/authStore'
 import { useThemeStore } from '@/stores/themeStore'
 import { showToast } from '@/utils/toast'
+import { API_BASE_URL } from '@/api/client'
 
 interface Endpoint {
   name: string
@@ -68,7 +69,7 @@ interface OpenTab {
 }
 
 async function fetchCSRFToken(): Promise<string> {
-  const response = await fetch('/auth/csrf-token', {
+  const response = await fetch(`${API_BASE_URL}/auth/csrf-token`, {
     credentials: 'include',
   })
   const data = await response.json()
@@ -227,7 +228,7 @@ export default function Playground() {
 
   useEffect(() => {
     // Fetch host server config
-    fetch('/api/config/host', { credentials: 'include' })
+    fetch(`${API_BASE_URL}/api/config/host`, { credentials: 'include' })
       .then((res) => res.json())
       .then((data) => {
         if (data.host_server) {
@@ -248,7 +249,7 @@ export default function Playground() {
 
   const loadApiKey = async () => {
     try {
-      const response = await fetch('/playground/api-key', {
+      const response = await fetch(`${API_BASE_URL}/playground/api-key`, {
         credentials: 'include',
       })
       if (response.ok) {
@@ -262,7 +263,7 @@ export default function Playground() {
 
   const loadEndpoints = async () => {
     try {
-      const response = await fetch('/playground/endpoints', {
+      const response = await fetch(`${API_BASE_URL}/playground/endpoints`, {
         credentials: 'include',
       })
       if (response.ok) {

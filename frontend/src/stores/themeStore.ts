@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import { API_BASE_URL } from '@/api/client'
 
 export type ThemeMode = 'light' | 'dark'
 export type AppMode = 'live' | 'analyzer'
@@ -114,12 +115,12 @@ export const useThemeStore = create<ThemeStore>()(
         set({ isTogglingMode: true })
         try {
           // First fetch CSRF token
-          const csrfResponse = await fetch('/auth/csrf-token', {
+          const csrfResponse = await fetch(`${API_BASE_URL}/auth/csrf-token`, {
             credentials: 'include',
           })
           const csrfData = await csrfResponse.json()
 
-          const response = await fetch('/auth/analyzer-toggle', {
+          const response = await fetch(`${API_BASE_URL}/auth/analyzer-toggle`, {
             method: 'POST',
             credentials: 'include',
             headers: {
@@ -147,7 +148,7 @@ export const useThemeStore = create<ThemeStore>()(
       // Sync app mode from backend
       syncAppMode: async () => {
         try {
-          const response = await fetch('/auth/analyzer-mode', {
+          const response = await fetch(`${API_BASE_URL}/auth/analyzer-mode`, {
             credentials: 'include',
           })
 

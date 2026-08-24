@@ -22,6 +22,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Skeleton } from '@/components/ui/skeleton'
 import type { Strategy } from '@/types/strategy'
 import { showToast } from '@/utils/toast'
+import { API_BASE_URL } from '@/api/client'
 
 export default function StrategyIndex() {
   const navigate = useNavigate()
@@ -49,7 +50,7 @@ export default function StrategyIndex() {
   useEffect(() => {
     const fetchHostConfig = async () => {
       try {
-        const response = await fetch('/api/config/host', { credentials: 'include' })
+        const response = await fetch(`${API_BASE_URL}/api/config/host`, { credentials: 'include' })
         const data = await response.json()
         setHostConfig(data)
       } catch (_error) {

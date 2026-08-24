@@ -19,6 +19,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
 import { showToast } from '@/utils/toast'
+import { API_BASE_URL } from '@/api/client'
 
 type Step = 'email' | 'method' | 'totp' | 'email_sent' | 'password'
 
@@ -129,7 +130,7 @@ export default function ResetPassword() {
 
     try {
       const csrfToken = await fetchCSRFToken()
-      const response = await fetch('/auth/reset-password', {
+      const response = await fetch(`${API_BASE_URL}/auth/reset-password`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -159,7 +160,7 @@ export default function ResetPassword() {
 
     try {
       const csrfToken = await fetchCSRFToken()
-      const response = await fetch('/auth/reset-password', {
+      const response = await fetch(`${API_BASE_URL}/auth/reset-password`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -194,7 +195,7 @@ export default function ResetPassword() {
 
     try {
       const csrfToken = await fetchCSRFToken()
-      const response = await fetch('/auth/reset-password', {
+      const response = await fetch(`${API_BASE_URL}/auth/reset-password`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -228,7 +229,7 @@ export default function ResetPassword() {
 
     try {
       const csrfToken = await fetchCSRFToken()
-      const response = await fetch('/auth/reset-password', {
+      const response = await fetch(`${API_BASE_URL}/auth/reset-password`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

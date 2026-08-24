@@ -17,9 +17,10 @@ import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
 import { showToast } from '@/utils/toast'
+import { API_BASE_URL } from '@/api/client'
 
 async function fetchCSRFToken(): Promise<string> {
-  const response = await fetch('/auth/csrf-token', { credentials: 'include' })
+  const response = await fetch(`${API_BASE_URL}/auth/csrf-token`, { credentials: 'include' })
   const data = await response.json()
   return data.csrf_token
 }
@@ -240,7 +241,7 @@ export default function WebSocketOrder() {
 
     try {
       const csrfToken = await getCsrfToken()
-      const configResponse = await fetch('/api/websocket/config', {
+      const configResponse = await fetch(`${API_BASE_URL}/api/websocket/config`, {
         headers: { 'X-CSRFToken': csrfToken },
         credentials: 'include',
       })
@@ -260,7 +261,7 @@ export default function WebSocketOrder() {
 
         try {
           const authCsrfToken = await getCsrfToken()
-          const apiKeyResponse = await fetch('/api/websocket/apikey', {
+          const apiKeyResponse = await fetch(`${API_BASE_URL}/api/websocket/apikey`, {
             headers: { 'X-CSRFToken': authCsrfToken },
             credentials: 'include',
           })

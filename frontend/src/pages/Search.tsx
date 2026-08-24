@@ -28,6 +28,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { showToast } from '@/utils/toast'
+import { API_BASE_URL } from '@/api/client'
 
 type CopyFormat = 'exchange_symbol' | 'symbol_exchange' | 'symbol' | 'token' | 'broker_symbol'
 
@@ -119,7 +120,7 @@ export default function Search() {
       if (strike_max) params.append('strike_max', strike_max)
 
       // Use the API search endpoint which returns JSON
-      const response = await fetch(`/search/api/search?${params.toString()}`, {
+      const response = await fetch(`${API_BASE_URL}/search/api/search?${params.toString()}`, {
         credentials: 'include',
       })
 

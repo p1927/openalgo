@@ -16,6 +16,7 @@ import {
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useSupportedExchanges } from '@/hooks/useSupportedExchanges'
 import { showToast } from '@/utils/toast'
+import { API_BASE_URL } from '@/api/client'
 
 interface SearchResult {
   symbol: string
@@ -74,7 +75,7 @@ export default function TradingView() {
   useEffect(() => {
     const fetchHostConfig = async () => {
       try {
-        const response = await fetch('/api/config/host', { credentials: 'include' })
+        const response = await fetch(`${API_BASE_URL}/api/config/host`, { credentials: 'include' })
         const data = await response.json()
         setHostConfig(data)
       } catch (_error) {
@@ -88,7 +89,7 @@ export default function TradingView() {
     }
     const fetchApiKey = async () => {
       try {
-        const response = await fetch('/playground/api-key', { credentials: 'include' })
+        const response = await fetch(`${API_BASE_URL}/playground/api-key`, { credentials: 'include' })
         if (response.ok) {
           const data = await response.json()
           setApiKey(data.api_key || '')
@@ -121,7 +122,7 @@ export default function TradingView() {
         const params = new URLSearchParams({ q: query })
         if (exchange) params.append('exchange', exchange)
 
-        const response = await fetch(`/search/api/search?${params}`, {
+        const response = await fetch(`${API_BASE_URL}/search/api/search?${params}`, {
           credentials: 'include',
         })
         const data = await response.json()

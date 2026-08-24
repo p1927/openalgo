@@ -28,9 +28,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useAuthStore } from '@/stores/authStore'
 import { copyToClipboard } from '@/utils/clipboard'
 import { showToast } from '@/utils/toast'
+import { API_BASE_URL } from '@/api/client'
 
 async function fetchCSRFToken(): Promise<string> {
-  const response = await fetch('/auth/csrf-token', {
+  const response = await fetch(`${API_BASE_URL}/auth/csrf-token`, {
     credentials: 'include',
   })
   const data = await response.json()
@@ -58,7 +59,7 @@ export default function ApiKey() {
   const fetchApiKeyData = async () => {
     setIsLoading(true)
     try {
-      const response = await fetch('/apikey', {
+      const response = await fetch(`${API_BASE_URL}/apikey`, {
         credentials: 'include',
         headers: {
           Accept: 'application/json',
@@ -101,7 +102,7 @@ export default function ApiKey() {
     try {
       const csrfToken = await fetchCSRFToken()
 
-      const response = await fetch('/apikey', {
+      const response = await fetch(`${API_BASE_URL}/apikey`, {
         method: 'POST',
         credentials: 'include',
         headers: {
@@ -137,7 +138,7 @@ export default function ApiKey() {
     try {
       const csrfToken = await fetchCSRFToken()
 
-      const response = await fetch('/apikey/mode', {
+      const response = await fetch(`${API_BASE_URL}/apikey/mode`, {
         method: 'POST',
         credentials: 'include',
         headers: {

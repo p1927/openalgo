@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useAuthStore } from '@/stores/authStore'
 import { showToast } from '@/utils/toast'
+import { API_BASE_URL } from '@/api/client'
 
 const DASHBOARD_URL = 'https://tradeapi.samco.in/app/login'
 
@@ -49,7 +50,7 @@ export default function SamcoAuth() {
       const form = new FormData()
       form.append('csrf_token', csrfToken)
 
-      const response = await fetch('/samco/callback', {
+      const response = await fetch(`${API_BASE_URL}/samco/callback`, {
         method: 'POST',
         body: form,
         credentials: 'include',
@@ -80,7 +81,7 @@ export default function SamcoAuth() {
     setError(null)
 
     try {
-      const response = await fetch('/samco/ip-status', { credentials: 'include' })
+      const response = await fetch(`${API_BASE_URL}/samco/ip-status`, { credentials: 'include' })
       const data = await response.json()
 
       if (data.status === 'success') {

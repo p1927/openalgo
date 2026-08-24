@@ -22,9 +22,10 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { showToast } from '@/utils/toast'
+import { API_BASE_URL } from '@/api/client'
 
 async function fetchCSRFToken(): Promise<string> {
-  const response = await fetch('/auth/csrf-token', {
+  const response = await fetch(`${API_BASE_URL}/auth/csrf-token`, {
     credentials: 'include',
   })
   const data = await response.json()
@@ -104,7 +105,7 @@ export default function Sandbox() {
 
   const fetchSimStatus = async () => {
     try {
-      const response = await fetch('/sandbox/api/simulator/status', { credentials: 'include' })
+      const response = await fetch(`${API_BASE_URL}/sandbox/api/simulator/status`, { credentials: 'include' })
       if (response.ok) {
         const data = await response.json()
         if (data.status === 'success') {
@@ -131,7 +132,7 @@ export default function Sandbox() {
     setSimSaving(true)
     try {
       const csrf = await fetchCSRFToken()
-      const response = await fetch('/sandbox/api/simulator/config', {
+      const response = await fetch(`${API_BASE_URL}/sandbox/api/simulator/config`, {
         method: 'POST',
         credentials: 'include',
         headers: {
@@ -193,7 +194,7 @@ export default function Sandbox() {
     setSimStepping(true)
     try {
       const csrf = await fetchCSRFToken()
-      const response = await fetch('/sandbox/api/simulator/step', {
+      const response = await fetch(`${API_BASE_URL}/sandbox/api/simulator/step`, {
         method: 'POST',
         credentials: 'include',
         headers: {
@@ -222,7 +223,7 @@ export default function Sandbox() {
 
   const fetchConfigs = async () => {
     try {
-      const response = await fetch('/sandbox/api/configs', {
+      const response = await fetch(`${API_BASE_URL}/sandbox/api/configs`, {
         credentials: 'include',
       })
       if (response.ok) {
@@ -269,7 +270,7 @@ export default function Sandbox() {
     try {
       const csrfToken = await fetchCSRFToken()
 
-      const response = await fetch('/sandbox/update', {
+      const response = await fetch(`${API_BASE_URL}/sandbox/update`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -304,7 +305,7 @@ export default function Sandbox() {
     try {
       const csrfToken = await fetchCSRFToken()
 
-      const response = await fetch('/sandbox/reset', {
+      const response = await fetch(`${API_BASE_URL}/sandbox/reset`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

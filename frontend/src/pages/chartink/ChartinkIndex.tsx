@@ -20,6 +20,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Skeleton } from '@/components/ui/skeleton'
 import type { ChartinkStrategy } from '@/types/chartink'
 import { showToast } from '@/utils/toast'
+import { API_BASE_URL } from '@/api/client'
 
 export default function ChartinkIndex() {
   const navigate = useNavigate()
@@ -47,7 +48,7 @@ export default function ChartinkIndex() {
   useEffect(() => {
     const fetchHostConfig = async () => {
       try {
-        const response = await fetch('/api/config/host', { credentials: 'include' })
+        const response = await fetch(`${API_BASE_URL}/api/config/host`, { credentials: 'include' })
         const data = await response.json()
         setHostConfig(data)
       } catch (_error) {

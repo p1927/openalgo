@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { API_BASE_URL } from '@/api/client'
 
 export interface SimulatorClock {
   replay_date?: string
@@ -35,7 +36,7 @@ export function useSimulatorStatus(options: UseSimulatorStatusOptions = {}) {
 
     const fetchStatus = async () => {
       try {
-        const response = await fetch('/sandbox/api/simulator/status', { credentials: 'include' })
+        const response = await fetch(`${API_BASE_URL}/sandbox/api/simulator/status`, { credentials: 'include' })
         if (!response.ok) return
         const data = await response.json()
         if (cancelled || data.status !== 'success') return

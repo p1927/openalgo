@@ -60,6 +60,7 @@ import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/authStore'
 import { useThemeStore } from '@/stores/themeStore'
 import { showToast } from '@/utils/toast'
+import { API_BASE_URL } from '@/api/client'
 
 interface CatalogItem {
   symbol: string
@@ -479,7 +480,7 @@ export default function HistorifyCharts() {
 
   const loadCatalog = async () => {
     try {
-      const response = await fetch('/historify/api/catalog', { credentials: 'include' })
+      const response = await fetch(`${API_BASE_URL}/historify/api/catalog`, { credentials: 'include' })
       const data = await response.json()
       if (data.status === 'success') {
         setCatalog(data.data || [])
@@ -500,7 +501,7 @@ export default function HistorifyCharts() {
         end_date: endDate,
       })
 
-      const response = await fetch(`/historify/api/data?${params}`, { credentials: 'include' })
+      const response = await fetch(`${API_BASE_URL}/historify/api/data?${params}`, { credentials: 'include' })
       const data = await response.json()
 
       if (data.status === 'success') {

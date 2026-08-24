@@ -17,6 +17,7 @@
  */
 
 import { tryAutoReloadOnChunkError } from '@/utils/chunkReload'
+import { API_BASE_URL } from '@/api/client'
 
 interface ClientErrorPayload {
   message: string
@@ -73,7 +74,7 @@ function pruneDedup(): void {
 
 async function fetchCSRFTokenSafe(): Promise<string | null> {
   try {
-    const resp = await fetch('/auth/csrf-token', {
+    const resp = await fetch(`${API_BASE_URL}/auth/csrf-token`, {
       credentials: 'include',
       keepalive: true,
     })

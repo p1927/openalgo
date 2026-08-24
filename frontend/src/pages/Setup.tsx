@@ -10,6 +10,7 @@ import { Progress } from '@/components/ui/progress'
 import { fetchCSRFToken } from '@/api/client'
 import { cn } from '@/lib/utils'
 import { showToast } from '@/utils/toast'
+import { API_BASE_URL } from '@/api/client'
 
 interface PasswordRequirements {
   length: boolean
@@ -94,7 +95,7 @@ export default function Setup() {
 
     try {
       // First, fetch CSRF token
-      const csrfResponse = await fetch('/auth/csrf-token', {
+      const csrfResponse = await fetch(`${API_BASE_URL}/auth/csrf-token`, {
         credentials: 'include',
       })
       const csrfData = await csrfResponse.json()
@@ -106,7 +107,7 @@ export default function Setup() {
       form.append('confirm_password', formData.confirmPassword)
       form.append('csrf_token', csrfData.csrf_token)
 
-      const response = await fetch('/setup', {
+      const response = await fetch(`${API_BASE_URL}/setup`, {
         method: 'POST',
         body: form,
         credentials: 'include',
@@ -123,7 +124,7 @@ export default function Setup() {
         // a raw fetch, not the axios client that adds it via an interceptor.
         try {
           const csrfToken = await fetchCSRFToken()
-          await fetch('/auth/logout', {
+          await fetch(`${API_BASE_URL}/auth/logout`, {
             method: 'POST',
             headers: { 'X-CSRFToken': csrfToken },
             credentials: 'include',

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { LatencySample, WebSocketMessage } from '@/types/websocket'
+import { API_BASE_URL } from '@/api/client'
 
 // Fetch CSRF token for authenticated requests
 async function fetchCSRFToken(): Promise<string> {
-  const response = await fetch('/auth/csrf-token', { credentials: 'include' })
+  const response = await fetch(`${API_BASE_URL}/auth/csrf-token`, { credentials: 'include' })
   const data = await response.json()
   return data.csrf_token
 }
@@ -148,7 +149,7 @@ export function useWebSocketTester(_apiKey?: string): UseWebSocketTesterReturn {
       const csrfToken = await getCsrfToken()
 
       // Get WebSocket config (URL from .env)
-      const configResponse = await fetch('/api/websocket/config', {
+      const configResponse = await fetch(`${API_BASE_URL}/api/websocket/config`, {
         headers: { 'X-CSRFToken': csrfToken },
         credentials: 'include',
       })
@@ -171,7 +172,7 @@ export function useWebSocketTester(_apiKey?: string): UseWebSocketTesterReturn {
         try {
           // Get API key for authentication
           const authCsrfToken = await getCsrfToken()
-          const apiKeyResponse = await fetch('/api/websocket/apikey', {
+          const apiKeyResponse = await fetch(`${API_BASE_URL}/api/websocket/apikey`, {
             headers: { 'X-CSRFToken': authCsrfToken },
             credentials: 'include',
           })

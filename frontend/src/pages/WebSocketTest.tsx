@@ -38,9 +38,10 @@ import { useSupportedExchanges } from '@/hooks/useSupportedExchanges'
 import { cn, makeFormatCurrency } from '@/lib/utils'
 import { useAuthStore } from '@/stores/authStore'
 import { showToast } from '@/utils/toast'
+import { API_BASE_URL } from '@/api/client'
 
 async function fetchCSRFToken(): Promise<string> {
-  const response = await fetch('/auth/csrf-token', { credentials: 'include' })
+  const response = await fetch(`${API_BASE_URL}/auth/csrf-token`, { credentials: 'include' })
   const data = await response.json()
   return data.csrf_token
 }
@@ -302,7 +303,7 @@ export default function WebSocketTest({ depthLevel = 5 }: WebSocketTestProps) {
 
     try {
       const csrfToken = await getCsrfToken()
-      const configResponse = await fetch('/api/websocket/config', {
+      const configResponse = await fetch(`${API_BASE_URL}/api/websocket/config`, {
         headers: { 'X-CSRFToken': csrfToken },
         credentials: 'include',
       })
@@ -322,7 +323,7 @@ export default function WebSocketTest({ depthLevel = 5 }: WebSocketTestProps) {
 
         try {
           const authCsrfToken = await getCsrfToken()
-          const apiKeyResponse = await fetch('/api/websocket/apikey', {
+          const apiKeyResponse = await fetch(`${API_BASE_URL}/api/websocket/apikey`, {
             headers: { 'X-CSRFToken': authCsrfToken },
             credentials: 'include',
           })
@@ -630,7 +631,7 @@ export default function WebSocketTest({ depthLevel = 5 }: WebSocketTestProps) {
       const params = new URLSearchParams({ q: query })
       if (exchange && exchange !== '_all') params.append('exchange', exchange)
 
-      const response = await fetch(`/search/api/search?${params}`, { credentials: 'include' })
+      const response = await fetch(`${API_BASE_URL}/search/api/search?${params}`, { credentials: 'include' })
       const data = await response.json()
       setSearchResults((data.results || []).slice(0, 8))
       setShowSearchResults(true)

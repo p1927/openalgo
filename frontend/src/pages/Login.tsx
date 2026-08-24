@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
+import { API_BASE_URL } from '@/api/client'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -36,7 +37,7 @@ export default function Login() {
     const checkSetup = async () => {
       try {
         // First check if setup is needed
-        const setupResponse = await fetch('/auth/check-setup', {
+        const setupResponse = await fetch(`${API_BASE_URL}/auth/check-setup`, {
           credentials: 'include',
         })
         const setupData = await setupResponse.json()
@@ -46,7 +47,7 @@ export default function Login() {
         }
 
         // Check if already logged in
-        const sessionResponse = await fetch('/auth/session-status', {
+        const sessionResponse = await fetch(`${API_BASE_URL}/auth/session-status`, {
           credentials: 'include',
         })
 
@@ -84,7 +85,7 @@ export default function Login() {
 
     try {
       // First, fetch CSRF token
-      const csrfResponse = await fetch('/auth/csrf-token', {
+      const csrfResponse = await fetch(`${API_BASE_URL}/auth/csrf-token`, {
         credentials: 'include',
       })
 
@@ -103,7 +104,7 @@ export default function Login() {
       formData.append('csrf_token', csrfData.csrf_token)
 
       // Use native fetch like the original template
-      const response = await fetch('/auth/login', {
+      const response = await fetch(`${API_BASE_URL}/auth/login`, {
         method: 'POST',
         body: formData,
         credentials: 'include',
@@ -155,7 +156,7 @@ export default function Login() {
     setError(null)
 
     try {
-      const csrfResponse = await fetch('/auth/csrf-token', { credentials: 'include' })
+      const csrfResponse = await fetch(`${API_BASE_URL}/auth/csrf-token`, { credentials: 'include' })
       if (!csrfResponse.ok) {
         setError('Failed to verify TOTP. Please refresh the page.')
         setIsLoading(false)
@@ -163,7 +164,7 @@ export default function Login() {
       }
       const { csrf_token } = await csrfResponse.json()
 
-      const response = await fetch('/auth/login/totp', {
+      const response = await fetch(`${API_BASE_URL}/auth/login/totp`, {
         method: 'POST',
         credentials: 'include',
         headers: {

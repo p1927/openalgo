@@ -14,6 +14,7 @@ import {
 import type { DrawStats, TradingTerminal } from '@/lib/trading/terminal'
 import { cn } from '@/lib/utils'
 import { useBrokerStore } from '@/stores/brokerStore'
+import { API_BASE_URL } from '@/api/client'
 
 const NO_DRAW: DrawStats = {
   count: 0,
@@ -170,8 +171,8 @@ export default function Trading() {
     ;(async () => {
       try {
         const [keyRes, cfgRes] = await Promise.all([
-          fetch('/api/websocket/apikey').then((r) => r.json()),
-          fetch('/api/websocket/config').then((r) => r.json()),
+          fetch(`${API_BASE_URL}/api/websocket/apikey`).then((r) => r.json()),
+          fetch(`${API_BASE_URL}/api/websocket/config`).then((r) => r.json()),
         ])
         if (!alive) return
         if (keyRes.status !== 'success') {

@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { API_BASE_URL } from '@/api/client'
 
 interface BrokerCapabilities {
   broker_name: string
@@ -21,7 +22,7 @@ export const useBrokerStore = create<BrokerStore>()((set) => ({
 
   fetchCapabilities: async () => {
     try {
-      const response = await fetch('/api/broker/capabilities', {
+      const response = await fetch(`${API_BASE_URL}/api/broker/capabilities`, {
         credentials: 'include',
       })
 

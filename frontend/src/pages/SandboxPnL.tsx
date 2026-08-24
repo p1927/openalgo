@@ -16,6 +16,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn, makeFormatCurrency } from '@/lib/utils'
 import { useAuthStore } from '@/stores/authStore'
 import { useOrderEventRefresh } from '@/hooks/useOrderEventRefresh'
+import { API_BASE_URL } from '@/api/client'
 
 interface DailyPnL {
   date: string
@@ -93,7 +94,7 @@ export default function SandboxPnL() {
 
   const fetchData = async () => {
     try {
-      const response = await fetch('/sandbox/mypnl/api/data', {
+      const response = await fetch(`${API_BASE_URL}/sandbox/mypnl/api/data`, {
         credentials: 'include',
       })
       if (response.ok) {

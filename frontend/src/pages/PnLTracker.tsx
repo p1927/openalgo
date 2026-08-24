@@ -6,9 +6,10 @@ import { makeFormatCurrency } from '@/lib/utils'
 import { useAuthStore } from '@/stores/authStore'
 import { useThemeStore } from '@/stores/themeStore'
 import { showToast } from '@/utils/toast'
+import { API_BASE_URL } from '@/api/client'
 
 async function fetchCSRFToken(): Promise<string> {
-  const response = await fetch('/auth/csrf-token', {
+  const response = await fetch(`${API_BASE_URL}/auth/csrf-token`, {
     credentials: 'include',
   })
   const data = await response.json()
@@ -289,7 +290,7 @@ export default function PnLTracker() {
     try {
       const csrfToken = await fetchCSRFToken()
 
-      const response = await fetch('/pnltracker/api/pnl', {
+      const response = await fetch(`${API_BASE_URL}/pnltracker/api/pnl`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

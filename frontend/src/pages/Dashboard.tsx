@@ -14,6 +14,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { useOrderEventRefresh } from '@/hooks/useOrderEventRefresh'
 import { cn } from '@/lib/utils'
 import { onModeChange } from '@/stores/themeStore'
+import { API_BASE_URL } from '@/api/client'
 
 interface MarginData {
   availablecash: string
@@ -83,7 +84,7 @@ export default function Dashboard() {
   const fetchFundsData = useCallback(async () => {
     try {
       setIsLoading(true)
-      const response = await fetch('/auth/dashboard-data', {
+      const response = await fetch(`${API_BASE_URL}/auth/dashboard-data`, {
         credentials: 'include',
       })
 
@@ -134,7 +135,7 @@ export default function Dashboard() {
   // Check master contract status
   const checkMasterContractStatus = useCallback(async () => {
     try {
-      const response = await fetch('/api/master-contract/status', {
+      const response = await fetch(`${API_BASE_URL}/api/master-contract/status`, {
         credentials: 'include',
         headers: { Accept: 'application/json' },
       })

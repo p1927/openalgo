@@ -32,6 +32,7 @@ import {
 } from 'openalgo-charts'
 import type { DrawingController } from 'openalgo-charts/draw'
 import { runTransform } from 'openalgo-charts/transform'
+import { API_BASE_URL } from '@/api/client'
 
 type ChartInstance = ReturnType<typeof createChart>
 type BuySellButtonsInstance = InstanceType<typeof BuySellButtons>
@@ -442,7 +443,7 @@ export class TradingTerminal {
     path: string,
     body: Record<string, unknown> = {}
   ): Promise<T> {
-    const res = await fetch(`/api/v1/${path}`, {
+    const res = await fetch(`${API_BASE_URL}/api/v1/${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ apikey: this.apiKey, ...body }),
