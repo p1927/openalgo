@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { API_BASE_URL } from '@/api/client'
+import { API_BASE_URL, fetchCSRFToken } from '@/api/client'
 
 interface MarketTiming {
   exchange: string
@@ -26,13 +26,6 @@ interface MarketStatusState {
   holidays: Holiday[]
   isLoading: boolean
   error: string | null
-}
-
-// Fetch CSRF token for authenticated requests
-async function fetchCSRFToken(): Promise<string> {
-  const response = await fetch(`${API_BASE_URL}/auth/csrf-token`, { credentials: 'include' })
-  const data = await response.json()
-  return data.csrf_token
 }
 
 // Crypto exchanges operate 24/7 - no holidays or weekends

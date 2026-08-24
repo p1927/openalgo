@@ -6,15 +6,7 @@ import { makeFormatCurrency } from '@/lib/utils'
 import { useAuthStore } from '@/stores/authStore'
 import { useThemeStore } from '@/stores/themeStore'
 import { showToast } from '@/utils/toast'
-import { API_BASE_URL } from '@/api/client'
-
-async function fetchCSRFToken(): Promise<string> {
-  const response = await fetch(`${API_BASE_URL}/auth/csrf-token`, {
-    credentials: 'include',
-  })
-  const data = await response.json()
-  return data.csrf_token
-}
+import { API_BASE_URL, fetchCSRFToken } from '@/api/client'
 
 // Use html2canvas-pro which has native oklch color support
 import html2canvas from 'html2canvas-pro'

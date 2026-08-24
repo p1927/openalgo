@@ -1,13 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { LatencySample, WebSocketMessage } from '@/types/websocket'
-import { API_BASE_URL } from '@/api/client'
-
-// Fetch CSRF token for authenticated requests
-async function fetchCSRFToken(): Promise<string> {
-  const response = await fetch(`${API_BASE_URL}/auth/csrf-token`, { credentials: 'include' })
-  const data = await response.json()
-  return data.csrf_token
-}
+import { API_BASE_URL, fetchCSRFToken } from '@/api/client'
 
 const MAX_MESSAGES = 1000
 const MAX_LATENCY_SAMPLES = 100

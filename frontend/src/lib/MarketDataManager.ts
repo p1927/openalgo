@@ -1,4 +1,4 @@
-import { API_BASE_URL } from '@/api/client'
+import { API_BASE_URL, fetchCSRFToken } from '@/api/client'
 /**
  * MarketDataManager - Singleton class for shared WebSocket connection management
  *
@@ -80,13 +80,6 @@ interface SubscriptionEntry {
   mode: SubscriptionMode
   callbacks: Set<DataCallback>
   refCount: number
-}
-
-// Fetch CSRF token for authenticated requests
-async function fetchCSRFToken(): Promise<string> {
-  const response = await fetch(`${API_BASE_URL}/auth/csrf-token`, { credentials: 'include' })
-  const data = await response.json()
-  return data.csrf_token
 }
 
 // REST API response types

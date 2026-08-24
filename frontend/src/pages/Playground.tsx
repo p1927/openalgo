@@ -46,7 +46,7 @@ import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/authStore'
 import { useThemeStore } from '@/stores/themeStore'
 import { showToast } from '@/utils/toast'
-import { API_BASE_URL } from '@/api/client'
+import { API_BASE_URL, fetchCSRFToken } from '@/api/client'
 
 interface Endpoint {
   name: string
@@ -66,14 +66,6 @@ interface OpenTab {
   endpoint: Endpoint
   requestBody: string
   modified: boolean
-}
-
-async function fetchCSRFToken(): Promise<string> {
-  const response = await fetch(`${API_BASE_URL}/auth/csrf-token`, {
-    credentials: 'include',
-  })
-  const data = await response.json()
-  return data.csrf_token
 }
 
 interface SyntaxToken {
