@@ -1158,6 +1158,15 @@ if __name__ == "__main__":
     # Print startup banner NOW — right before the server starts accepting connections.
     # When the user sees this banner, the portal is ready to load.
     if not debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
+        # Same guard as the banner below: with the debug reloader on, this
+        # __main__ block runs once in the reloader's monitor process and
+        # again in the actual worker it spawns. Acquiring the lock only in
+        # the worker (or always, when the reloader is off) avoids the
+        # monitor process's own lock blocking its own reloaded child.
+        from utils.service_lock import acquire_service_lock
+
+        acquire_service_lock("openalgo", port=port)
+
         from utils.version import get_version as _get_ver
 
         _ver = _get_ver()
