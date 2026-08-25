@@ -13,9 +13,41 @@ from utils.socketio_safe import safe_emit as _safe_socketio_emit
 logger = get_logger(__name__)
 
 
-def delete_symtoken_table() -> None:
-    logger.info("Deleting symtoken table for stock_simulator rebuild")
-    SymToken.query.delete()
+def delete_matching_symtoken_rows(keys: list[tuple[str, str]]) -> None:
+    """Delete only the ``(symbol, exchange)`` rows this rebuild is about to
+    reinsert, not the whole table.
+
+    ``symtoken`` has no ``broker`` column -- OpenAlgo's normal single-broker
+    deployment model never needed one -- but this fork runs the real
+    ``indmoney`` broker's master contract (e.g. per-stock NFO options)
+    alongside ``stock_simulator``'s own scoped rebuild (index options +
+    ~50 equities) in the same table. The previous unconditional
+    ``SymToken.query.delete()`` wiped indmoney's entire download on every
+    stock_simulator rebuild (which fires automatically on replay
+    start/date-change -- see ``replay.py``/``_mc_rebuild.py``), silently
+    losing e.g. every individual stock's options chain. Scoping the delete
+    to exactly the keys this rebuild produces leaves any other broker's
+    independently-downloaded instruments untouched.
+    """
+    if not keys:
+        return
+    exchanges = {exch for _, exch in keys}
+    symbols = {sym for sym, _ in keys}
+    # Coarse pre-filter on indexed columns (exchange, symbol), then exact
+    # (symbol, exchange) match in Python -- avoids one DELETE per row while
+    # still only touching rows this rebuild actually owns.
+    candidates = SymToken.query.filter(
+        SymToken.exchange.in_(exchanges), SymToken.symbol.in_(symbols)
+    ).all()
+    key_set = set(keys)
+    to_delete_ids = [row.id for row in candidates if (row.symbol, row.exchange) in key_set]
+    other_rows = len(candidates) - len(to_delete_ids)
+    logger.info(
+        f"Deleting {len(to_delete_ids)} existing stock_simulator symtoken rows before "
+        f"rebuild (leaving {other_rows} other rows untouched)"
+    )
+    if to_delete_ids:
+        SymToken.query.filter(SymToken.id.in_(to_delete_ids)).delete(synchronize_session=False)
     db_session.commit()
 
 
@@ -65,7 +97,8 @@ def master_contract_download():
             update_status(broker, "error", msg)
             return _safe_socketio_emit("master_contract_download", {"status": "error", "message": msg})
 
-        delete_symtoken_table()
+        keys = [(str(r["symbol"]), str(r["exchange"])) for r in rows]
+        delete_matching_symtoken_rows(keys)
         df = pd.DataFrame(rows)
         copy_from_dataframe(df, broker=broker)
 

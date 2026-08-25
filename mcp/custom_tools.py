@@ -906,6 +906,65 @@ def register(mcpserver):
 
 
     @mcp.tool()
+    def submit_hedge(
+        agent_id: str,
+        rationale: str,
+        underlying: str | None = None,
+        expiry: str | None = None,
+        hedge_ratio: float = 1.0,
+    ) -> str:
+        """
+        Buy protective legs against an India autonomous agent's open SHORT option positions.
+
+        Use when a short option's risk needs capping — this turns an open short into a
+        defined-risk spread by buying a further-OTM option of the same type, picked from
+        the live chain. Only protects SHORT legs (a long's max loss is already capped at
+        premium paid). For reducing position size instead, use submit_partial_close.
+
+        Args:
+            agent_id: aa_* agent id
+            rationale: why this hedge is being placed
+            underlying: optional, defaults to the agent's own handoff/primary symbol
+            expiry: optional ISO date (YYYY-MM-DD); defaults to the nearest expiry among
+                the agent's open short legs
+            hedge_ratio: fraction of each short leg's quantity to hedge, in (0, 1] — 1.0
+                fully covers it
+        """
+        try:
+            actions = _import_autonomous_agents()
+            result = actions.mcp_submit_hedge(
+                agent_id=agent_id,
+                rationale=rationale,
+                underlying=underlying,
+                expiry=expiry,
+                hedge_ratio=hedge_ratio,
+            )
+            return json.dumps(result, indent=2, default=str)
+        except Exception as e:
+            return json.dumps({"status": "error", "error": str(e)}, indent=2)
+
+
+    @mcp.tool()
+    def get_portfolio_greeks(agent_id: str) -> str:
+        """
+        Net delta/gamma/theta/vega across an India autonomous agent's whole open
+        option book (all underlyings, not just the agent's primary focus symbol).
+
+        Use to see whole-book exposure before deciding whether individual
+        positions should be adjusted together rather than one at a time.
+
+        Args:
+            agent_id: aa_* agent id
+        """
+        try:
+            actions = _import_autonomous_agents()
+            result = actions.mcp_get_portfolio_greeks(agent_id=agent_id)
+            return json.dumps(result, indent=2, default=str)
+        except Exception as e:
+            return json.dumps({"status": "error", "error": str(e)}, indent=2)
+
+
+    @mcp.tool()
     def get_research_status(
         ticker: str,
         asset_type: str = "stock",
