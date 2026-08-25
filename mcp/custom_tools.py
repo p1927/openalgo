@@ -1536,7 +1536,7 @@ def register(mcpserver):
     def get_pipeline_snapshot(ticker: str = "NIFTY", pipeline_as_of: str = "") -> str:
         """Summarize the bound Analysis pipeline snapshot (spot, prediction, contributors)."""
         try:
-            from trade_integrations.dataflows.index_research.news_scenario_tools import (
+            from trade_integrations.dataflows.news_hub_bridge.internal.news_scenario_tools import (
                 tool_get_pipeline_snapshot,
             )
 
@@ -1549,7 +1549,7 @@ def register(mcpserver):
     def query_factor_explanation(ticker: str = "NIFTY", pipeline_as_of: str = "", limit: int = 8) -> str:
         """Top macro factor contributors from the bound pipeline snapshot."""
         try:
-            from trade_integrations.dataflows.index_research.news_scenario_tools import (
+            from trade_integrations.dataflows.news_hub_bridge.internal.news_scenario_tools import (
                 tool_query_factor_explanation,
             )
 
@@ -1562,7 +1562,7 @@ def register(mcpserver):
     def query_factor_sensitivity(ticker: str = "NIFTY", pipeline_as_of: str = "", limit: int = 8) -> str:
         """Factor sensitivity curves from the bound pipeline snapshot."""
         try:
-            from trade_integrations.dataflows.index_research.news_scenario_tools import (
+            from trade_integrations.dataflows.news_hub_bridge.internal.news_scenario_tools import (
                 tool_query_factor_sensitivity,
             )
 
@@ -1575,7 +1575,7 @@ def register(mcpserver):
     def query_equation_coefficients(ticker: str = "NIFTY", pipeline_as_of: str = "") -> str:
         """Ridge equation coefficients from the bound pipeline snapshot."""
         try:
-            from trade_integrations.dataflows.index_research.news_scenario_tools import (
+            from trade_integrations.dataflows.news_hub_bridge.internal.news_scenario_tools import (
                 tool_query_equation_coefficients,
             )
 
@@ -1588,7 +1588,7 @@ def register(mcpserver):
     def query_constituent_drivers(ticker: str = "NIFTY", pipeline_as_of: str = "", limit: int = 10) -> str:
         """Constituent drivers from the bound pipeline snapshot."""
         try:
-            from trade_integrations.dataflows.index_research.news_scenario_tools import (
+            from trade_integrations.dataflows.news_hub_bridge.internal.news_scenario_tools import (
                 tool_query_constituent_drivers,
             )
 
@@ -1607,7 +1607,7 @@ def register(mcpserver):
     ) -> str:
         """Verified headlines embedded in the pipeline snapshot (optional date filter)."""
         try:
-            from trade_integrations.dataflows.index_research.news_scenario_tools import (
+            from trade_integrations.dataflows.news_hub_bridge.internal.news_scenario_tools import (
                 tool_get_pipeline_news_items,
             )
 
@@ -1619,10 +1619,25 @@ def register(mcpserver):
 
 
     @mcp.tool()
+    def get_live_news_impact(ticker: str = "NIFTY", pipeline_as_of: str = "", limit: int = 12) -> str:
+        """Live news impact for `ticker` (ranked top factors + recent headlines), queried
+        directly from the hub — unlike get_pipeline_news_items, reflects headlines ingested
+        after this session's Analysis snapshot was taken."""
+        try:
+            from trade_integrations.dataflows.news_hub_bridge.internal.news_scenario_tools import (
+                tool_get_live_news_impact,
+            )
+
+            return tool_get_live_news_impact(ticker, pipeline_as_of, limit=limit)
+        except Exception as e:
+            return f"Error: {e}"
+
+
+    @mcp.tool()
     def get_playground_context(ticker: str = "NIFTY", pipeline_as_of: str = "") -> str:
         """Playground factor/headline bundle from the bound pipeline snapshot."""
         try:
-            from trade_integrations.dataflows.index_research.news_scenario_tools import (
+            from trade_integrations.dataflows.news_hub_bridge.internal.news_scenario_tools import (
                 tool_get_playground_context,
             )
 
@@ -1642,7 +1657,7 @@ def register(mcpserver):
     ) -> str:
         """Single-factor what-if on the bound pipeline snapshot."""
         try:
-            from trade_integrations.dataflows.index_research.news_scenario_tools import (
+            from trade_integrations.dataflows.news_hub_bridge.internal.news_scenario_tools import (
                 tool_simulate_pipeline_scenario,
             )
 
@@ -1669,7 +1684,7 @@ def register(mcpserver):
     ) -> str:
         """Save a news scenario draft (event + outcomes) before quant run."""
         try:
-            from trade_integrations.dataflows.index_research.news_scenario_tools import (
+            from trade_integrations.dataflows.news_hub_bridge.internal.news_scenario_tools import (
                 tool_save_news_scenario_draft,
             )
 
@@ -1687,7 +1702,7 @@ def register(mcpserver):
     ) -> str:
         """Run quant paths for all outcomes in a saved draft."""
         try:
-            from trade_integrations.dataflows.index_research.news_scenario_tools import (
+            from trade_integrations.dataflows.news_hub_bridge.internal.news_scenario_tools import (
                 tool_run_news_event_scenario,
             )
 
@@ -1707,7 +1722,7 @@ def register(mcpserver):
     ) -> str:
         """Build a news_event_scenario trade_plan.widget from a saved scenario."""
         try:
-            from trade_integrations.dataflows.index_research.news_scenario_tools import (
+            from trade_integrations.dataflows.news_hub_bridge.internal.news_scenario_tools import (
                 tool_get_news_scenario_widget,
             )
 
