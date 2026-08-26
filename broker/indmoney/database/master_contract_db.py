@@ -73,6 +73,41 @@ def delete_symtoken_table():
     db_session.commit()
 
 
+def delete_matching_symtoken_rows(keys):
+    """Delete only the ``(symbol, exchange)`` rows this download is about to
+    reinsert, not the whole table.
+
+    ``symtoken`` has no ``broker`` column, and this fork runs indmoney's
+    master contract alongside ``stock_simulator``'s own scoped rebuild in the
+    same table (see that module's ``delete_matching_symtoken_rows`` for the
+    mirror-image history: it exists specifically because an earlier
+    unconditional ``SymToken.query.delete()`` here in indmoney's own download
+    wiped stock_simulator's rows too). An unconditional delete also means a
+    failed/empty indmoney download (network error, expired token) leaves the
+    table with none of indmoney's F&O rows until the next successful
+    download -- this is what was silently starving per-stock F&O eligibility
+    checks like ``is_india_fno_underlying("RELIANCE")``. Scoping the delete
+    to exactly the keys this download produced avoids both problems.
+    """
+    if not keys:
+        return
+    exchanges = {exch for _, exch in keys}
+    symbols = {sym for sym, _ in keys}
+    candidates = SymToken.query.filter(
+        SymToken.exchange.in_(exchanges), SymToken.symbol.in_(symbols)
+    ).all()
+    key_set = set(keys)
+    to_delete_ids = [row.id for row in candidates if (row.symbol, row.exchange) in key_set]
+    other_rows = len(candidates) - len(to_delete_ids)
+    logger.info(
+        f"Deleting {len(to_delete_ids)} existing indmoney symtoken rows before "
+        f"rebuild (leaving {other_rows} other rows untouched)"
+    )
+    if to_delete_ids:
+        SymToken.query.filter(SymToken.id.in_(to_delete_ids)).delete(synchronize_session=False)
+    db_session.commit()
+
+
 def copy_from_dataframe(df, broker="indmoney"):
     logger.info("Performing Bulk Insert")
     from database.master_contract_status_db import update_status
@@ -542,10 +577,11 @@ def master_contract_download():
 
     try:
         download_csv_indmoney_data(output_path)
-        delete_symtoken_table()
         token_df = process_indmoney_csv(output_path)
 
         if not token_df.empty:
+            keys = list(zip(token_df["symbol"].astype(str), token_df["exchange"].astype(str)))
+            delete_matching_symtoken_rows(keys)
             copy_from_dataframe(token_df, broker="indmoney")
             delete_indmoney_temp_data(output_path)
             success_msg = "Successfully Downloaded Indmoney Instruments"
