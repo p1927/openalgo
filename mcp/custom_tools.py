@@ -955,6 +955,52 @@ def register(mcpserver):
 
 
     @mcp.tool()
+    def submit_roll(
+        agent_id: str,
+        far_expiry: str,
+        rationale: str,
+        underlying: str | None = None,
+        near_expiry: str | None = None,
+    ) -> str:
+        """
+        Calendar-roll an India autonomous agent's open SHORT option leg(s) forward.
+
+        Closes the near-expiry short leg and opens a same-strike short leg at
+        far_expiry, from the live chain fetched for that expiry. Use when a short
+        option is running out of time (near expiry, low remaining theta) but the
+        thesis still holds and premium should keep being collected further out —
+        for reducing size instead use submit_partial_close, for capping risk on the
+        existing leg without changing its expiry use submit_hedge.
+
+        Deliberately scoped to same-strike calendar rolls (same strike, later
+        expiry). A strike change at the same expiry is not supported by this tool.
+
+        Args:
+            agent_id: aa_* agent id
+            far_expiry: ISO date (YYYY-MM-DD) of the expiry to roll into — required,
+                no default (weekly vs monthly, liquidity, DTE preference all vary,
+                so this must be an explicit choice)
+            rationale: why this roll is being made
+            underlying: optional, defaults to the agent's own handoff/primary symbol
+            near_expiry: optional ISO date (YYYY-MM-DD) of the expiry to roll away
+                from; defaults to the nearest expiry among the agent's open short
+                legs. Must be strictly before far_expiry.
+        """
+        try:
+            actions = _import_autonomous_agents()
+            result = actions.mcp_submit_roll(
+                agent_id=agent_id,
+                far_expiry=far_expiry,
+                rationale=rationale,
+                underlying=underlying,
+                near_expiry=near_expiry,
+            )
+            return json.dumps(result, indent=2, default=str)
+        except Exception as e:
+            return json.dumps({"status": "error", "error": str(e)}, indent=2)
+
+
+    @mcp.tool()
     def get_portfolio_greeks(agent_id: str) -> str:
         """
         Net delta/gamma/theta/vega across an India autonomous agent's whole open
