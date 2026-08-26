@@ -912,23 +912,32 @@ def register(mcpserver):
         underlying: str | None = None,
         expiry: str | None = None,
         hedge_ratio: float = 1.0,
+        mode: str = "short",
     ) -> str:
         """
-        Buy protective legs against an India autonomous agent's open SHORT option positions.
+        Buy protective legs against an India autonomous agent's open option positions.
 
-        Use when a short option's risk needs capping — this turns an open short into a
-        defined-risk spread by buying a further-OTM option of the same type, picked from
-        the live chain. Only protects SHORT legs (a long's max loss is already capped at
-        premium paid). For reducing position size instead, use submit_partial_close.
+        mode="short" (default): use when a short option's risk needs capping — this turns
+        an open short into a defined-risk spread by buying a further-OTM option of the same
+        type, picked from the live chain.
+
+        mode="long": use when a long option (e.g. long calls) still carries real directional
+        risk worth offsetting even though its max loss is already capped at premium paid —
+        this buys a further-OTM option of the *opposite* type (e.g. a protective put against
+        long calls), picked from the live chain against the long leg's own strike.
+
+        For reducing position size instead, use submit_partial_close.
 
         Args:
             agent_id: aa_* agent id
             rationale: why this hedge is being placed
             underlying: optional, defaults to the agent's own handoff/primary symbol
             expiry: optional ISO date (YYYY-MM-DD); defaults to the nearest expiry among
-                the agent's open short legs
-            hedge_ratio: fraction of each short leg's quantity to hedge, in (0, 1] — 1.0
-                fully covers it
+                the agent's open short/long legs (per mode)
+            hedge_ratio: fraction of each leg's quantity to hedge, in (0, 1] — 1.0 fully
+                covers it
+            mode: "short" (protect open SHORT legs, default) or "long" (delta-offset open
+                LONG legs)
         """
         try:
             actions = _import_autonomous_agents()
@@ -938,6 +947,7 @@ def register(mcpserver):
                 underlying=underlying,
                 expiry=expiry,
                 hedge_ratio=hedge_ratio,
+                mode=mode,
             )
             return json.dumps(result, indent=2, default=str)
         except Exception as e:
