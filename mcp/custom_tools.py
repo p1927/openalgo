@@ -973,7 +973,7 @@ def register(mcpserver):
         existing leg without changing its expiry use submit_hedge.
 
         Deliberately scoped to same-strike calendar rolls (same strike, later
-        expiry). A strike change at the same expiry is not supported by this tool.
+        expiry). For a strike change at the same expiry, use submit_strike_roll instead.
 
         Args:
             agent_id: aa_* agent id
@@ -994,6 +994,50 @@ def register(mcpserver):
                 rationale=rationale,
                 underlying=underlying,
                 near_expiry=near_expiry,
+            )
+            return json.dumps(result, indent=2, default=str)
+        except Exception as e:
+            return json.dumps({"status": "error", "error": str(e)}, indent=2)
+
+
+    @mcp.tool()
+    def submit_strike_roll(
+        agent_id: str,
+        rationale: str,
+        underlying: str | None = None,
+        expiry: str | None = None,
+        min_distance_sigma: float = 1.5,
+    ) -> str:
+        """
+        Strike-roll an India autonomous agent's open SHORT option leg(s).
+
+        Closes the short leg and opens a same-type SELL at a further-OTM strike
+        of the *same* expiry, picked from the live chain. Use when the
+        underlying has moved and the short strike needs to move with it
+        without changing expiry — for changing expiry instead use submit_roll,
+        for capping risk on the existing leg/strike use submit_hedge.
+
+        Deliberately scoped to same-expiry strike rolls. An expiry change is
+        not supported by this tool.
+
+        Args:
+            agent_id: aa_* agent id
+            rationale: why this roll is being made
+            underlying: optional, defaults to the agent's own handoff/primary symbol
+            expiry: optional ISO date (YYYY-MM-DD) of the short legs to roll;
+                defaults to the nearest expiry among the agent's open short legs
+            min_distance_sigma: minimum OTM distance (in strike-price sigma) the
+                new strike must clear; a leg with no strike meeting this bound
+                is skipped rather than force-rolled
+        """
+        try:
+            actions = _import_autonomous_agents()
+            result = actions.mcp_submit_strike_roll(
+                agent_id=agent_id,
+                rationale=rationale,
+                underlying=underlying,
+                expiry=expiry,
+                min_distance_sigma=min_distance_sigma,
             )
             return json.dumps(result, indent=2, default=str)
         except Exception as e:
