@@ -59,21 +59,27 @@ export function IndMoneyTokenGate({ children }: { children: ReactNode }) {
 
   if (!expired) return <>{children}</>
   return (
-    <main className="flex min-h-screen items-center justify-center px-4 py-8">
-      <div className="w-full max-w-md text-center">
-          <Card className="w-full shadow-xl">
+    <main className="flex min-h-screen items-center px-4 py-8">
+      <div className="container mx-auto max-w-6xl">
+        <div className="flex flex-col items-center justify-between gap-8 lg:flex-row lg:gap-16">
+          <Card className="order-1 w-full max-w-md shadow-xl lg:order-2">
             <CardHeader className="text-center">
               <div className="mb-4 flex justify-center"><img src={`${import.meta.env.BASE_URL}logo.png`} alt="OpenAlgo" className="h-20 w-20" /></div>
               <CardTitle className="text-2xl">Refresh access token</CardTitle>
               <CardDescription>Reconnect IndMoney live market data</CardDescription>
             </CardHeader>
-            <CardContent><div className="space-y-4 text-left">
-              <Alert><Info className="h-4 w-4" /><AlertTitle>Token renewal required</AlertTitle><AlertDescription>Your token expired at the daily rollover. We’ll save, sync, and test the replacement before returning you to the dashboard.</AlertDescription></Alert>
+            <CardContent><div className="space-y-4">
               <div className="space-y-2"><Label htmlFor="indmoney-token">IndMoney access token</Label><Input id="indmoney-token" value={token} type="password" autoComplete="off" placeholder="Paste your access token" onChange={(e) => setToken(e.target.value)} onPaste={(e) => { const value = e.clipboardData.getData('text'); window.setTimeout(() => void applyPaste(value), 0) }} /></div>
               {message ? <Alert variant={message.startsWith('Connection verified') ? 'default' : 'destructive'}><AlertCircle className="h-4 w-4" /><AlertDescription>{message}</AlertDescription></Alert> : null}
               <Button className="w-full" disabled={!token || working} onClick={() => void applyPaste(token)}>{working ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4" />}Verify and continue</Button>
             </div></CardContent>
           </Card>
+          <div className="order-2 max-w-xl flex-1 text-center lg:order-1 lg:text-left">
+            <h1 className="mb-6 text-4xl font-bold lg:text-5xl">Keep your <span className="text-primary">market data</span> connected.</h1>
+            <p className="mb-8 text-lg text-muted-foreground lg:text-xl">Your IndMoney access token expired at the daily rollover. Paste today’s token and OpenAlgo will validate it, apply it to the live recorder, and return you to the dashboard.</p>
+            <Alert className="mb-6 text-left"><Info className="h-4 w-4" /><AlertTitle>What happens next?</AlertTitle><AlertDescription>The token is saved to the Trade root configuration, synced to OpenAlgo, and tested against the live INDmoney API before this screen closes.</AlertDescription></Alert>
+          </div>
+        </div>
       </div>
     </main>
   )
