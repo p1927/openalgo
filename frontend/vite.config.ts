@@ -67,6 +67,20 @@ export default defineConfig(({ command }) => ({
         target: 'http://localhost:5001',
         changeOrigin: true,
       },
+      // stock_simulator's connect URL is a relative `/stock_simulator/callback`
+      // (see utils/broker_login.py) rather than an absolute HOST_SERVER one,
+      // so the browser stays on whatever origin actually served the
+      // broker-select page instead of losing its session cookie on a
+      // cross-host jump. When the dev shell has switched this pane to this
+      // Vite server (see stack/ui-shell/shell.js's devOrigin probe), that
+      // relative URL resolves against Vite itself, which has no such
+      // route -- it falls through to the SPA's own NotFound page instead of
+      // reaching Flask. Proxy it through like `/auth` above so it works
+      // under both topologies.
+      '/stock_simulator/callback': {
+        target: 'http://localhost:5001',
+        changeOrigin: true,
+      },
       // Every blueprint's data-fetch routes live at `/<blueprint>/api/*`
       // (e.g. `/search/api/expiries`, `/sandbox/api/simulator/status`,
       // `/gex/api/gex-data`) — but the SAME top-level prefixes (`/search`,
