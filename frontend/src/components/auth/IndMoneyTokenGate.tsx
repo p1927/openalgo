@@ -1,8 +1,10 @@
-import { AlertCircle, Loader2, ShieldCheck } from 'lucide-react'
+import { AlertCircle, Info, Loader2, ShieldCheck } from 'lucide-react'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { API_BASE_URL, fetchCSRFToken } from '@/api/client'
 
 type Health = { status?: string; checked_at?: string }
@@ -57,23 +59,28 @@ export function IndMoneyTokenGate({ children }: { children: ReactNode }) {
 
   if (!expired) return <>{children}</>
   return (
-    <main className="flex min-h-screen items-center justify-center bg-background px-4 py-8 text-foreground">
-      <Card className="w-full max-w-lg border-border shadow-sm">
-        <CardHeader className="space-y-3 border-b border-border bg-muted/40">
-          <div className="flex items-center gap-3">
-            <div className="rounded-md bg-primary/10 p-2 text-primary"><ShieldCheck className="h-5 w-5" /></div>
-            <div><p className="text-xs font-medium text-muted-foreground">OpenAlgo · Recorder access</p><CardTitle>Renew IndMoney access token</CardTitle></div>
+    <main className="min-h-screen px-4 py-8">
+      <div className="container mx-auto max-w-6xl">
+        <div className="flex flex-col items-center justify-between gap-8 lg:flex-row lg:gap-16">
+          <Card className="order-1 w-full max-w-md shadow-xl lg:order-2">
+            <CardHeader className="text-center">
+              <div className="mb-4 flex justify-center"><img src={`${import.meta.env.BASE_URL}logo.png`} alt="OpenAlgo" className="h-20 w-20" /></div>
+              <CardTitle className="text-2xl">Refresh access token</CardTitle>
+              <CardDescription>Reconnect IndMoney live market data</CardDescription>
+            </CardHeader>
+            <CardContent><div className="space-y-4">
+              <div className="space-y-2"><Label htmlFor="indmoney-token">IndMoney access token</Label><Input id="indmoney-token" value={token} type="password" autoComplete="off" placeholder="Paste your access token" onChange={(e) => setToken(e.target.value)} onPaste={(e) => { const value = e.clipboardData.getData('text'); window.setTimeout(() => void applyPaste(value), 0) }} /></div>
+              {message ? <Alert variant={message.startsWith('Connection verified') ? 'default' : 'destructive'}><AlertCircle className="h-4 w-4" /><AlertDescription>{message}</AlertDescription></Alert> : null}
+              <Button className="w-full" disabled={!token || working} onClick={() => void applyPaste(token)}>{working ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4" />}Verify and continue</Button>
+            </div></CardContent>
+          </Card>
+          <div className="order-2 max-w-xl flex-1 text-center lg:order-1 lg:text-left">
+            <h1 className="mb-6 text-4xl font-bold lg:text-5xl">Keep your <span className="text-primary">market data</span> connected.</h1>
+            <p className="mb-8 text-lg text-muted-foreground lg:text-xl">Your IndMoney access token expired at the daily rollover. Paste today’s token and OpenAlgo will validate it, apply it to the live recorder, and return you to the dashboard.</p>
+            <Alert className="mb-6 text-left"><Info className="h-4 w-4" /><AlertTitle>What happens next?</AlertTitle><AlertDescription>The token is saved to the Trade root configuration, synced to OpenAlgo, and tested against the live INDmoney API before this screen closes.</AlertDescription></Alert>
           </div>
-          <CardDescription>Your token has expired or was revoked. Paste a new token to restore live market recording.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4 pt-6">
-          <Input value={token} type="password" autoComplete="off" className="h-10" placeholder="Paste access token" onChange={(e) => setToken(e.target.value)} onPaste={(e) => { const value = e.clipboardData.getData('text'); window.setTimeout(() => void applyPaste(value), 0) }} />
-          <Button className="w-full" disabled={!token || working} onClick={() => void applyPaste(token)}>
-            {working ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null} Verify and continue
-          </Button>
-          {message ? <p className="flex gap-2 rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-primary" />{message}</p> : null}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </main>
   )
 }
