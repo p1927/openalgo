@@ -1914,6 +1914,20 @@ def register(mcpserver):
 
 
     @mcp.tool()
+    def list_scenario_factors() -> str:
+        """List valid primary_factor/factor_overrides keys for a news scenario draft."""
+        try:
+            from trade_integrations.dataflows.news_hub_bridge.internal.news_scenario_tools import (
+                tool_list_scenario_factors,
+            )
+
+            return tool_list_scenario_factors()
+        except Exception as e:
+            logger.exception("list_scenario_factors failed: %s", e)
+            return f"Error: {e}"
+
+
+    @mcp.tool()
     def save_news_scenario_draft(
         ticker: str = "NIFTY",
         pipeline_as_of: str = "",
