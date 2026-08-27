@@ -74,7 +74,11 @@ def test_prepare_connect_stock_simulator(client, monkeypatch):
     assert response.status_code == 200
     payload = response.get_json()
     assert payload["status"] == "success"
-    assert payload["connect_url"] == "http://127.0.0.1:5001/stock_simulator/callback"
+    # Relative, not HOST_SERVER-prefixed: this broker's auth is a local
+    # no-op, so the callback must stay on whatever host/port served the
+    # broker-select page instead of forcing a cross-host navigation that
+    # drops the login session cookie.
+    assert payload["connect_url"] == "/stock_simulator/callback"
     assert payload["auth_flow"] == "callback"
 
 

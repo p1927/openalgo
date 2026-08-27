@@ -137,6 +137,19 @@ def build_connect_url(
             return f"{host}/rmoney/callback"
         logger.warning("oauth_external fallback to callback for broker %s", broker_id)
 
+    if broker_id == "stock_simulator":
+        # No external broker exchange happens for this one -- auth_api.py's
+        # authenticate_broker() is a local no-op. Building this as an
+        # absolute HOST_SERVER URL forces the browser to a possibly
+        # different host/port than whatever actually served the broker-select
+        # page (gateway :8080 iframe vs. direct :5001 vs. dev :5890), and the
+        # just-established login session cookie -- scoped to the host the
+        # user is really on -- doesn't follow across that hop. The callback
+        # route lives in this same app, so a relative URL keeps the browser
+        # on its current host and the session intact. See
+        # .claude/backlog/items/2026-08-27-stock-simulator-login-loses-session-on-broker-callback.md
+        return f"/{broker_id}/callback"
+
     if broker_id == "iiflcapital":
         return f"{host}/iiflcapital/callback"
 

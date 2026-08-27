@@ -56,9 +56,15 @@ def test_validate_registry_missing_plugin(monkeypatch) -> None:
 def test_build_connect_url_stock_simulator(monkeypatch) -> None:
     from utils.broker_login import build_connect_url
 
+    # Deliberately relative, not HOST_SERVER-prefixed: stock_simulator's
+    # auth is a local no-op (no external broker exchange), so the callback
+    # must stay on whatever host/port actually served the broker-select
+    # page rather than force a cross-host navigation that drops the login
+    # session cookie -- see
+    # .claude/backlog/items/2026-08-27-stock-simulator-login-loses-session-on-broker-callback.md
     monkeypatch.setenv("HOST_SERVER", "http://127.0.0.1:5001")
     url = build_connect_url("stock_simulator")
-    assert url == "http://127.0.0.1:5001/stock_simulator/callback"
+    assert url == "/stock_simulator/callback"
 
 
 @pytest.mark.unit
