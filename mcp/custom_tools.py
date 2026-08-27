@@ -16,6 +16,31 @@ import sys
 from typing import Any
 
 
+def _get_logger():
+    """Import openalgo's own centralized logger lazily.
+
+    This module is loaded via ``importlib.util.spec_from_file_location`` by
+    ``mcp/mcpserver.py`` (see the module docstring), so ``sys.path[0]`` at
+    import time is this file's own directory (``mcp/``), not the openalgo
+    package root -- a plain ``from utils.logging import get_logger`` fails
+    with ``ModuleNotFoundError`` in that context even though it works when
+    this file happens to be run with the openalgo root as cwd. Insert the
+    openalgo root explicitly first so the import is reliable regardless of
+    how this module got loaded.
+    """
+    from pathlib import Path
+
+    openalgo_root = str(Path(__file__).resolve().parent.parent)
+    if openalgo_root not in sys.path:
+        sys.path.insert(0, openalgo_root)
+    from utils.logging import get_logger
+
+    return get_logger("openalgo_mcp_custom_tools")
+
+
+logger = _get_logger()
+
+
 def register(mcpserver):
     """Register our custom MCP tools onto the shared FastMCP instance.
 
@@ -60,6 +85,7 @@ def register(mcpserver):
                 return json.dumps(snap, indent=2, default=str)
             return f"Error: no Alpaca quote available for {clean}"
         except Exception as e:
+            logger.exception("get_us_quote failed: %s", e)
             return f"Error getting US quote: {str(e)}"
 
 
@@ -80,6 +106,7 @@ def register(mcpserver):
                 )
             return json.dumps(fetch_alpaca_account(), indent=2, default=str)
         except Exception as e:
+            logger.exception("get_us_paper_account failed: %s", e)
             return f"Error getting Alpaca account: {str(e)}"
 
     def _ensure_trade_stack_import() -> None:
@@ -266,6 +293,7 @@ def register(mcpserver):
             )
             return json.dumps(result, indent=2, default=str)
         except Exception as e:
+            logger.exception("get_strategy_payoff failed: %s", e)
             return f"Error computing strategy payoff: {str(e)}"
 
 
@@ -292,6 +320,7 @@ def register(mcpserver):
             result = calculate_charges(legs, broker_preset=broker)
             return json.dumps(result, indent=2, default=str)
         except Exception as e:
+            logger.exception("get_trade_charges failed: %s", e)
             return f"Error calculating trade charges: {str(e)}"
 
 
@@ -347,6 +376,7 @@ def register(mcpserver):
             }
             return json.dumps(payload, indent=2, default=str)
         except Exception as e:
+            logger.exception("get_options_browse failed: %s", e)
             return f"Error browsing options chain: {str(e)}"
 
 
@@ -382,6 +412,7 @@ def register(mcpserver):
             )
             return report
         except Exception as e:
+            logger.exception("get_options_trade_plan failed: %s", e)
             return f"Error loading options trade plan: {str(e)}"
 
 
@@ -437,6 +468,7 @@ def register(mcpserver):
                 store.write_text(json.dumps(widget, indent=2, default=str), encoding="utf-8")
             return json.dumps(widget, indent=2, default=str)
         except Exception as e:
+            logger.exception("get_options_trade_widget failed: %s", e)
             return json.dumps(
                 {"type": "trade_plan.widget", "error": str(e), "underlying": ticker},
                 indent=2,
@@ -504,6 +536,7 @@ def register(mcpserver):
             }
             return json.dumps(payload, indent=2, default=str)
         except Exception as e:
+            logger.exception("get_plan_position_status failed: %s", e)
             return json.dumps({"widget_id": widget_id, "error": str(e)}, indent=2)
 
 
@@ -543,6 +576,7 @@ def register(mcpserver):
             actions = _import_autonomous_agents()
             return json.dumps(actions.mcp_stop_running_agents(), indent=2, default=str)
         except Exception as e:
+            logger.exception("stop_autonomous_agents failed: %s", e)
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
@@ -562,6 +596,7 @@ def register(mcpserver):
             result = actions.mcp_get_market_feedback(agent_id=agent_id, ticker=ticker)
             return json.dumps(result, indent=2, default=str)
         except Exception as e:
+            logger.exception("get_autonomous_market_feedback failed: %s", e)
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
@@ -581,6 +616,7 @@ def register(mcpserver):
             result = actions.mcp_execute_basket(widget_id, agent_id=agent_id, confidence=confidence)
             return json.dumps(result, indent=2, default=str)
         except Exception as e:
+            logger.exception("execute_autonomous_basket failed: %s", e)
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
@@ -642,6 +678,7 @@ def register(mcpserver):
             )
             return json.dumps(result, indent=2, default=str)
         except Exception as e:
+            logger.exception("propose_autonomous_agent failed: %s", e)
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
@@ -661,6 +698,7 @@ def register(mcpserver):
             result = actions.mcp_get_status(agent_id=agent_id)
             return json.dumps(result, indent=2, default=str)
         except Exception as e:
+            logger.exception("get_autonomous_agent_status failed: %s", e)
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
@@ -694,6 +732,7 @@ def register(mcpserver):
             )
             return json.dumps(result, indent=2, default=str)
         except Exception as e:
+            logger.exception("record_autonomous_decision failed: %s", e)
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
@@ -748,6 +787,7 @@ def register(mcpserver):
                 indent=2,
             )
         except Exception as e:
+            logger.exception("set_agent_watch_spec failed: %s", e)
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
@@ -768,6 +808,7 @@ def register(mcpserver):
             result = actions.mcp_list_watches(session_id=session_id, agent_id=agent_id)
             return json.dumps(result, indent=2, default=str)
         except Exception as e:
+            logger.exception("list_watches failed: %s", e)
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
@@ -808,6 +849,7 @@ def register(mcpserver):
                 indent=2,
             )
         except Exception as e:
+            logger.exception("create_session_watch failed: %s", e)
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
@@ -824,6 +866,7 @@ def register(mcpserver):
             result = actions.mcp_delete_watch(watch_id=watch_id)
             return json.dumps(result, indent=2, default=str)
         except Exception as e:
+            logger.exception("delete_watch failed: %s", e)
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
@@ -843,6 +886,7 @@ def register(mcpserver):
             result = actions.mcp_get_quant_monitor_status(agent_id=agent_id)
             return json.dumps(result, indent=2, default=str)
         except Exception as e:
+            logger.exception("get_quant_monitor_status failed: %s", e)
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
@@ -871,6 +915,7 @@ def register(mcpserver):
             )
             return json.dumps(result, indent=2, default=str)
         except Exception as e:
+            logger.exception("submit_bridge_execution_intent failed: %s", e)
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
@@ -904,6 +949,7 @@ def register(mcpserver):
             )
             return json.dumps(result, indent=2, default=str)
         except Exception as e:
+            logger.exception("submit_partial_close failed: %s", e)
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
@@ -953,6 +999,7 @@ def register(mcpserver):
             )
             return json.dumps(result, indent=2, default=str)
         except Exception as e:
+            logger.exception("submit_hedge failed: %s", e)
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
@@ -999,6 +1046,7 @@ def register(mcpserver):
             )
             return json.dumps(result, indent=2, default=str)
         except Exception as e:
+            logger.exception("submit_roll failed: %s", e)
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
@@ -1043,6 +1091,7 @@ def register(mcpserver):
             )
             return json.dumps(result, indent=2, default=str)
         except Exception as e:
+            logger.exception("submit_strike_roll failed: %s", e)
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
@@ -1063,6 +1112,7 @@ def register(mcpserver):
             result = actions.mcp_get_portfolio_greeks(agent_id=agent_id)
             return json.dumps(result, indent=2, default=str)
         except Exception as e:
+            logger.exception("get_portfolio_greeks failed: %s", e)
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
@@ -1093,6 +1143,7 @@ def register(mcpserver):
             kind = kind_map.get(asset_type.strip().lower(), ResearchKind.STOCK)
             return json.dumps(_status(ticker, kind=kind), indent=2, default=str)
         except Exception as e:
+            logger.exception("get_research_status failed: %s", e)
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
@@ -1110,6 +1161,7 @@ def register(mcpserver):
 
             return _status()
         except Exception as e:
+            logger.exception("get_nse_browser_status failed: %s", e)
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
@@ -1165,6 +1217,7 @@ def register(mcpserver):
                 limit=limit,
             )
         except Exception as e:
+            logger.exception("get_nse_browser_data failed: %s", e)
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
@@ -1181,6 +1234,7 @@ def register(mcpserver):
 
             return _ingest()
         except Exception as e:
+            logger.exception("ingest_nse_repository failed: %s", e)
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
@@ -1216,6 +1270,7 @@ def register(mcpserver):
                 backfill_historical=backfill_historical,
             )
         except Exception as e:
+            logger.exception("run_nse_browser_mission failed: %s", e)
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
@@ -1245,6 +1300,7 @@ def register(mcpserver):
 
             return _get(ticker, limit=limit, refresh=refresh)
         except Exception as e:
+            logger.exception("get_hub_news failed: %s", e)
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
@@ -1275,6 +1331,7 @@ def register(mcpserver):
 
             return _get(start_date, end_date, refresh=refresh, limit=limit)
         except Exception as e:
+            logger.exception("get_hub_fii_dii failed: %s", e)
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
@@ -1303,6 +1360,7 @@ def register(mcpserver):
 
             return _get(index, start_date, end_date, refresh=refresh)
         except Exception as e:
+            logger.exception("get_hub_index_history failed: %s", e)
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
@@ -1345,6 +1403,7 @@ def register(mcpserver):
                 schema = json.loads(output_schema)
             return _run(goal, start_urls=urls, output_schema=schema, max_steps=max_steps, persist=persist)
         except Exception as e:
+            logger.exception("run_browser_task failed: %s", e)
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
@@ -1384,6 +1443,7 @@ def register(mcpserver):
                 store.write_text(json.dumps(widget, indent=2, default=str), encoding="utf-8")
             return json.dumps(widget, indent=2, default=str)
         except Exception as e:
+            logger.exception("get_stock_trade_widget failed: %s", e)
             return json.dumps(
                 {"type": "trade_plan.widget", "error": str(e), "underlying": ticker, "asset_type": "stock"},
                 indent=2,
@@ -1465,11 +1525,13 @@ def register(mcpserver):
                 try:
                     run_agent_debate(key, asset_type=resolved_asset)
                 except Exception:
+                    logger.exception("_worker failed")
                     pass
 
             threading.Thread(target=_worker, daemon=True, name=f"mcp-debate-{key}").start()
             return body
         except Exception as e:
+            logger.exception("_worker failed: %s", e)
             return f"Error running TradingAgents analysis: {str(e)}"
 
 
@@ -1517,6 +1579,7 @@ def register(mcpserver):
             payload = run_review(key, horizon_days=horizon_days, save=True)
             return json.dumps(payload, indent=2, default=str)
         except Exception as e:
+            logger.exception("run_quant_review failed: %s", e)
             return json.dumps({"error": str(e), "ticker": ticker}, indent=2)
 
 
@@ -1564,6 +1627,7 @@ def register(mcpserver):
                 default=str,
             )
         except Exception as e:
+            logger.exception("get_stock_browse failed: %s", e)
             return f"Error browsing stock: {str(e)}"
 
 
@@ -1592,6 +1656,7 @@ def register(mcpserver):
                 use_cache=not refresh,
             )
         except Exception as e:
+            logger.exception("get_stock_trade_plan failed: %s", e)
             return f"Error loading stock trade plan: {str(e)}"
 
 
@@ -1650,6 +1715,7 @@ def register(mcpserver):
                 default=str,
             )
         except Exception as e:
+            logger.exception("get_index_trade_plan failed: %s", e)
             return f"Error loading index trade plan: {str(e)}"
 
 
@@ -1690,6 +1756,7 @@ def register(mcpserver):
                 store.write_text(json.dumps(widget, indent=2, default=str), encoding="utf-8")
             return json.dumps(widget, indent=2, default=str)
         except Exception as e:
+            logger.exception("get_index_trade_widget failed: %s", e)
             return f"Error building index trade widget: {str(e)}"
 
 
@@ -1703,6 +1770,7 @@ def register(mcpserver):
 
             return tool_get_pipeline_snapshot(ticker, pipeline_as_of)
         except Exception as e:
+            logger.exception("get_pipeline_snapshot failed: %s", e)
             return f"Error: {e}"
 
 
@@ -1716,6 +1784,7 @@ def register(mcpserver):
 
             return tool_query_factor_explanation(ticker, pipeline_as_of, limit=limit)
         except Exception as e:
+            logger.exception("query_factor_explanation failed: %s", e)
             return f"Error: {e}"
 
 
@@ -1729,6 +1798,7 @@ def register(mcpserver):
 
             return tool_query_factor_sensitivity(ticker, pipeline_as_of, limit=limit)
         except Exception as e:
+            logger.exception("query_factor_sensitivity failed: %s", e)
             return f"Error: {e}"
 
 
@@ -1742,6 +1812,7 @@ def register(mcpserver):
 
             return tool_query_equation_coefficients(ticker, pipeline_as_of)
         except Exception as e:
+            logger.exception("query_equation_coefficients failed: %s", e)
             return f"Error: {e}"
 
 
@@ -1755,6 +1826,7 @@ def register(mcpserver):
 
             return tool_query_constituent_drivers(ticker, pipeline_as_of, limit=limit)
         except Exception as e:
+            logger.exception("query_constituent_drivers failed: %s", e)
             return f"Error: {e}"
 
 
@@ -1776,6 +1848,7 @@ def register(mcpserver):
                 ticker, pipeline_as_of, start_date=start_date, end_date=end_date, limit=limit
             )
         except Exception as e:
+            logger.exception("get_pipeline_news_items failed: %s", e)
             return f"Error: {e}"
 
 
@@ -1791,6 +1864,7 @@ def register(mcpserver):
 
             return tool_get_live_news_impact(ticker, pipeline_as_of, limit=limit)
         except Exception as e:
+            logger.exception("get_live_news_impact failed: %s", e)
             return f"Error: {e}"
 
 
@@ -1804,6 +1878,7 @@ def register(mcpserver):
 
             return tool_get_playground_context(ticker, pipeline_as_of)
         except Exception as e:
+            logger.exception("get_playground_context failed: %s", e)
             return f"Error: {e}"
 
 
@@ -1834,6 +1909,7 @@ def register(mcpserver):
                 horizon_days=horizon_days,
             )
         except Exception as e:
+            logger.exception("simulate_pipeline_scenario failed: %s", e)
             return f"Error: {e}"
 
 
@@ -1851,6 +1927,7 @@ def register(mcpserver):
 
             return tool_save_news_scenario_draft(ticker, pipeline_as_of, draft_json)
         except Exception as e:
+            logger.exception("save_news_scenario_draft failed: %s", e)
             return f"Error: {e}"
 
 
@@ -1871,6 +1948,7 @@ def register(mcpserver):
                 ticker, pipeline_as_of, draft_id, session_id=session_id
             )
         except Exception as e:
+            logger.exception("run_news_event_scenario failed: %s", e)
             return f"Error: {e}"
 
 
@@ -1891,6 +1969,7 @@ def register(mcpserver):
                 ticker, pipeline_as_of, scenario_id, selected_outcome_id=selected_outcome_id
             )
         except Exception as e:
+            logger.exception("get_news_scenario_widget failed: %s", e)
             return f"Error: {e}"
 
     # Tool to get authoritative market context
@@ -1912,4 +1991,5 @@ def register(mcpserver):
             _success, response_data, _code = get_marketcontext(api_key=api_key)
             return json.dumps(response_data, indent=2, default=str)
         except Exception as e:
+            logger.exception("market_context failed: %s", e)
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
