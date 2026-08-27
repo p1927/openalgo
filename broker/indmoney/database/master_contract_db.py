@@ -91,20 +91,35 @@ def delete_matching_symtoken_rows(keys):
     """
     if not keys:
         return
-    exchanges = {exch for _, exch in keys}
-    symbols = {sym for sym, _ in keys}
-    candidates = SymToken.query.filter(
-        SymToken.exchange.in_(exchanges), SymToken.symbol.in_(symbols)
-    ).all()
+    # SQLite has a hard cap on bound parameters per statement
+    # (SQLITE_MAX_VARIABLE_NUMBER) -- indmoney's real download is ~100k+ rows
+    # across tens of thousands of distinct symbols, so a single `.in_(symbols)`
+    # blows past that limit ("too many SQL variables"). stock_simulator's own
+    # copy of this function never hit this because its rebuild is a few
+    # hundred rows; batch the lookup here to stay well under any build's cap.
+    _CHUNK = 400
+    exchanges = list({exch for _, exch in keys})
+    symbols = list({sym for sym, _ in keys})
     key_set = set(keys)
-    to_delete_ids = [row.id for row in candidates if (row.symbol, row.exchange) in key_set]
-    other_rows = len(candidates) - len(to_delete_ids)
+    to_delete_ids: list[int] = []
+    other_rows = 0
+    for i in range(0, len(symbols), _CHUNK):
+        batch = symbols[i : i + _CHUNK]
+        candidates = SymToken.query.filter(
+            SymToken.exchange.in_(exchanges), SymToken.symbol.in_(batch)
+        ).all()
+        for row in candidates:
+            if (row.symbol, row.exchange) in key_set:
+                to_delete_ids.append(row.id)
+            else:
+                other_rows += 1
     logger.info(
         f"Deleting {len(to_delete_ids)} existing indmoney symtoken rows before "
         f"rebuild (leaving {other_rows} other rows untouched)"
     )
-    if to_delete_ids:
-        SymToken.query.filter(SymToken.id.in_(to_delete_ids)).delete(synchronize_session=False)
+    for i in range(0, len(to_delete_ids), _CHUNK):
+        batch_ids = to_delete_ids[i : i + _CHUNK]
+        SymToken.query.filter(SymToken.id.in_(batch_ids)).delete(synchronize_session=False)
     db_session.commit()
 
 
