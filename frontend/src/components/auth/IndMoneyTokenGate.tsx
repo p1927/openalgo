@@ -1,6 +1,7 @@
 import { AlertCircle, Loader2, ShieldCheck } from 'lucide-react'
-import { useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { API_BASE_URL, fetchCSRFToken } from '@/api/client'
 
@@ -14,20 +15,20 @@ export function IndMoneyTokenGate({ children }: { children: ReactNode }) {
   const [message, setMessage] = useState('')
   const expired = health?.status === 'expired_or_revoked'
 
-  const check = async () => {
+  const check = useCallback(async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/broker/indmoney-recorder-token`, { credentials: 'include' })
       if (response.ok) setHealth((await response.json()).data)
     } catch {
       // An unavailable check must never lock a user out of OpenAlgo.
     }
-  }
+  }, [])
 
   useEffect(() => {
     void check()
     const id = window.setInterval(() => void check(), 5 * 60_000)
     return () => window.clearInterval(id)
-  }, [])
+  }, [check])
 
   const applyPaste = async (value: string) => {
     const pasted = value.trim()
@@ -56,18 +57,23 @@ export function IndMoneyTokenGate({ children }: { children: ReactNode }) {
 
   if (!expired) return <>{children}</>
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_#fef3c7,_#fffaf0_45%,_#f4f8f5)] px-6 py-12 text-stone-900">
-      <section className="mx-auto max-w-xl border-l-4 border-amber-600 bg-white/90 p-8 shadow-[0_24px_70px_-36px_rgba(120,53,15,.5)]">
-        <p className="mb-8 text-xs font-semibold tracking-[.22em] text-amber-800">OPENALGO · RECORDER ACCESS</p>
-        <ShieldCheck className="mb-5 h-9 w-9 text-amber-700" />
-        <h1 className="text-3xl font-semibold tracking-tight">Your IndMoney access token needs renewal.</h1>
-        <p className="mt-4 leading-7 text-stone-600">Paste today’s token. OpenAlgo will validate it, save it to the Trade root configuration, apply it to the live recorder, and return you here only when the connection is working.</p>
-        <Input value={token} type="password" autoComplete="off" className="mt-8 h-12 font-mono" placeholder="Paste access token" onChange={(e) => setToken(e.target.value)} onPaste={(e) => { const value = e.clipboardData.getData('text'); window.setTimeout(() => void applyPaste(value), 0) }} />
-        <Button className="mt-4" disabled={!token || working} onClick={() => void applyPaste(token)}>
-          {working ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null} Verify and continue
-        </Button>
-        {message ? <p className="mt-5 flex gap-2 text-sm text-stone-600"><AlertCircle className="h-4 w-4 shrink-0" />{message}</p> : null}
-      </section>
+    <main className="flex min-h-screen items-center justify-center bg-background px-4 py-8 text-foreground">
+      <Card className="w-full max-w-lg border-border shadow-sm">
+        <CardHeader className="space-y-3 border-b border-border bg-muted/40">
+          <div className="flex items-center gap-3">
+            <div className="rounded-md bg-primary/10 p-2 text-primary"><ShieldCheck className="h-5 w-5" /></div>
+            <div><p className="text-xs font-medium text-muted-foreground">OpenAlgo · Recorder access</p><CardTitle>Renew IndMoney access token</CardTitle></div>
+          </div>
+          <CardDescription>Your token has expired or was revoked. Paste a new token to restore live market recording.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4 pt-6">
+          <Input value={token} type="password" autoComplete="off" className="h-10" placeholder="Paste access token" onChange={(e) => setToken(e.target.value)} onPaste={(e) => { const value = e.clipboardData.getData('text'); window.setTimeout(() => void applyPaste(value), 0) }} />
+          <Button className="w-full" disabled={!token || working} onClick={() => void applyPaste(token)}>
+            {working ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null} Verify and continue
+          </Button>
+          {message ? <p className="flex gap-2 rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-primary" />{message}</p> : null}
+        </CardContent>
+      </Card>
     </main>
   )
 }
