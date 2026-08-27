@@ -19,6 +19,52 @@ logger = get_logger(__name__)
 indmoney_credentials_bp = Blueprint("indmoney_credentials_bp", __name__, url_prefix="/api/broker")
 
 
+def _recorder_token_health():
+    """Import the Trade-owned recorder helper without coupling to auth_db."""
+    from broker.stock_simulator.api._trade_path import ensure_trade_integrations_path
+
+    ensure_trade_integrations_path()
+    from trade_integrations.stock_simulator.recorder import indmoney_token_health
+
+    return indmoney_token_health
+
+
+@indmoney_credentials_bp.route("/indmoney-recorder-token", methods=["GET"])
+@check_session_validity
+def get_indmoney_recorder_token():
+    """Masked direct-INDmoney health for the independent recorder credential."""
+    return jsonify({"status": "success", "data": _recorder_token_health().probe()})
+
+
+@indmoney_credentials_bp.route("/indmoney-recorder-token", methods=["POST"])
+@check_session_validity
+def replace_indmoney_recorder_token():
+    """Validate, persist root token, mirror env, hot-reload recorder, and sync OpenAlgo DB."""
+    data = request.get_json(silent=True) or {}
+    token = str(data.get("token") or "").strip()
+    if not token:
+        return jsonify({"status": "error", "message": "Access token is required"}), 400
+    result = _recorder_token_health().save_root_token(token)
+    if result.get("status") != "valid":
+        return jsonify({"status": "error", "message": "INDmoney connection test failed", "data": result}), 422
+    phases = {"root_env": "applied", "openalgo_env": "synced"}
+    try:
+        from trade_integrations.stock_simulator.client import StockSimulatorClient
+        live = StockSimulatorClient().reload_indmoney_token()
+        phases["live_recorder"] = str((live.get("data") or {}).get("status") or "unknown")
+    except Exception:
+        logger.exception("INDmoney recorder token applied but live reload failed")
+        return jsonify({"status": "degraded", "message": "Token saved but recorder reload failed", "data": result, "phases": phases}), 502
+    from utils.broker_env_sync import reload_env_from_file, sync_env_secret_to_auth_db
+
+    reload_env_from_file()
+    db_sync = sync_env_secret_to_auth_db(username=session.get("user"), broker="indmoney")
+    phases["openalgo_db"] = "synced" if db_sync.get("synced") or db_sync.get("env_matches_db") else str(db_sync.get("reason"))
+    if phases["live_recorder"] != "valid":
+        return jsonify({"status": "degraded", "message": "Token saved but live recorder test failed", "data": live.get("data"), "phases": phases}), 502
+    return jsonify({"status": "success", "data": live.get("data"), "phases": phases})
+
+
 @indmoney_credentials_bp.route("/indmoney-token", methods=["GET"])
 @check_session_validity
 def get_indmoney_token():

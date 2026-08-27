@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router'
 import { Providers } from '@/app/providers'
 import { AuthSync } from '@/components/auth/AuthSync'
+import { IndMoneyTokenGate } from '@/components/auth/IndMoneyTokenGate'
 import { FullWidthLayout } from '@/components/layout/FullWidthLayout'
 import { Layout } from '@/components/layout/Layout'
 import { PageLoader } from '@/components/ui/page-loader'
@@ -176,7 +177,7 @@ function App() {
       <BrowserRouter basename={routerBasename()}>
         <PageTitleUpdater />
         <AuthSync>
-          <Suspense fallback={<PageLoader />}>
+          <IndMoneyTokenGate><Suspense fallback={<PageLoader />}>
             <Routes>
               {/* Public routes */}
               <Route path="/" element={<Home />} />
@@ -332,7 +333,7 @@ function App() {
               {/* 404 Not Found */}
               <Route path="*" element={<NotFound />} />
             </Routes>
-          </Suspense>
+          </Suspense></IndMoneyTokenGate>
         </AuthSync>
       </BrowserRouter>
     </Providers>
