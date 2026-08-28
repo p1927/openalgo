@@ -109,8 +109,8 @@ def test_list_brokers_clamps_default_when_redirect_broker_unavailable(client, mo
     assert response.status_code == 200
     payload = response.get_json()
     ids = {item["id"] for item in payload["brokers"]}
+    assert payload["default_broker"] == "stock_simulator"
     assert payload["default_broker"] in ids
-    assert payload["default_broker"] != "zerodha"
 
 
 @pytest.mark.unit

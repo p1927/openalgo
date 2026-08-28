@@ -13,6 +13,11 @@ from utils.logging import get_logger
 
 logger = get_logger(__name__)
 
+# The Trade deployment is paper/replay-first.  This is only the fallback when
+# REDIRECT_URL is absent or points at a broker unavailable in VALID_BROKERS;
+# an explicit, valid REDIRECT_URL still takes precedence.
+PREFERRED_DEFAULT_BROKER = "stock_simulator"
+
 # Fallback auth flows until all plugin.json files carry auth_flow.
 AUTH_FLOW_MAP: dict[str, str] = {
     "fivepaisa": "totp",
@@ -134,13 +139,15 @@ def get_default_broker() -> str:
 
 
 def resolve_default_broker_for_list(broker_ids: Iterable[str]) -> str | None:
-    """Return REDIRECT_URL broker when in the available set, else first sorted id."""
+    """Return REDIRECT_URL broker when available, else the NSE simulator when available."""
     ids = {str(broker_id).strip().lower() for broker_id in broker_ids if str(broker_id).strip()}
     if not ids:
         return None
     default = get_default_broker()
     if default and default in ids:
         return default
+    if PREFERRED_DEFAULT_BROKER in ids:
+        return PREFERRED_DEFAULT_BROKER
     return sorted(ids)[0]
 
 

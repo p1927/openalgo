@@ -89,4 +89,4 @@ def test_resolve_default_broker_clamps_when_redirect_not_available(monkeypatch) 
     monkeypatch.setenv("REDIRECT_URL", "http://127.0.0.1:5001/zerodha/callback")
     brokers = reg.list_available_brokers()
     resolved = reg.resolve_default_broker_for_list(b.id for b in brokers)
-    assert resolved == "indmoney"
+    assert resolved == "stock_simulator"
