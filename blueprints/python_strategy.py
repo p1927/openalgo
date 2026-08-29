@@ -872,6 +872,9 @@ def close_log_handle_safely(strategy_info):
 
 def cleanup_dead_processes():
     """Clean up strategies with dead processes"""
+    from services.scheduler_run_log_buffer import append_log
+
+    job_id = "reap_dead_strategies"
     with PROCESS_LOCK:  # Thread-safe operation
         dead_strategies = []
 
@@ -903,6 +906,7 @@ def cleanup_dead_processes():
 
             if is_dead:
                 dead_strategies.append(strategy_id)
+                append_log(job_id, f"strategy {strategy_id} process is dead, reaping")
                 # Close log file handle safely
                 close_log_handle_safely(info)
 
@@ -940,6 +944,7 @@ def cleanup_dead_processes():
         if dead_strategies:
             save_configs()
             logger.info(f"Cleaned up {len(dead_strategies)} dead processes")
+            append_log(job_id, f"cleaned up {len(dead_strategies)} dead process(es)")
 
 
 DEFAULT_STRATEGY_EXCHANGE = "NSE"
@@ -1123,6 +1128,11 @@ def scheduled_start_strategy(strategy_id: str):
       4. Otherwise start the strategy (the time-window intersection is
          enforced on each tick by `is_within_schedule_time`).
     """
+    from services.scheduler_run_log_buffer import append_log
+
+    job_id = f"start_{strategy_id}"
+    append_log(job_id, f"scheduled start fired for strategy {strategy_id}")
+
     config = STRATEGY_CONFIGS.get(strategy_id, {})
     if not config:
         return
@@ -1135,6 +1145,7 @@ def scheduled_start_strategy(strategy_id: str):
         logger.info(
             f"Strategy {strategy_id} manually stopped - skipping scheduled auto-start"
         )
+        append_log(job_id, "skipped: strategy manually stopped")
         return
 
     schedule_days = [d.lower() for d in config.get("schedule_days", [])]
@@ -1143,6 +1154,7 @@ def scheduled_start_strategy(strategy_id: str):
             f"Strategy {strategy_id} scheduled start fired but {today_day.capitalize()} "
             f"not in schedule_days {schedule_days}"
         )
+        append_log(job_id, f"skipped: {today_day.capitalize()} not in schedule_days {schedule_days}")
         return
 
     exch = normalize_exchange(config.get("exchange"))
@@ -1155,6 +1167,7 @@ def scheduled_start_strategy(strategy_id: str):
             logger.warning(
                 f"Strategy {strategy_id} ({exch}) scheduled start BLOCKED - {message}"
             )
+            append_log(job_id, f"blocked: {message}")
             STRATEGY_CONFIGS[strategy_id]["paused_reason"] = reason
             STRATEGY_CONFIGS[strategy_id]["paused_message"] = message
             save_configs()
@@ -1167,7 +1180,8 @@ def scheduled_start_strategy(strategy_id: str):
     logger.info(
         f"Strategy {strategy_id} ({exch}) - all checks passed, starting"
     )
-    start_strategy_process(strategy_id)
+    success, message = start_strategy_process(strategy_id)
+    append_log(job_id, "started" if success else f"failed: {message}")
 
 
 def scheduled_stop_strategy(strategy_id: str):
@@ -1175,9 +1189,14 @@ def scheduled_stop_strategy(strategy_id: str):
     Wrapper function for scheduled strategy stop.
     Always stops the strategy regardless of market status (for safety).
     """
+    from services.scheduler_run_log_buffer import append_log
+
+    job_id = f"stop_{strategy_id}"
     # Always stop - this is a safety measure to prevent strategies from running after hours
     logger.info(f"Scheduled stop triggered for strategy {strategy_id}")
-    stop_strategy_process(strategy_id)
+    append_log(job_id, f"scheduled stop triggered for strategy {strategy_id}")
+    success, message = stop_strategy_process(strategy_id)
+    append_log(job_id, "stopped" if success else f"failed: {message}")
 
 
 def is_trading_day_enforcement_enabled() -> bool:
@@ -1205,6 +1224,10 @@ def daily_trading_day_check():
     no session today. Exchange-aware: an MCX strategy keeps running on an
     NSE holiday; an NSE strategy stops; a CRYPTO strategy never stops.
     """
+    from services.scheduler_run_log_buffer import append_log
+
+    job_id = "daily_trading_day_check"
+    append_log(job_id, "starting daily trading day check")
     try:
         if not is_trading_day_enforcement_enabled():
             logger.debug("Market hours enforcement disabled - skipping daily check")
@@ -1230,6 +1253,7 @@ def daily_trading_day_check():
             logger.info(
                 f"Daily check: stopping {strategy_id} ({exch}) - {message}"
             )
+            append_log(job_id, f"stopping {strategy_id} ({exch}) - {message}")
             stop_strategy_process(strategy_id)
             STRATEGY_CONFIGS[strategy_id]["paused_reason"] = reason
             STRATEGY_CONFIGS[strategy_id]["paused_message"] = message
@@ -1238,11 +1262,14 @@ def daily_trading_day_check():
         if stopped_count > 0:
             save_configs()
             logger.info(f"Daily cleanup: stopped {stopped_count} strategies")
+            append_log(job_id, f"completed: stopped {stopped_count} strategy(ies)")
         else:
             logger.debug("Daily cleanup: no strategies needed stopping")
+            append_log(job_id, "completed: no strategies needed stopping")
 
     except Exception as e:
         logger.exception(f"Error in daily trading day check: {e}")
+        append_log(job_id, f"failed: {e}")
 
 
 def is_within_schedule_time(strategy_id: str) -> bool:
@@ -1328,6 +1355,9 @@ def market_hours_enforcer():
       cron's job and the user's schedule_stop. This avoids fighting users
       who deliberately leave a strategy running across the bell.
     """
+    from services.scheduler_run_log_buffer import append_log
+
+    job_id = "market_hours_enforcer"
     try:
         if not is_trading_day_enforcement_enabled():
             return
@@ -1363,11 +1393,16 @@ def market_hours_enforcer():
                             f"Enforcer: resuming paused strategy {strategy_id} ({exch}) "
                             f"(was: {paused_reason})"
                         )
+                        append_log(
+                            job_id,
+                            f"resuming paused strategy {strategy_id} ({exch}) (was: {paused_reason})",
+                        )
                         success, msg = start_strategy_process(strategy_id)
                         if success:
                             started_count += 1
                         else:
                             logger.warning(f"Failed to resume {strategy_id}: {msg}")
+                            append_log(job_id, f"failed to resume {strategy_id}: {msg}")
 
                 if "paused_reason" in config:
                     del config["paused_reason"]
@@ -1386,6 +1421,7 @@ def market_hours_enforcer():
             logger.info(
                 f"Enforcer: stopping {strategy_id} ({exch}) - {message}"
             )
+            append_log(job_id, f"stopping {strategy_id} ({exch}) - {message}")
             stop_strategy_process(strategy_id)
             STRATEGY_CONFIGS[strategy_id]["paused_reason"] = reason
             STRATEGY_CONFIGS[strategy_id]["paused_message"] = message
@@ -1400,6 +1436,7 @@ def market_hours_enforcer():
 
     except Exception as e:
         logger.exception(f"Error in trading day enforcer: {e}")
+        append_log(job_id, f"failed: {e}")
 
 
 def cleanup_strategy_logs(strategy_id: str):
