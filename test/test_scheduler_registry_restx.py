@@ -114,3 +114,50 @@ def test_pause_propagates_failure_status_code(client, monkeypatch):
 
     assert response.status_code == 400
     assert response.get_json()["message"] == "boom"
+
+
+def test_stream_rejects_when_validate_stream_access_fails(client, monkeypatch):
+    monkeypatch.setattr(
+        scheduler_registry_api,
+        "validate_stream_access",
+        lambda api_key, source: (False, "Invalid openalgo apikey"),
+    )
+
+    response = client.get("/scheduler/registry/flow/wf_1/stream?apikey=bad")
+
+    assert response.status_code == 403
+    assert response.get_json()["message"] == "Invalid openalgo apikey"
+
+
+def test_stream_rejects_a_source_without_live_log_support(client, monkeypatch):
+    monkeypatch.setattr(
+        scheduler_registry_api,
+        "validate_stream_access",
+        lambda api_key, source: (False, f"Live-log-tail not available for source: {source!r}"),
+    )
+
+    response = client.get("/scheduler/registry/strategy/job_1/stream?apikey=key")
+
+    assert response.status_code == 403
+    assert "strategy" in response.get_json()["message"]
+
+
+def test_stream_returns_event_stream_response_on_success(client, monkeypatch):
+    monkeypatch.setattr(
+        scheduler_registry_api, "validate_stream_access", lambda api_key, source: (True, "")
+    )
+    monkeypatch.setattr(
+        scheduler_registry_api,
+        "stream_scheduler_run_log",
+        lambda job_id: iter(['event: log\ndata: {"seq": 1}\n\n']),
+    )
+
+    # Note: does not read the response body — `stream_scheduler_run_log` is a
+    # real infinite generator in production, and consuming it here (even the
+    # fake finite one above) isn't the point of this test; the route wiring
+    # (auth gate passed, right mimetype/headers) is.
+    response = client.get("/scheduler/registry/flow/wf_1/stream?apikey=key")
+
+    assert response.status_code == 200
+    assert response.mimetype == "text/event-stream"
+    assert response.headers["Cache-Control"] == "no-cache"

@@ -30,6 +30,20 @@ def _valid_api_key():
         yield
 
 
+@pytest.fixture(autouse=True)
+def _isolate_run_log_buffer():
+    """`stream_scheduler_run_log` reads the module-level buffer in
+    `scheduler_run_log_buffer.py`, which is shared process-wide — without
+    this, a job id used here (e.g. "flow_workflow_1") can leak into
+    test_scheduler_run_log_buffer.py's tests using the same id, or vice
+    versa, depending on test execution order."""
+    from services import scheduler_run_log_buffer
+
+    yield
+    scheduler_run_log_buffer._BUFFERS.clear()
+    scheduler_run_log_buffer._SEQ_COUNTERS.clear()
+
+
 def test_invalid_api_key_rejected():
     with mock.patch.object(svc, "get_auth_token_broker", return_value=(None, None)):
         ok, body, status = svc.list_scheduler_registry("bad-key")
@@ -93,7 +107,7 @@ def test_id_and_section_embed_the_source():
             "last_run_at": None,
             "last_error": None,
             "auto_paused_reason": None,
-            "supports_live_log": False,
+            "supports_live_log": True,
             "live_log_stream_url": None,
             "controls": {
                 "pause": True,
@@ -187,3 +201,77 @@ def test_pause_apscheduler_error_surfaces_as_failure():
         ok, body, status = svc.pause_scheduler_job("key", "chartink", "missing")
     assert ok is False
     assert status == 400
+
+
+def test_lists_jobs_flags_flow_and_historify_as_live_log_capable():
+    with mock.patch.object(svc, "_get_scheduler") as get_scheduler:
+        def pick(source):
+            if source in ("flow", "historify"):
+                return _fake_scheduler([_job(f"{source}_job")])
+            return None
+
+        get_scheduler.side_effect = pick
+        ok, body, _status = svc.list_scheduler_registry("key")
+    assert ok is True
+    by_section = {e["section"]: e for e in body["data"]["entries"]}
+    assert by_section["flow"]["supports_live_log"] is True
+    assert by_section["historify"]["supports_live_log"] is True
+
+
+def test_lists_jobs_does_not_flag_strategy_family_as_live_log_capable():
+    with mock.patch.object(svc, "_get_scheduler") as get_scheduler:
+        def pick(source):
+            if source == "strategy":
+                return _fake_scheduler([_job("strategy_job")])
+            return None
+
+        get_scheduler.side_effect = pick
+        ok, body, _status = svc.list_scheduler_registry("key")
+    assert ok is True
+    assert body["data"]["entries"][0]["supports_live_log"] is False
+
+
+def test_validate_stream_access_rejects_invalid_api_key():
+    with mock.patch.object(svc, "get_auth_token_broker", return_value=(None, None)):
+        ok, message = svc.validate_stream_access("bad-key", "flow")
+    assert ok is False
+    assert "apikey" in message.lower()
+
+
+def test_validate_stream_access_rejects_a_source_without_live_log_support():
+    ok, message = svc.validate_stream_access("key", "strategy")
+    assert ok is False
+    assert "strategy" in message
+
+
+def test_validate_stream_access_accepts_flow_and_historify():
+    assert svc.validate_stream_access("key", "flow") == (True, "")
+    assert svc.validate_stream_access("key", "historify") == (True, "")
+
+
+def test_stream_scheduler_run_log_replays_buffered_entries_then_polls():
+    from services import scheduler_run_log_buffer
+
+    scheduler_run_log_buffer._BUFFERS.clear()
+    scheduler_run_log_buffer._SEQ_COUNTERS.clear()
+    scheduler_run_log_buffer.append_log("flow_workflow_1", "hello")
+    scheduler_run_log_buffer.append_log("flow_workflow_1", "world")
+
+    class _StopStream(Exception):
+        pass
+
+    gen = svc.stream_scheduler_run_log("flow_workflow_1")
+    with mock.patch.object(svc.time, "sleep", side_effect=_StopStream):
+        frames = []
+        try:
+            frames.append(next(gen))
+            frames.append(next(gen))
+            next(gen)  # triggers the mocked time.sleep, stopping the generator
+        except _StopStream:
+            pass
+
+    assert len(frames) == 2
+    import json as _json
+
+    assert _json.loads(frames[0].split("data: ", 1)[1].strip())["message"] == "hello"
+    assert _json.loads(frames[1].split("data: ", 1)[1].strip())["message"] == "world"

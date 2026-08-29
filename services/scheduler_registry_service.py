@@ -16,14 +16,29 @@ Enforcer's OS crontab is a separate product and is never surfaced here.
 
 from __future__ import annotations
 
-from typing import Any
+import json
+import time
+from typing import Any, Iterator
 
 from database.auth_db import get_auth_token_broker
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
 
+_STREAM_POLL_SECONDS = 0.5
+_STREAM_HEARTBEAT_SECONDS = 15.0
+
 VALID_SOURCES = ("flow", "historify", "strategy", "chartink", "python_strategy")
+
+# Sources whose dispatch function has been instrumented with
+# scheduler_run_log_buffer.append_log calls (execute_workflow_scheduled,
+# execute_schedule) and has a live-log-tail SSE route
+# (restx_api/scheduler_registry.py's `.../stream` endpoint). strategy/
+# chartink/python_strategy have no such instrumentation yet — their
+# execution paths (webhook posts, order placement, subprocess management)
+# have no equivalent single callback to hook, unlike Flow/Historify's one
+# top-level dispatch function each. Remaining scope, not forgotten.
+_LIVE_LOG_SOURCES = frozenset({"flow", "historify"})
 
 
 def _validate_api_key(api_key: str | None) -> bool:
@@ -91,7 +106,11 @@ def _job_to_entry(source: str, job: Any) -> dict[str, Any]:
         "last_run_at": None,
         "last_error": None,
         "auto_paused_reason": None,
-        "supports_live_log": False,
+        # live_log_stream_url is stamped in by the cross-service caller
+        # (vibetrading-agent's `_openalgo_entries`, via `OpenAlgoClient.log_stream_url`),
+        # same pattern stock_simulator's DTO uses — this process doesn't
+        # embed its own apikey into a URL from inside a service module.
+        "supports_live_log": source in _LIVE_LOG_SOURCES,
         "live_log_stream_url": None,
         "controls": {
             "pause": True,
@@ -172,3 +191,50 @@ def resume_scheduler_job(
     if not ok:
         return False, {"status": "error", "message": message}, 400
     return True, {"status": "success", "message": "Job resumed"}, 200
+
+
+def validate_stream_access(api_key: str | None, source: str) -> tuple[bool, str]:
+    """Gate for ``GET .../<source>/<job_id>/stream`` before any streaming starts.
+
+    Kept separate from the POST-endpoint auth check above only because the
+    apikey arrives as a query param here (an ``EventSource`` can't send a
+    JSON body or a header) — same validation, same
+    ``database.auth_db.get_auth_token_broker`` call, no new auth mechanism.
+    """
+    if not _validate_api_key(api_key):
+        return False, "Invalid openalgo apikey"
+    if source not in _LIVE_LOG_SOURCES:
+        return False, f"Live-log-tail not available for source: {source!r}"
+    return True, ""
+
+
+def _sse_frame(event: str, data: dict[str, Any]) -> str:
+    payload = json.dumps(data, ensure_ascii=False, default=str)
+    return f"event: {event}\ndata: {payload}\n\n"
+
+
+def stream_scheduler_run_log(job_id: str) -> Iterator[str]:
+    """Replay ``job_id``'s buffered log lines, then poll for new ones forever.
+
+    Same replay-then-poll shape and ``event: log`` / ``{"seq","at","message"}``
+    frame format as vibetrading-agent's and stock_simulator's live-log-tail
+    routes, so the frontend's ``LiveLogTail.tsx`` needs no source-specific
+    branching. A plain blocking generator (``time.sleep``, not ``asyncio``)
+    per this codebase's own eventlet-compatibility rule — Flask/eventlet
+    streams a generator response natively, and a client disconnect surfaces
+    as a write failure on the next yield rather than needing an explicit
+    ``is_disconnected()`` poll the way FastAPI's routes use.
+    """
+    from services.scheduler_run_log_buffer import get_logs_since
+
+    last_seq = 0
+    last_emit = time.monotonic()
+    while True:
+        for entry in get_logs_since(job_id, last_seq):
+            yield _sse_frame("log", entry)
+            last_seq = entry["seq"]
+            last_emit = time.monotonic()
+        if time.monotonic() - last_emit >= _STREAM_HEARTBEAT_SECONDS:
+            yield ": keepalive\n\n"
+            last_emit = time.monotonic()
+        time.sleep(_STREAM_POLL_SECONDS)
