@@ -90,8 +90,12 @@ export default function Login() {
         if (!response.ok) return
         const data = await response.json()
         if (data.available) {
-          setUsername(data.username)
-          setPassword(data.password)
+          // Only fill a field the user hasn't already started typing into —
+          // this fetch resolves asynchronously, and unconditionally
+          // overwriting here would stomp real input typed in the window
+          // between initial paint and this response landing.
+          setUsername((current) => current || data.username)
+          setPassword((current) => current || data.password)
         }
       } catch (_err) {
         // Autofill is a convenience only; ignore failures.
