@@ -203,32 +203,17 @@ def test_pause_apscheduler_error_surfaces_as_failure():
     assert status == 400
 
 
-def test_lists_jobs_flags_flow_and_historify_as_live_log_capable():
+def test_lists_jobs_flags_all_five_sources_as_live_log_capable():
     with mock.patch.object(svc, "_get_scheduler") as get_scheduler:
         def pick(source):
-            if source in ("flow", "historify"):
-                return _fake_scheduler([_job(f"{source}_job")])
-            return None
+            return _fake_scheduler([_job(f"{source}_job")])
 
         get_scheduler.side_effect = pick
         ok, body, _status = svc.list_scheduler_registry("key")
     assert ok is True
     by_section = {e["section"]: e for e in body["data"]["entries"]}
-    assert by_section["flow"]["supports_live_log"] is True
-    assert by_section["historify"]["supports_live_log"] is True
-
-
-def test_lists_jobs_does_not_flag_strategy_family_as_live_log_capable():
-    with mock.patch.object(svc, "_get_scheduler") as get_scheduler:
-        def pick(source):
-            if source == "strategy":
-                return _fake_scheduler([_job("strategy_job")])
-            return None
-
-        get_scheduler.side_effect = pick
-        ok, body, _status = svc.list_scheduler_registry("key")
-    assert ok is True
-    assert body["data"]["entries"][0]["supports_live_log"] is False
+    for source in ("flow", "historify", "strategy", "chartink", "python_strategy"):
+        assert by_section[source]["supports_live_log"] is True
 
 
 def test_validate_stream_access_rejects_invalid_api_key():
@@ -239,14 +224,14 @@ def test_validate_stream_access_rejects_invalid_api_key():
 
 
 def test_validate_stream_access_rejects_a_source_without_live_log_support():
-    ok, message = svc.validate_stream_access("key", "strategy")
+    ok, message = svc.validate_stream_access("key", "not_a_real_source")
     assert ok is False
-    assert "strategy" in message
+    assert "not_a_real_source" in message
 
 
-def test_validate_stream_access_accepts_flow_and_historify():
-    assert svc.validate_stream_access("key", "flow") == (True, "")
-    assert svc.validate_stream_access("key", "historify") == (True, "")
+def test_validate_stream_access_accepts_all_five_sources():
+    for source in ("flow", "historify", "strategy", "chartink", "python_strategy"):
+        assert svc.validate_stream_access("key", source) == (True, "")
 
 
 def test_stream_scheduler_run_log_replays_buffered_entries_then_polls():

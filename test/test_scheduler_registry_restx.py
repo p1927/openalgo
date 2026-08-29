@@ -136,10 +136,10 @@ def test_stream_rejects_a_source_without_live_log_support(client, monkeypatch):
         lambda api_key, source: (False, f"Live-log-tail not available for source: {source!r}"),
     )
 
-    response = client.get("/scheduler/registry/strategy/job_1/stream?apikey=key")
+    response = client.get("/scheduler/registry/not_a_real_source/job_1/stream?apikey=key")
 
     assert response.status_code == 403
-    assert "strategy" in response.get_json()["message"]
+    assert "not_a_real_source" in response.get_json()["message"]
 
 
 def test_stream_returns_event_stream_response_on_success(client, monkeypatch):
