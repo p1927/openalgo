@@ -53,6 +53,7 @@ from .portfolio_ledger import api as strategy_performance_ns  # Portfolio ledger
 from .sip import api as sip_ns
 from .positionbook import api as positionbook_ns
 from .quotes import api as quotes_ns
+from .scheduler_registry import api as scheduler_registry_ns
 from .search import api as search_ns
 from .split_order import api as split_order_ns
 from .symbol import api as symbol_ns
@@ -113,3 +114,4 @@ api.add_namespace(place_gtt_order_ns, path="/placegttorder")
 api.add_namespace(modify_gtt_order_ns, path="/modifygttorder")
 api.add_namespace(cancel_gtt_order_ns, path="/cancelgttorder")
 api.add_namespace(gtt_orderbook_ns, path="/gttorderbook")
+api.add_namespace(scheduler_registry_ns, path="/scheduler/registry")
