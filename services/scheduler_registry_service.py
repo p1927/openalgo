@@ -65,16 +65,22 @@ def _get_scheduler(source: str):
 
 
 def _job_to_entry(source: str, job: Any) -> dict[str, Any]:
-    next_run_at = job.next_run_time.isoformat() if job.next_run_time else None
+    # next_run_at is epoch milliseconds, matching stock_simulator's DTO
+    # convention (scheduler_introspection.list_recorder_categories) —
+    # the frontend's SchedulerRegistryEntry type expects `number | null`,
+    # not an ISO string, across every source.
+    next_run_at = int(job.next_run_time.timestamp() * 1000) if job.next_run_time else None
     return {
         "id": f"C:{source}:{job.id}",
         "source": "openalgo",
         "section": source,
         "label": job.name or job.id,
+        "description": None,
         "schedule_kind": "apscheduler_trigger",
         "schedule_display": str(job.trigger),
         "enabled": job.next_run_time is not None,
         "status": "idle",
+        "cancel_requested": False,
         "next_run_at": next_run_at,
         "last_run_at": None,
         "last_error": None,
