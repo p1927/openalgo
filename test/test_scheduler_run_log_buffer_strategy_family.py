@@ -55,6 +55,21 @@ def test_strategy_squareoff_logs_no_api_key():
     ]
 
 
+def test_strategy_squareoff_logs_skip_not_intraday():
+    from blueprints import strategy as strategy_bp
+
+    with mock.patch.object(
+        strategy_bp, "get_strategy", return_value=_strategy_obj(is_intraday=False)
+    ):
+        strategy_bp.squareoff_positions("s1")
+
+    messages = [e["message"] for e in buf.get_logs_since("squareoff_s1")]
+    assert messages == [
+        "starting squareoff for strategy s1",
+        "skipped: strategy not found or not intraday for strategy s1",
+    ]
+
+
 def test_strategy_squareoff_logs_completion_on_success():
     from blueprints import strategy as strategy_bp
 
@@ -111,6 +126,21 @@ def test_chartink_squareoff_logs_completion_on_success():
     assert messages == [
         "starting squareoff for strategy c1",
         "squareoff completed: 1 order(s) queued",
+    ]
+
+
+def test_chartink_squareoff_logs_skip_not_intraday():
+    from blueprints import chartink as chartink_bp
+
+    with mock.patch.object(
+        chartink_bp, "get_strategy", return_value=_strategy_obj(is_intraday=False)
+    ):
+        chartink_bp.squareoff_positions("c1")
+
+    messages = [e["message"] for e in buf.get_logs_since("squareoff_c1")]
+    assert messages == [
+        "starting squareoff for strategy c1",
+        "skipped: strategy not found or not intraday for strategy c1",
     ]
 
 

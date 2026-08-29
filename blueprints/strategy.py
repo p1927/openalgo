@@ -299,6 +299,7 @@ def squareoff_positions(strategy_id):
     try:
         strategy = get_strategy(strategy_id)
         if not strategy or not strategy.is_intraday:
+            append_log(job_id, f"skipped: strategy not found or not intraday for strategy {strategy_id}")
             return
 
         # Get API key for authentication
