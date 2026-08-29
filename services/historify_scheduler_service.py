@@ -523,7 +523,10 @@ def execute_schedule(schedule_id: str, api_key: str = None):
         update_schedule_execution,
     )
     from services.historify_service import create_and_start_job
+    from services.scheduler_run_log_buffer import append_log
 
+    scheduler_job_id = f"historify_schedule_{schedule_id}"
+    append_log(scheduler_job_id, "starting")
     logger.info(f"Executing scheduled download: {schedule_id}")
 
     execution_id = None
@@ -533,10 +536,12 @@ def execute_schedule(schedule_id: str, api_key: str = None):
         schedule = get_schedule(schedule_id)
         if not schedule:
             logger.error(f"Schedule not found: {schedule_id}")
+            append_log(scheduler_job_id, "failed: schedule not found")
             return
 
         if not schedule.get("is_enabled", False) or schedule.get("is_paused", False):
             logger.info(f"Schedule {schedule_id} is disabled or paused, skipping")
+            append_log(scheduler_job_id, "skipped: disabled or paused")
             return
 
         # Update status to running
@@ -557,6 +562,7 @@ def execute_schedule(schedule_id: str, api_key: str = None):
                 f"No API key available for schedule {schedule_id}. Please generate an API key first."
             )
             update_schedule(schedule_id, status="idle", last_run_status="no_api_key")
+            append_log(scheduler_job_id, "failed: no API key available")
             return
 
         # Get symbols from watchlist (scheduler only supports watchlist)
@@ -566,6 +572,7 @@ def execute_schedule(schedule_id: str, api_key: str = None):
         if not symbols:
             logger.warning(f"No symbols found for schedule {schedule_id}")
             update_schedule(schedule_id, status="idle", last_run_status="no_symbols")
+            append_log(scheduler_job_id, "failed: no symbols in watchlist")
             return
 
         # Calculate date range
@@ -597,6 +604,10 @@ def execute_schedule(schedule_id: str, api_key: str = None):
             update_schedule(schedule_id, status="idle", last_run_status="success")
             increment_schedule_run_counts(schedule_id, is_success=True)
             logger.info(f"Scheduled download started: {job_id} ({len(symbols)} symbols)")
+            append_log(
+                scheduler_job_id,
+                f"completed: download job {job_id} started ({len(symbols)} symbols)",
+            )
 
             # Emit Socket.IO event
             scheduler = get_historify_scheduler()
@@ -618,6 +629,7 @@ def execute_schedule(schedule_id: str, api_key: str = None):
             update_schedule(schedule_id, status="idle", last_run_status="failed")
             increment_schedule_run_counts(schedule_id, is_success=False)
             logger.error(f"Scheduled download failed: {error_msg}")
+            append_log(scheduler_job_id, f"failed: {error_msg}")
 
     except Exception as e:
         logger.exception(f"Error executing schedule {schedule_id}: {e}")
@@ -627,6 +639,7 @@ def execute_schedule(schedule_id: str, api_key: str = None):
             )
         update_schedule(schedule_id, status="idle", last_run_status="error")
         increment_schedule_run_counts(schedule_id, is_success=False)
+        append_log(scheduler_job_id, f"failed: {e}")
     finally:
         # APScheduler runs this on its own worker thread with no Flask app
         # context, so teardown_appcontext never fires and every scoped session

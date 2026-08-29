@@ -386,11 +386,15 @@ def execute_workflow_scheduled(
 ):
     """Execute a workflow from scheduler (synchronous)"""
     from services.flow_executor_service import execute_workflow
+    from services.scheduler_run_log_buffer import append_log
 
+    job_id = f"flow_workflow_{workflow_id}"
+    append_log(job_id, "starting")
     logger.info(f"Scheduled execution of workflow {workflow_id}")
 
     if not api_key:
         logger.error(f"No API key available for workflow {workflow_id}")
+        append_log(job_id, "failed: no API key available")
         return
 
     # The window is read from the workflow's trigger node on every run, so
@@ -422,6 +426,7 @@ def execute_workflow_scheduled(
         logger.debug(
             f"Skipping scheduled workflow {workflow_id}: outside market hours"
         )
+        append_log(job_id, "skipped: outside market hours")
         return
 
     try:
@@ -429,8 +434,10 @@ def execute_workflow_scheduled(
         logger.info(
             f"Scheduled execution result for workflow {workflow_id}: {result.get('status')}"
         )
+        append_log(job_id, f"completed: {result.get('status')}")
     except Exception as e:
         logger.exception(f"Scheduled execution failed for workflow {workflow_id}: {e}")
+        append_log(job_id, f"failed: {e}")
     finally:
         # APScheduler runs this on its own worker thread with no Flask app
         # context, so teardown_appcontext never fires and the sessions this run
