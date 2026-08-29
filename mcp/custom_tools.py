@@ -2000,9 +2000,9 @@ def register(mcpserver):
         try:
             from services.marketcontext_service import get_marketcontext
 
-            if not api_key:
+            if not mcpserver.api_key:
                 return json.dumps({"status": "error", "error": "API key not configured"}, indent=2)
-            _success, response_data, _code = get_marketcontext(api_key=api_key)
+            _success, response_data, _code = get_marketcontext(api_key=mcpserver.api_key)
             return json.dumps(response_data, indent=2, default=str)
         except Exception as e:
             logger.exception("market_context failed: %s", e)
