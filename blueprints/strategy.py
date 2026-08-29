@@ -292,6 +292,10 @@ def schedule_squareoff(strategy_id):
 
 def squareoff_positions(strategy_id):
     """Square off all positions for intraday strategy"""
+    from services.scheduler_run_log_buffer import append_log
+
+    job_id = f"squareoff_{strategy_id}"
+    append_log(job_id, f"starting squareoff for strategy {strategy_id}")
     try:
         strategy = get_strategy(strategy_id)
         if not strategy or not strategy.is_intraday:
@@ -301,6 +305,7 @@ def squareoff_positions(strategy_id):
         api_key = get_api_key_for_tradingview(strategy.user_id)
         if not api_key:
             logger.error(f"No API key found for strategy {strategy_id}")
+            append_log(job_id, f"failed: no API key for strategy {strategy_id}")
             return
 
         # Get all symbol mappings
@@ -326,8 +331,10 @@ def squareoff_positions(strategy_id):
             # Queue the order instead of executing directly
             queue_order("placesmartorder", payload)
 
+        append_log(job_id, f"squareoff completed: {len(mappings)} order(s) queued")
     except Exception as e:
         logger.exception(f"Error in squareoff_positions for strategy {strategy_id}: {str(e)}")
+        append_log(job_id, f"failed: {e}")
 
 
 @strategy_bp.route("/")
