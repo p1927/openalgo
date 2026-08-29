@@ -29,10 +29,11 @@ export default function Login() {
   const [step, setStep] = useState<'password' | 'totp'>('password')
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
-  const [isCheckingSetup, setIsCheckingSetup] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  // Check if setup is required or already logged in on page load
+  // Check if setup is required or already logged in, in the background — the
+  // login form below renders immediately (not gated on this) so it's present
+  // in the DOM at initial paint for the browser's native password autofill.
   useEffect(() => {
     const checkSetup = async () => {
       try {
@@ -71,12 +72,33 @@ export default function Login() {
         }
         // If session check fails (401, etc.), just stay on login page
       } catch (_err) {
-      } finally {
-        setIsCheckingSetup(false)
+        // Stay on login page
       }
     }
     checkSetup()
   }, [navigate])
+
+  // Local-dev convenience: ask the backend for OPENALGO_USERNAME/OPENALGO_PASSWORD
+  // (loopback-only, opt-in — see /auth/dev-autofill-credentials) and prefill the
+  // form if available. A remote deployment always gets available: false.
+  useEffect(() => {
+    const tryDevAutofill = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/auth/dev-autofill-credentials`, {
+          credentials: 'include',
+        })
+        if (!response.ok) return
+        const data = await response.json()
+        if (data.available) {
+          setUsername(data.username)
+          setPassword(data.password)
+        }
+      } catch (_err) {
+        // Autofill is a convenience only; ignore failures.
+      }
+    }
+    tryDevAutofill()
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -204,15 +226,6 @@ export default function Login() {
     setStep('password')
     setTotpCode('')
     setError(null)
-  }
-
-  // Show loading while checking setup
-  if (isCheckingSetup) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-      </div>
-    )
   }
 
   return (

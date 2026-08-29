@@ -561,6 +561,7 @@ def create_app():
                 "/auth/brokers",
                 "/auth/session-status",  # Session status check for React SPA
                 "/auth/check-setup",  # Setup check for React SPA
+                "/auth/dev-autofill-credentials",  # Loopback-only dev login autofill
                 "/setup",
                 "/download",
                 "/faq",

@@ -121,6 +121,32 @@ def check_setup_required():
     return jsonify({"status": "success", "needs_setup": needs_setup})
 
 
+_DEV_AUTOFILL_LOOPBACK_IPS = {"127.0.0.1", "::1", "localhost"}
+
+
+@auth_bp.route("/dev-autofill-credentials", methods=["GET"])
+def dev_autofill_credentials():
+    """Local-dev convenience: hand the login page OPENALGO_USERNAME/OPENALGO_PASSWORD from .env.
+
+    Loopback-only (checked via get_real_ip(), not the raw WSGI peer, so this
+    stays gated correctly behind the ui_gateway proxy) and opt-in — it only
+    returns credentials when both env vars are actually set, the same pair
+    scripts/openalgo_autofill_login.py already reads. Never enable this
+    outside a local single-user dev box: it is a plaintext-credential
+    endpoint by design, and any real deployment reachable from off-box must
+    never expose it.
+    """
+    if get_real_ip() not in _DEV_AUTOFILL_LOOPBACK_IPS:
+        return jsonify({"status": "success", "available": False})
+
+    username = os.getenv("OPENALGO_USERNAME", "").strip()
+    password = os.getenv("OPENALGO_PASSWORD", "").strip()
+    if not username or not password:
+        return jsonify({"status": "success", "available": False})
+
+    return jsonify({"status": "success", "available": True, "username": username, "password": password})
+
+
 def _broker_validation_failure_reason(funds_data):
     """Return a reason when a broker funds response represents auth/API failure."""
     if not funds_data:
