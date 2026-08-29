@@ -70,11 +70,17 @@ def _job_to_entry(source: str, job: Any) -> dict[str, Any]:
     # the frontend's SchedulerRegistryEntry type expects `number | null`,
     # not an ISO string, across every source.
     next_run_at = int(job.next_run_time.timestamp() * 1000) if job.next_run_time else None
+    # job.id is the caller-assigned identifier (e.g. "reap_dead_strategies",
+    # "start_<strategy>") and is consistently the more readable label; job.name
+    # falls back to the scheduled callable's __qualname__ when APScheduler
+    # isn't given an explicit name, which for a job added via a closure (seen
+    # live: python_strategy's per-strategy start/stop jobs) renders as
+    # "schedule_strategy.<locals>.<lambda>" — never something to show a user.
     return {
         "id": f"C:{source}:{job.id}",
         "source": "openalgo",
         "section": source,
-        "label": job.name or job.id,
+        "label": job.id,
         "description": None,
         "schedule_kind": "apscheduler_trigger",
         "schedule_display": str(job.trigger),

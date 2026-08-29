@@ -106,6 +106,19 @@ def test_id_and_section_embed_the_source():
     ]
 
 
+def test_label_uses_job_id_not_a_lambda_qualname():
+    """Regression: python_strategy schedules per-strategy start/stop jobs via a
+    closure (`schedule_strategy`'s inner lambda), so APScheduler's default
+    `job.name` renders as "schedule_strategy.<locals>.<lambda>" — confirmed
+    live against a running openalgo instance. `job.id` (e.g. "start_5") is
+    always the caller-assigned, human-meaningful identifier."""
+    job = _job("start_5", name="schedule_strategy.<locals>.<lambda>")
+    with mock.patch.object(svc, "_get_scheduler", return_value=_fake_scheduler([job])):
+        ok, body, _status = svc.list_scheduler_registry("key")
+    assert ok is True
+    assert body["data"]["entries"][0]["label"] == "start_5"
+
+
 def test_uninitialized_scheduler_contributes_no_entries_not_an_error():
     with mock.patch.object(svc, "_get_scheduler", return_value=None):
         ok, body, status = svc.list_scheduler_registry("key")
