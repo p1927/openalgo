@@ -2007,3 +2007,13 @@ def register(mcpserver):
         except Exception as e:
             logger.exception("market_context failed: %s", e)
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
+
+    # mcpserver.py's own get_quote/get_multi_quotes/get_option_chain call these
+    # helpers directly (not through this module), so they must exist on the
+    # mcpserver module object too. register() runs before mcpserver.py's
+    # _finalize_registry() and before any @mcp.tool() is actually invoked, so
+    # this injection is always in place before these names are ever called.
+    # See .claude/backlog/items/2026-08-31-mcp-quote-optionchain-nameerror-undefined-helpers.md
+    mcpserver._ensure_trade_stack_import = _ensure_trade_stack_import
+    mcpserver._chain_snapshot_via_hub_channel = _chain_snapshot_via_hub_channel
+    mcpserver._normalize_openalgo_expiry = _normalize_openalgo_expiry
