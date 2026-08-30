@@ -601,8 +601,23 @@ def create_app():
             # Not an actual CSRF failure (Flask-WTF's message always contains
             # "CSRF") - most often Werkzeug's generic could-not-parse-request
             # response for malformed/non-HTTP bytes on the socket, where
-            # request.path is unreliable (frequently just "/").
-            logger.warning(f"Bad Request (400, non-CSRF) on {request.path}: {error_description}")
+            # request.path is unreliable (frequently just "/"). Log whatever
+            # WSGI environ fields did parse successfully - remote_addr, method,
+            # Host header, User-Agent - to help identify the traffic source
+            # without needing a packet capture (see
+            # .claude/backlog/items/2026-08-30-openalgo-continuous-malformed-request-400-storm.md).
+            try:
+                diag = (
+                    f"remote_addr={request.remote_addr!r} method={request.method!r} "
+                    f"host={request.environ.get('HTTP_HOST')!r} "
+                    f"user_agent={request.headers.get('User-Agent')!r} "
+                    f"query_string={request.environ.get('QUERY_STRING')!r}"
+                )
+            except Exception as diag_error:
+                diag = f"<diagnostic fields unavailable: {diag_error!r}>"
+            logger.warning(
+                f"Bad Request (400, non-CSRF) on {request.path}: {error_description} ({diag})"
+            )
 
         # Check if it's a CSRF error
         if is_csrf_error:
