@@ -290,6 +290,31 @@ class ColoredFormatter(logging.Formatter):
         return original_format
 
 
+class JSONLineFormatter(logging.Formatter):
+    """Formats every log record as a single-line JSON object.
+
+    Used when LOG_FORMAT is set to the special value "json" (case-insensitive)
+    instead of a printf-style format string. Plain `logging.Formatter` treats
+    LOG_FORMAT as a %-style template, so passing it the literal string "json"
+    raises `ValueError: Invalid format 'json' for '%' style` before any log
+    record is ever emitted.
+    """
+
+    def format(self, record: logging.LogRecord) -> str:
+        entry = {
+            "ts": datetime.fromtimestamp(record.created).strftime("%Y-%m-%d %H:%M:%S"),
+            "level": record.levelname,
+            "logger": record.name,
+            "module": record.module,
+            "message": record.getMessage(),
+        }
+
+        if record.exc_info and record.exc_info[0] is not None:
+            entry["exception"] = traceback.format_exception(*record.exc_info)
+
+        return json.dumps(entry, default=str)
+
+
 class JSONErrorFormatter(logging.Formatter):
     """Formats ERROR+ records as single-line JSON for machine consumption.
 
@@ -362,10 +387,17 @@ def setup_logging():
     root_logger.handlers = []
 
     # Create formatters
-    # Colored formatter for console (if colors are enabled)
-    console_formatter = ColoredFormatter(log_format, enable_colors=log_colors)
-    # Regular formatter for file output (no colors)
-    file_formatter = logging.Formatter(log_format)
+    if log_format.strip().lower() == "json":
+        # "json" is a recognized alias, not a %-style template: plain
+        # logging.Formatter would raise ValueError('Invalid format ...')
+        # trying to parse it as one.
+        console_formatter = JSONLineFormatter()
+        file_formatter = JSONLineFormatter()
+    else:
+        # Colored formatter for console (if colors are enabled)
+        console_formatter = ColoredFormatter(log_format, enable_colors=log_colors)
+        # Regular formatter for file output (no colors)
+        file_formatter = logging.Formatter(log_format)
 
     # Add sensitive data filter
     sensitive_filter = SensitiveDataFilter()
@@ -554,7 +586,8 @@ def get_logger(name: str) -> logging.Logger:
         LOG_LEVEL: Set logging level (default: INFO)
         LOG_TO_FILE: Enable file logging (default: False)
         LOG_DIR: Directory for log files (default: log)
-        LOG_FORMAT: Custom log format string
+        LOG_FORMAT: Custom %-style log format string, or the literal value
+            "json" to emit single-line JSON log records instead
         LOG_RETENTION: Days to retain log files (default: 14)
     """
     return logging.getLogger(name)
