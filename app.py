@@ -593,11 +593,19 @@ def create_app():
         from flask import flash, jsonify, redirect, request, url_for
 
         error_description = str(error)
+        is_csrf_error = "csrf" in error_description.lower()
 
-        logger.warning(f"CSRF Error on {request.path}: {error_description}")
+        if is_csrf_error:
+            logger.warning(f"CSRF Error on {request.path}: {error_description}")
+        else:
+            # Not an actual CSRF failure (Flask-WTF's message always contains
+            # "CSRF") - most often Werkzeug's generic could-not-parse-request
+            # response for malformed/non-HTTP bytes on the socket, where
+            # request.path is unreliable (frequently just "/").
+            logger.warning(f"Bad Request (400, non-CSRF) on {request.path}: {error_description}")
 
         # Check if it's a CSRF error
-        if "CSRF" in error_description or "csrf" in error_description.lower():
+        if is_csrf_error:
             if request.is_json or request.path.startswith("/api"):
                 return jsonify(
                     {
