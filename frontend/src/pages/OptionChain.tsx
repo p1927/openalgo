@@ -793,25 +793,6 @@ export default function OptionChain() {
     })
   }, [columnOrder, visibleColumns])
 
-  if (error) {
-    return (
-      <div className="flex items-center justify-center py-16">
-        <Card className="max-w-md">
-          <CardContent className="p-6">
-            <div className="text-center text-red-500">
-              <h2 className="text-xl font-bold mb-2">Error Loading Option Chain</h2>
-              <p>{error}</p>
-              <Button onClick={handleRefresh} className="mt-4">
-                <RefreshCw className="h-4 w-4 mr-2" />
-                Retry
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    )
-  }
-
   return (
     <div className="py-6 space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -922,7 +903,7 @@ export default function OptionChain() {
         </div>
       </div>
 
-      {data && (
+      {data && !error && (
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <Card>
@@ -1111,6 +1092,26 @@ export default function OptionChain() {
             <div>Last Update: {lastUpdate ? lastUpdate.toLocaleTimeString() : '-'}</div>
           </div>
         </>
+      )}
+
+      {error && (
+        <div className="flex items-center justify-center py-16">
+          <Card className="max-w-md">
+            <CardContent className="p-6">
+              <div className="text-center text-red-500">
+                <h2 className="text-xl font-bold mb-2">Error Loading Option Chain</h2>
+                <p>{error}</p>
+                <p className="text-sm text-muted-foreground mt-2">
+                  Try a different expiry above, or retry this one.
+                </p>
+                <Button onClick={handleRefresh} className="mt-4">
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Retry
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       )}
 
       {!data && !error && (

@@ -428,6 +428,9 @@ def handle_auth_success(auth_token, user_session_key, broker, feed_token=None, u
 
     logger.info(f"User {user_session_key} logged in successfully with broker {broker}")
 
+    from utils.trade_api_key_sync import sync_api_key_to_trade
+    sync_api_key_to_trade(user_session_key)
+
     # Log OAuth login attempt (resume logins are logged separately in auth.py)
     try:
         from database.auth_db import log_login_attempt

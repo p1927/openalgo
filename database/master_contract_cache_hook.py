@@ -90,6 +90,16 @@ def hook_into_master_contract_download(broker: str):
         # Wait a moment for database transactions to complete
         time.sleep(0.5)
 
+        # Drop any strikes cached (including empty results) before this download,
+        # otherwise a strike/expiry combo that was empty pre-refresh stays cached as
+        # empty for the life of the process even though SymToken now has it.
+        try:
+            from services.option_symbol_service import clear_strikes_cache
+
+            clear_strikes_cache()
+        except Exception as cache_error:
+            logger.exception(f"Error clearing strikes cache: {cache_error}")
+
         # Load symbols into cache
         load_symbols_to_cache(broker)
 

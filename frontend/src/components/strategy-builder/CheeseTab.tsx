@@ -100,11 +100,16 @@ export function CheeseTab({
   const [thresholdPct, setThresholdPct] = useState(DEFAULT_THRESHOLD_PCT)
   const [addingKey, setAddingKey] = useState<string | null>(null)
 
+  /** Forward isn't always ready the instant the chain populates (parity/WS forward can lag a
+   *  render behind `activeChain`, or stay unset on thin ATM quotes) — fall back to the live
+   *  underlying LTP so a chain that's visibly loaded doesn't get stuck on the empty state. */
+  const effectiveForward = forwardPrice && forwardPrice > 0 ? forwardPrice : underlyingLtp
+
   const rows = useMemo<MispricingRow[] | null>(() => {
     if (!chain) return null
-    const scored = computeMispricing(chain, forwardPrice, years, 0, thresholdPct / 100)
+    const scored = computeMispricing(chain, effectiveForward, years, 0, thresholdPct / 100)
     return scored ? [...scored].sort((a, b) => a.strike - b.strike) : null
-  }, [chain, forwardPrice, years, thresholdPct])
+  }, [chain, effectiveForward, years, thresholdPct])
 
   const spotRowIndex = useMemo(
     () => (rows ? spotLineRowIndex(rows, underlyingLtp) : null),
@@ -217,9 +222,15 @@ export function CheeseTab({
         <div />
       </div>
 
-      {!chain || !rows ? (
+      {!chain ? (
         <div className="flex h-[300px] items-center justify-center text-sm text-muted-foreground">
           Load an option chain to scan for mispriced strikes.
+        </div>
+      ) : !rows ? (
+        <div className="flex h-[300px] items-center justify-center text-sm text-muted-foreground">
+          {years > 0
+            ? 'Waiting for a live forward price to fit the smile...'
+            : 'Waiting for expiry data to compute time to expiry...'}
         </div>
       ) : (
         <div className="relative overflow-x-auto">
