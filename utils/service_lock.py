@@ -50,7 +50,11 @@ def acquire_service_lock(name: str, *, port: int | None = None) -> None:
     """Exit the process if another live instance of ``name`` already holds
     this lock; otherwise claim it for this process.
 
-    Writes ``~/.vibe-trading/locks/<name>.lock`` (pid / start time / port).
+    Writes ``~/.vibe-trading/locks/<name>-<port>.lock`` (pid / start time /
+    port) — keyed by port, not just name, so a `trade release` instance of
+    this app (a different port, by design) never collides with a `trade
+    dev`/`trade up` instance; only two processes genuinely trying to bind the
+    *same* port (the real incident this guards against) block each other.
     A stale lock (owning PID no longer alive) is reclaimed silently. The
     lock is released via ``atexit`` on normal interpreter shutdown, which
     also covers this app's own graceful SIGTERM handler
@@ -62,7 +66,8 @@ def acquire_service_lock(name: str, *, port: int | None = None) -> None:
         name: Stable service identifier, e.g. ``"openalgo"``.
         port: Listen port, included in the block message for operators.
     """
-    lock_path = _lock_dir() / f"{name}.lock"
+    lock_key = f"{name}-{port}" if port else name
+    lock_path = _lock_dir() / f"{lock_key}.lock"
     if lock_path.exists():
         existing_pid = -1
         existing_started = "unknown"
