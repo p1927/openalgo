@@ -114,17 +114,7 @@ def main() -> int:
                     api_key, {},
                 )
                 if not ok:
-                    msg = str(resp.get("message", resp))
-                    if "unable to fetch current price" in msg or "No replay bar" in msg:
-                        record(
-                            "strategy_squareoff", "skipped_expected",
-                            "this checkout's stock_simulator replay data only covers India index "
-                            "options, not cash equities — RELIANCE has no replay bar, so no position "
-                            "could be seeded to test squareoff against. squareoff_positions() itself "
-                            "was not exercised; this is an environment data-coverage gap, filed to backlog.",
-                        )
-                    else:
-                        record("strategy_squareoff", "fail", f"seed BUY order failed: {resp}")
+                    record("strategy_squareoff", "fail", f"seed BUY order failed: {resp}")
                 else:
                     time.sleep(2)  # let the sandbox execution engine fill the market order
                     from blueprints.strategy import squareoff_positions
@@ -167,15 +157,7 @@ def main() -> int:
                     api_key, {},
                 )
                 if not ok:
-                    msg = str(resp.get("message", resp))
-                    if "unable to fetch current price" in msg or "No replay bar" in msg:
-                        record(
-                            "chartink_squareoff", "skipped_expected",
-                            "same replay-data-coverage gap as strategy_squareoff (index-options-only "
-                            "replay set, no cash-equity bars) — chartink squareoff_positions() not exercised.",
-                        )
-                    else:
-                        record("chartink_squareoff", "fail", f"seed BUY order failed: {resp}")
+                    record("chartink_squareoff", "fail", f"seed BUY order failed: {resp}")
                 else:
                     time.sleep(2)
                     from blueprints.chartink import squareoff_positions as chartink_squareoff
