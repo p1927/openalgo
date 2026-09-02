@@ -567,6 +567,9 @@ def get_option_chain(
         # cache/DB and live prices stream over the WebSocket feed, avoiding a slow
         # per-strike broker multiquote (e.g. Flattrade throttles to 10 quotes/sec).
         quotes_map = {}
+        # Set by the stock_simulator fast-path below when it maps some but not all
+        # requested legs; surfaced in the response's "warnings" list at the end.
+        fastpath_partial_warning: str | None = None
         if with_quotes:
             logger.info(f"Fetching quotes for {len(symbols_to_fetch)} option symbols")
             if exchange.upper() in CRYPTO_EXCHANGES:
@@ -606,6 +609,10 @@ def get_option_chain(
                 # unbounded "entire chain" request (strike_count=None) still
                 # needs the generic path.
                 used_fast_path = False
+                # Populated only when the stock_simulator fast-path below maps some but
+                # not all requested legs — Step 8's fallback then re-fetches just these
+                # instead of the whole symbol set (see the sim_mapped < sim_needed branch).
+                fastpath_missing_symbols: list[dict[str, str]] | None = None
                 if strike_count is not None and strike_count <= 50:
                     _auth, _, _broker = get_auth_token_broker(api_key, include_feed_token=True)
                     if _broker == "fyers" and _auth:
@@ -707,11 +714,32 @@ def get_option_chain(
                                         sim_mapped += 1
                                 used_fast_path = sim_needed > 0 and sim_mapped == sim_needed
                                 if not used_fast_path and sim_mapped:
+                                    # Partial coverage: the simulator mapped some but not
+                                    # all legs (a genuine gap in the replay bundle for a
+                                    # subset of strikes). Previously this wiped every quote
+                                    # the fast-path had already built and re-fetched the
+                                    # whole symbol set via get_multiquotes -- losing correct
+                                    # data for legs that *did* map, and masking the fact that
+                                    # get_multiquotes/get_option_chain can independently
+                                    # disagree on which legs have data (see replay.py). Now:
+                                    # keep every successfully-mapped leg and only ask the
+                                    # fallback to fill the specific legs still missing.
+                                    missing: list[dict[str, str]] = []
                                     for item in chain_symbols:
-                                        if item["ce"]["exists"]:
-                                            quotes_map.pop(item["ce"]["symbol"], None)
-                                        if item["pe"]["exists"]:
-                                            quotes_map.pop(item["pe"]["symbol"], None)
+                                        if item["ce"]["exists"] and item["ce"]["symbol"] not in quotes_map:
+                                            missing.append(
+                                                {"symbol": item["ce"]["symbol"], "exchange": options_exchange}
+                                            )
+                                        if item["pe"]["exists"] and item["pe"]["symbol"] not in quotes_map:
+                                            missing.append(
+                                                {"symbol": item["pe"]["symbol"], "exchange": options_exchange}
+                                            )
+                                    fastpath_missing_symbols = missing
+                                    fastpath_partial_warning = (
+                                        f"sim fast-path partial: got {sim_mapped} of {sim_needed} legs, "
+                                        f"filling {len(missing)} gap(s) via multiquotes"
+                                    )
+                                    logger.warning(fastpath_partial_warning)
                             except Exception as _se:
                                 logger.warning(
                                     f"Simulator HF option chain failed, falling back to "
@@ -720,8 +748,17 @@ def get_option_chain(
                                 quotes_map = {}
 
                 if not used_fast_path:
+                    # A partial stock_simulator fast-path only needs the still-missing
+                    # legs re-fetched, not the whole symbol set (see fastpath_missing_symbols
+                    # above) -- everything else (no fast-path attempted at all, or the
+                    # fast-path errored outright) still fetches the full symbol list.
+                    fetch_symbols = (
+                        fastpath_missing_symbols
+                        if fastpath_missing_symbols is not None
+                        else symbols_to_fetch
+                    )
                     success, quotes_response, status_code = get_multiquotes(
-                        symbols=symbols_to_fetch, api_key=api_key
+                        symbols=fetch_symbols, api_key=api_key
                     )
 
                     # Build quote lookup map
@@ -809,6 +846,8 @@ def get_option_chain(
             forward_price = _forward_from_chain(chain, atm_strike, underlying_ltp)
             _attach_chain_greeks(chain, expiry_dt, forward_price, interest_rate)
 
+        warnings = [fastpath_partial_warning] if fastpath_partial_warning else []
+
         return (
             True,
             {
@@ -827,6 +866,10 @@ def get_option_chain(
                 "greeks_included": bool(with_quotes and with_greeks),
                 "forward_price": forward_price,
                 "chain": chain,
+                # Additive, server-log-mirrored diagnostic -- empty in the
+                # common case. Currently only populated by the stock_simulator
+                # fast-path's partial-coverage fill (see Step 8 above).
+                "warnings": warnings,
             },
             200,
         )
