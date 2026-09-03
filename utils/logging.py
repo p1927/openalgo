@@ -593,5 +593,14 @@ def get_logger(name: str) -> logging.Logger:
     return logging.getLogger(name)
 
 
-# Initialize logging on import
-setup_logging()
+# Initialize logging on import — but never under pytest. setup_logging() reconfigures the
+# process-wide root logger (level + a full `root_logger.handlers = []` wipe), which is
+# correct for openalgo running as the real Flask app but is destructive when this module is
+# merely imported as a dependency during a test run: it silently discards pytest's own
+# LogCaptureHandler and raises the root logger to INFO, letting normally-filtered INFO-level
+# logging (e.g. httpx2's request-logging line inside starlette's TestClient) actually execute
+# deep inside an unrelated test. PYTEST_VERSION is set by pytest's own entry point for the
+# full duration of the run (see _pytest/config/__init__.py), so this reliably detects "running
+# under pytest" without needing every test file to opt out individually.
+if "PYTEST_VERSION" not in os.environ:
+    setup_logging()
