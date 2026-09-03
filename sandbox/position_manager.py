@@ -458,28 +458,41 @@ class PositionManager:
             import os
             from datetime import datetime, time, timedelta
 
-            # Get session expiry time from config (e.g., '03:00')
+            # Get session expiry time from config (e.g., '03:00'); this is an IST
+            # wall-clock time (broker sessions expire ~3 AM IST), not server-local.
             session_expiry_str = os.getenv("SESSION_EXPIRY_TIME", "03:00")
             expiry_hour, expiry_minute = map(int, session_expiry_str.split(":"))
 
-            # Get current time
-            now = datetime.now()
-            today = now.date()
+            # Get current time in IST -- never rely on server-local time, which
+            # may be UTC (or anything else) depending on deployment.
+            ist = pytz.timezone("Asia/Kolkata")
+            now_ist = datetime.now(ist)
+            today = now_ist.date()
 
             # Calculate if we're in a new session
             session_expiry_time = time(expiry_hour, expiry_minute)
 
-            # Determine last session expiry
-            if now.time() < session_expiry_time:
+            # Determine last session expiry (in IST)
+            if now_ist.time() < session_expiry_time:
                 # We're before today's session expiry (e.g., before 3 AM)
                 # Last session expired yesterday at 3 AM
-                last_session_expiry = datetime.combine(
-                    today - timedelta(days=1), session_expiry_time
+                last_session_expiry_ist = ist.localize(
+                    datetime.combine(today - timedelta(days=1), session_expiry_time)
                 )
             else:
                 # We're after today's session expiry (e.g., after 3 AM)
                 # Last session expired today at 3 AM
-                last_session_expiry = datetime.combine(today, session_expiry_time)
+                last_session_expiry_ist = ist.localize(
+                    datetime.combine(today, session_expiry_time)
+                )
+
+            # SandboxPositions.updated_at is stamped via func.now() on SQLite,
+            # which resolves to naive UTC (CURRENT_TIMESTAMP), not local/IST time.
+            # Convert the IST boundary to naive UTC so both sides of every
+            # comparison below are on the same timezone basis.
+            last_session_expiry = last_session_expiry_ist.astimezone(pytz.utc).replace(
+                tzinfo=None
+            )
 
             # Get all positions (including zero quantity ones from current session)
             positions_query = SandboxPositions.query.filter(
@@ -1059,27 +1072,37 @@ class PositionManager:
             import os
             from datetime import datetime, time, timedelta
 
-            # Get session expiry time from config (e.g., '03:00')
+            # Get session expiry time from config (e.g., '03:00'); this is an IST
+            # wall-clock time (broker sessions expire ~3 AM IST), not server-local.
             session_expiry_str = os.getenv("SESSION_EXPIRY_TIME", "03:00")
             expiry_hour, expiry_minute = map(int, session_expiry_str.split(":"))
 
-            # Get current time
-            now = datetime.now()
-            today = now.date()
+            # Get current time in IST -- never rely on server-local time, which
+            # may be UTC (or anything else) depending on deployment.
+            ist = pytz.timezone("Asia/Kolkata")
+            now_ist = datetime.now(ist)
+            today = now_ist.date()
 
             # Calculate session start time
             # If current time is before session expiry (e.g., before 3 AM),
             # session started yesterday at expiry time
             session_expiry_time = time(expiry_hour, expiry_minute)
 
-            if now.time() < session_expiry_time:
+            if now_ist.time() < session_expiry_time:
                 # We're in the early morning before session expiry
                 # Session started yesterday at expiry time
-                session_start = datetime.combine(today - timedelta(days=1), session_expiry_time)
+                session_start_ist = ist.localize(
+                    datetime.combine(today - timedelta(days=1), session_expiry_time)
+                )
             else:
                 # We're after session expiry time
                 # Session started today at expiry time
-                session_start = datetime.combine(today, session_expiry_time)
+                session_start_ist = ist.localize(datetime.combine(today, session_expiry_time))
+
+            # SandboxTrades.trade_timestamp is stamped via func.now() on SQLite,
+            # which resolves to naive UTC (CURRENT_TIMESTAMP), not local/IST time.
+            # Convert the IST boundary to naive UTC for a consistent comparison.
+            session_start = session_start_ist.astimezone(pytz.utc).replace(tzinfo=None)
 
             trades = (
                 SandboxTrades.query.filter(
