@@ -116,6 +116,38 @@ def test_pause_propagates_failure_status_code(client, monkeypatch):
     assert response.get_json()["message"] == "boom"
 
 
+def test_trigger_forwards_source_and_job_id(client, monkeypatch):
+    captured = {}
+
+    def fake_trigger(api_key, source, job_id):
+        captured.update(api_key=api_key, source=source, job_id=job_id)
+        return True, {"status": "success", "message": "Job triggered"}, 200
+
+    monkeypatch.setattr(scheduler_registry_api, "trigger_scheduler_job_now", fake_trigger)
+
+    response = client.post(
+        "/scheduler/registry/trigger", json={"apikey": "key", "source": "flow", "job_id": "wf_1"}
+    )
+
+    assert response.status_code == 200
+    assert captured == {"api_key": "key", "source": "flow", "job_id": "wf_1"}
+
+
+def test_trigger_propagates_failure_status_code(client, monkeypatch):
+    monkeypatch.setattr(
+        scheduler_registry_api,
+        "trigger_scheduler_job_now",
+        lambda api_key, source, job_id: (False, {"status": "error", "message": "paused"}, 409),
+    )
+
+    response = client.post(
+        "/scheduler/registry/trigger", json={"apikey": "key", "source": "flow", "job_id": "wf_1"}
+    )
+
+    assert response.status_code == 409
+    assert response.get_json()["message"] == "paused"
+
+
 def test_stream_rejects_when_validate_stream_access_fails(client, monkeypatch):
     monkeypatch.setattr(
         scheduler_registry_api,

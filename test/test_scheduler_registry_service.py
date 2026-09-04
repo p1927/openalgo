@@ -76,7 +76,8 @@ def test_lists_jobs_from_every_source():
             "resume": True,
             "cancel": False,
             "delete": False,
-            "trigger_now": False,
+            # This job has a real next_run_time, so it can be nudged.
+            "trigger_now": True,
         }
 
 
@@ -199,6 +200,74 @@ def test_pause_apscheduler_error_surfaces_as_failure():
     scheduler.pause_job.side_effect = Exception("no such job")
     with mock.patch.object(svc, "_get_scheduler", return_value=scheduler):
         ok, body, status = svc.pause_scheduler_job("key", "chartink", "missing")
+    assert ok is False
+    assert status == 400
+
+
+def test_trigger_now_dispatches_to_the_right_scheduler():
+    job = _job("wf_1", next_run_time=datetime(2026, 1, 1))
+    scheduler = _fake_scheduler([job])
+    scheduler.get_job.return_value = job
+    with mock.patch.object(svc, "_get_scheduler", return_value=scheduler):
+        ok, body, status = svc.trigger_scheduler_job_now("key", "flow", "wf_1")
+    assert ok is True
+    assert status == 200
+    scheduler.get_job.assert_called_once_with("wf_1")
+    assert scheduler.modify_job.call_count == 1
+    call_args, call_kwargs = scheduler.modify_job.call_args
+    assert call_args == ("wf_1",)
+    assert isinstance(call_kwargs["next_run_time"], datetime)
+
+
+def test_trigger_now_paused_job_is_rejected_not_silently_resumed():
+    # next_run_time is None for a paused APScheduler job — triggering it
+    # must not silently resume it as a side effect.
+    job = _job("wf_1", next_run_time=None)
+    scheduler = _fake_scheduler([job])
+    scheduler.get_job.return_value = job
+    with mock.patch.object(svc, "_get_scheduler", return_value=scheduler):
+        ok, body, status = svc.trigger_scheduler_job_now("key", "flow", "wf_1")
+    assert ok is False
+    assert status == 409
+    scheduler.modify_job.assert_not_called()
+
+
+def test_trigger_now_unknown_job_id_is_404():
+    scheduler = _fake_scheduler([])
+    scheduler.get_job.return_value = None
+    with mock.patch.object(svc, "_get_scheduler", return_value=scheduler):
+        ok, body, status = svc.trigger_scheduler_job_now("key", "flow", "missing")
+    assert ok is False
+    assert status == 404
+
+
+def test_trigger_now_unknown_source_rejected():
+    ok, body, status = svc.trigger_scheduler_job_now("key", "not_a_source", "job")
+    assert ok is False
+    assert status == 400
+
+
+def test_trigger_now_uninitialized_scheduler_rejected():
+    with mock.patch.object(svc, "_get_scheduler", return_value=None):
+        ok, body, status = svc.trigger_scheduler_job_now("key", "flow", "wf_1")
+    assert ok is False
+    assert status == 400
+
+
+def test_trigger_now_invalid_api_key_rejected():
+    with mock.patch.object(svc, "get_auth_token_broker", return_value=(None, None)):
+        ok, body, status = svc.trigger_scheduler_job_now("bad-key", "flow", "wf_1")
+    assert ok is False
+    assert status == 403
+
+
+def test_trigger_now_apscheduler_error_surfaces_as_failure():
+    job = _job("wf_1", next_run_time=datetime(2026, 1, 1))
+    scheduler = _fake_scheduler([job])
+    scheduler.get_job.return_value = job
+    scheduler.modify_job.side_effect = Exception("no such job")
+    with mock.patch.object(svc, "_get_scheduler", return_value=scheduler):
+        ok, body, status = svc.trigger_scheduler_job_now("key", "chartink", "wf_1")
     assert ok is False
     assert status == 400
 

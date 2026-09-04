@@ -9,6 +9,7 @@ from services.scheduler_registry_service import (
     pause_scheduler_job,
     resume_scheduler_job,
     stream_scheduler_run_log,
+    trigger_scheduler_job_now,
     validate_stream_access,
 )
 from utils.logging import get_logger
@@ -66,6 +67,24 @@ class SchedulerRegistryResume(Resource):
             return make_response(jsonify(response_data), status_code)
         except Exception:
             logger.exception("Unexpected error in scheduler registry resume endpoint")
+            return make_response(
+                jsonify({"status": "error", "message": "An unexpected error occurred"}), 500
+            )
+
+
+@api.route("/trigger", strict_slashes=False)
+class SchedulerRegistryTrigger(Resource):
+    @limiter.limit(API_RATE_LIMIT)
+    def post(self):
+        """Trigger a single job on one of openalgo's scheduler instances to run now."""
+        try:
+            data = request.json or {}
+            _ok, response_data, status_code = trigger_scheduler_job_now(
+                data.get("apikey"), data.get("source"), data.get("job_id")
+            )
+            return make_response(jsonify(response_data), status_code)
+        except Exception:
+            logger.exception("Unexpected error in scheduler registry trigger endpoint")
             return make_response(
                 jsonify({"status": "error", "message": "An unexpected error occurred"}), 500
             )

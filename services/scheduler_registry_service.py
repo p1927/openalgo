@@ -6,10 +6,10 @@ openalgo has no single scheduler: Flow and Historify each own a persistent
 Strategy, Chartink, and the Python Strategy Host each keep a bare
 module-level ``BackgroundScheduler`` with no admin surface. This module gives
 Trade's unified scheduler registry (vibetrading-agent's ``/scheduler-registry``
-aggregation route, via ``OpenAlgoClient``) one place to list and
-pause/resume across all five, using each scheduler's already-working APScheduler
-job store — no new persistence, no change to any ``add_job``/``remove_job``
-call site.
+aggregation route, via ``OpenAlgoClient``) one place to list, pause/resume,
+and trigger-now across all five, using each scheduler's already-working
+APScheduler job store — no new persistence, no change to any
+``add_job``/``remove_job`` call site.
 
 Enforcer's OS crontab is a separate product and is never surfaced here.
 """
@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import time
+from datetime import datetime
 from typing import Any, Iterator
 
 from database.auth_db import get_auth_token_broker
@@ -122,7 +123,9 @@ def _job_to_entry(source: str, job: Any) -> dict[str, Any]:
             "resume": True,
             "cancel": False,
             "delete": False,
-            "trigger_now": False,
+            # Only a job with a live next_run_time can be nudged forward —
+            # see trigger_scheduler_job_now()'s own paused-job guard below.
+            "trigger_now": job.next_run_time is not None,
         },
     }
 
@@ -196,6 +199,49 @@ def resume_scheduler_job(
     if not ok:
         return False, {"status": "error", "message": message}, 400
     return True, {"status": "success", "message": "Job resumed"}, 200
+
+
+def trigger_scheduler_job_now(
+    api_key: str | None, source: str, job_id: str
+) -> tuple[bool, dict[str, Any], int]:
+    """Nudge one job to fire on the scheduler's next tick, without disturbing
+    its regular recurring schedule.
+
+    Uses APScheduler's own ``modify_job(next_run_time=...)`` — the job still
+    fires at its next real trigger occurrence afterward, this only inserts
+    one extra immediate run. Deliberately refuses a currently-paused job
+    (``next_run_time is None``) rather than silently resuming it as a side
+    effect — a caller that wants both must resume first, then trigger.
+    """
+    if not _validate_api_key(api_key):
+        return False, {"status": "error", "message": "Invalid openalgo apikey"}, 403
+    if source not in VALID_SOURCES:
+        return False, {"status": "error", "message": f"Unknown scheduler source: {source}"}, 400
+    try:
+        scheduler = _get_scheduler(source)
+    except Exception as exc:
+        return False, {"status": "error", "message": str(exc)}, 400
+    if scheduler is None:
+        return False, {"status": "error", "message": f"{source} scheduler is not running"}, 400
+    try:
+        job = scheduler.get_job(job_id)
+    except Exception as exc:
+        logger.exception("Failed to look up job %s on %s scheduler", job_id, source)
+        return False, {"status": "error", "message": str(exc)}, 400
+    if job is None:
+        return False, {"status": "error", "message": f"Unknown job_id: {job_id}"}, 404
+    if job.next_run_time is None:
+        return (
+            False,
+            {"status": "error", "message": "Job is paused — resume it before triggering"},
+            409,
+        )
+    try:
+        scheduler.modify_job(job_id, next_run_time=datetime.now())
+        return True, {"status": "success", "message": "Job triggered"}, 200
+    except Exception as exc:
+        logger.exception("Failed to trigger job %s on %s scheduler", job_id, source)
+        return False, {"status": "error", "message": str(exc)}, 400
 
 
 def validate_stream_access(api_key: str | None, source: str) -> tuple[bool, str]:
