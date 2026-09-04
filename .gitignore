@@ -37,6 +37,7 @@ tmp/
 *.duckdb.wal
 *.sqlite
 *.log
+*.log.*
 *.jsonl
 *.tmp
 checkpoint.txt
