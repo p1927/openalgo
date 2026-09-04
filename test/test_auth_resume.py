@@ -109,7 +109,11 @@ def test_resume_accepts_valid_broker_validation(monkeypatch, app_context):
 
 
 def test_login_clears_expired_existing_session_before_password_flow(monkeypatch):
-    """A stale browser session on /auth/login must not redirect to dashboard."""
+    """A stale browser session on /auth/login must not redirect to dashboard,
+    and — since the session cookie itself is still a validly-signed proof of
+    who this browser belongs to — must send the user straight to broker
+    reconnect (`/broker`) rather than falling through to a from-scratch
+    password check. See utils.session.expire_session_preserving_user."""
     app = Flask(__name__)
     app.secret_key = "test-secret"
 
@@ -139,13 +143,15 @@ def test_login_clears_expired_existing_session_before_password_flow(monkeypatch)
         assert status_code == 200
         payload = response.get_json()
         assert payload["status"] == "success"
-        assert "redirect" not in payload
+        assert payload["redirect"] == "/broker"
         assert session["user"] == "rajandran"
         assert session.get("logged_in") is not True
 
 
 def test_login_get_clears_expired_existing_session(monkeypatch):
-    """Direct /auth/login requests should also clear stale full sessions."""
+    """Direct /auth/login GET requests on a stale full session should land on
+    the broker-reconnect screen, not a from-scratch login form — same
+    reasoning as the POST case above."""
     app = Flask(__name__)
     app.secret_key = "test-secret"
 
@@ -164,5 +170,6 @@ def test_login_get_clears_expired_existing_session(monkeypatch):
 
         assert revoked["called"] is True
         assert response.status_code == 302
-        assert response.location == "/login"
-        assert "user" not in session
+        assert response.location == "/broker"
+        assert session["user"] == "rajandran"
+        assert session.get("logged_in") is not True

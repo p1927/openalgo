@@ -35,7 +35,12 @@ from utils.email_debug import debug_smtp_connection
 from utils.email_utils import send_password_reset_email, send_test_email
 from utils.ip_helper import get_real_ip
 from utils.logging import get_logger
-from utils.session import check_session_validity, is_session_valid, revoke_user_tokens
+from utils.session import (
+    check_session_validity,
+    expire_session_preserving_user,
+    is_session_valid,
+    revoke_user_tokens,
+)
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -291,7 +296,7 @@ def login():
 
             logger.info("[LOGIN] Existing session expired; clearing before password login")
             revoke_user_tokens()
-            session.clear()
+            expire_session_preserving_user()
 
         if "user" in session:
             logger.info("[LOGIN] User in session but not logged_in, redirecting to /broker")
@@ -357,7 +362,7 @@ def login():
             return redirect("/dashboard")
 
         revoke_user_tokens()
-        session.clear()
+        expire_session_preserving_user()
 
     if "user" in session:
         return redirect("/broker")

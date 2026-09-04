@@ -174,6 +174,30 @@ def has_login_this_trading_session(username) -> bool:
     return _has_fresher_session(username)
 
 
+def expire_session_preserving_user():
+    """Clear an expired/invalid session, but keep the username on it.
+
+    A bare `session.clear()` wipes `session["user"]` along with the
+    `logged_in`/`broker` flags it's meant to invalidate, which leaves the
+    session indistinguishable from "never logged in" -- every downstream
+    check that would otherwise route to the broker-reconnect screen
+    (`"user" in session` in `blueprints/auth.py::login()`'s GET/POST
+    handlers, and `/auth/session-status`'s `authenticated and not
+    logged_in` branch that the React Login page uses to redirect to
+    `/broker`) instead falls through to a from-scratch username/password
+    login. This is the same downgrade `/auth/session-status` already
+    performs deliberately for a mid-session broker-token expiry (see its
+    "keep the session intact" comment, issue #1400) -- extending it to
+    every other place a session gets invalidated makes broker reconnect
+    the actual behavior everywhere, not just for the one caller that
+    happened to avoid `session.clear()`.
+    """
+    username = session.get("user")
+    session.clear()
+    if username:
+        session["user"] = username
+
+
 def revoke_user_tokens(revoke_db_tokens=True):
     """
     Revoke auth tokens for the current user when session expires.
@@ -319,7 +343,7 @@ def check_session_validity(f):
         if not is_session_valid():
             # Revoke tokens before clearing session
             revoke_user_tokens()
-            session.clear()
+            expire_session_preserving_user()
 
             # Check if this is an AJAX/fetch request
             from flask import jsonify, request
@@ -370,7 +394,7 @@ def invalidate_session_if_invalid(f):
             logger.info("Invalid session detected - clearing session")
             # Revoke tokens before clearing session
             revoke_user_tokens()
-            session.clear()
+            expire_session_preserving_user()
         return f(*args, **kwargs)
 
     return decorated_function

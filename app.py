@@ -545,7 +545,7 @@ def create_app():
         """Check session validity before each request"""
         from flask import request
 
-        from utils.session import is_session_valid, revoke_user_tokens
+        from utils.session import expire_session_preserving_user, is_session_valid, revoke_user_tokens
 
         # Skip session check for static files, API endpoints, and public routes
         if (
@@ -584,7 +584,7 @@ def create_app():
             # resume and forces a fresh broker authentication. Crypto/24-7 brokers never
             # reach this branch (is_session_valid() stays True when expiry is disabled).
             revoke_user_tokens(revoke_db_tokens=True)
-            session.clear()
+            expire_session_preserving_user()
             # Don't redirect here, let individual routes handle it
 
     @app.errorhandler(400)
