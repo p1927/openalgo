@@ -115,8 +115,5 @@ api.add_namespace(place_gtt_order_ns, path="/placegttorder")
 api.add_namespace(modify_gtt_order_ns, path="/modifygttorder")
 api.add_namespace(cancel_gtt_order_ns, path="/cancelgttorder")
 api.add_namespace(gtt_orderbook_ns, path="/gttorderbook")
-<<<<<<< HEAD
 api.add_namespace(scheduler_registry_ns, path="/scheduler/registry")
-=======
 api.add_namespace(strategy_ns, path="/strategy")
->>>>>>> upstream/main

@@ -555,14 +555,6 @@ def execute_workflow_scheduled(
     append_log(job_id, "starting")
     logger.info(f"Scheduled execution of workflow {workflow_id}")
 
-<<<<<<< HEAD
-    if not api_key:
-        logger.error(f"No API key available for workflow {workflow_id}")
-        append_log(job_id, "failed: no API key available")
-        return
-
-=======
->>>>>>> upstream/main
     # The window is read from the workflow's trigger node on every run, so
     # changing the times in the flow JSON applies from the next run. The
     # market_hours_only argument is what older jobs stored in the jobstore and

@@ -650,7 +650,6 @@ export class TradingTerminal {
 
   private ws: InstanceType<typeof OpenAlgoWsFeed> | null = null
   private rest: InstanceType<typeof OpenAlgoDataFeed> | null = null
-<<<<<<< HEAD
 
   /** Overrides "current time" (epoch seconds) for callers that aren't on
    * real wall-clock time — e.g. a replayed/simulated feed. Unset by default,
@@ -669,7 +668,6 @@ export class TradingTerminal {
     return this.timeSource ? this.timeSource() : nowSec()
   }
 
-=======
   /**
    * The same feed with warm-load caching in front of it.
    *
@@ -685,7 +683,6 @@ export class TradingTerminal {
    * must never be confidently wrong about a price.
    */
   private cachedBars: ReturnType<typeof withBarCache> | null = null
->>>>>>> upstream/main
   private trade: TradeFeedInstance | null = null
   private builder: CandleBuilder | null = null
   private offLtp: (() => void) | null = null
@@ -2547,7 +2544,9 @@ export class TradingTerminal {
   private gridNow(): number {
     const found = tryResolveInterval(this.interval)
     const step = found?.bucketing.mode === 'interval' ? found.bucketing.seconds : 0
-    const now = nowSec()
+    // this.now() rather than a raw nowSec(): a replayed/simulated feed
+    // (setTimeSource) must snap to its own clock's grid, not the wall clock's.
+    const now = this.now()
     return step > 0 ? Math.floor(now / step) * step : now
   }
 
@@ -3047,33 +3046,15 @@ export class TradingTerminal {
   /* periodic history reconcile: snap completed bars to broker OHLC/volume */
   private scheduleReconcile() {
     if (this.reconcileTimer) clearTimeout(this.reconcileTimer)
-<<<<<<< HEAD
-    this.reconcileTimer = setTimeout(
-      async () => {
-        try {
-          if (this.sym && this.rest) {
-            const to = this.now()
-            const fresh = await this.rest.getBars({
-              symbol: this.sym.symbol,
-              exchange: this.sym.exchange,
-              interval: this.interval,
-              from: to - Math.min(3, lookbackDays(this.interval)) * 86400,
-              to,
-            })
-            const byTime = new Map(fresh.map((b) => [b.time, b]))
-            let changed = false
-            for (let i = 0; i < this.rawBars.length; i++) {
-              const f = byTime.get(this.rawBars[i].time)
-              if (f && (this.liveBucket == null || f.time < this.liveBucket)) {
-                this.rawBars[i] = f
-=======
     this.reconcileTimer = setTimeout(() => this.runReconcile(), 25000 + Math.random() * 10000)
   }
 
   private async runReconcile(): Promise<void> {
     try {
       if (this.sym && this.rest) {
-        const to = nowSec()
+        // this.now() rather than a raw nowSec(): a replayed/simulated feed
+        // (setTimeSource) must reconcile against its own clock, not the wall clock.
+        const to = this.now()
         const fresh = await this.rest.getBars({
           symbol: this.sym.symbol,
           exchange: this.sym.exchange,
@@ -3145,7 +3126,6 @@ export class TradingTerminal {
               const last = this.rawBars[this.rawBars.length - 1]
               if (last && last.time === this.liveBucket) {
                 this.rawBars[this.rawBars.length - 1] = { ...last, volume: vol }
->>>>>>> upstream/main
                 changed = true
               }
             }
@@ -3244,11 +3224,7 @@ export class TradingTerminal {
     if (this.link && this.chart) this.link.setSymbol(this.chart, `${exchange}:${this.sym.symbol}`)
 
     // history
-<<<<<<< HEAD
-    const to = this.now()
-=======
     const to = this.gridNow()
->>>>>>> upstream/main
     this.lastLtp = null
     this.liveBucket = null
     this.noMoreHistory = false

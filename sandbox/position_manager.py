@@ -463,38 +463,6 @@ class PositionManager:
             # wall-clock time (broker sessions expire ~3 AM IST), not server-local.
             session_expiry_str = os.getenv("SESSION_EXPIRY_TIME", "03:00")
 
-<<<<<<< HEAD
-            # Get current time in IST -- never rely on server-local time, which
-            # may be UTC (or anything else) depending on deployment.
-            ist = pytz.timezone("Asia/Kolkata")
-            now_ist = datetime.now(ist)
-            today = now_ist.date()
-
-            # Calculate if we're in a new session
-            session_expiry_time = time(expiry_hour, expiry_minute)
-
-            # Determine last session expiry (in IST)
-            if now_ist.time() < session_expiry_time:
-                # We're before today's session expiry (e.g., before 3 AM)
-                # Last session expired yesterday at 3 AM
-                last_session_expiry_ist = ist.localize(
-                    datetime.combine(today - timedelta(days=1), session_expiry_time)
-                )
-            else:
-                # We're after today's session expiry (e.g., after 3 AM)
-                # Last session expired today at 3 AM
-                last_session_expiry_ist = ist.localize(
-                    datetime.combine(today, session_expiry_time)
-                )
-
-            # SandboxPositions.updated_at is stamped via func.now() on SQLite,
-            # which resolves to naive UTC (CURRENT_TIMESTAMP), not local/IST time.
-            # Convert the IST boundary to naive UTC so both sides of every
-            # comparison below are on the same timezone basis.
-            last_session_expiry = last_session_expiry_ist.astimezone(pytz.utc).replace(
-                tzinfo=None
-            )
-=======
             # updated_at is stored in the database's clock (UTC on SQLite),
             # so the boundary must be resolved in UTC too — see
             # last_session_expiry_utc().
@@ -502,7 +470,6 @@ class PositionManager:
                 session_expiry_str, datetime.now(IST)
             )
             today = datetime.now(UTC).date()
->>>>>>> upstream/main
 
             # Get all positions (including zero quantity ones from current session)
             positions_query = SandboxPositions.query.filter(

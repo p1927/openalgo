@@ -119,11 +119,8 @@ from blueprints.settings import settings_bp  # Import the settings blueprint
 from blueprints.stock_simulator_control import stock_simulator_control_bp  # Import the stock simulator control blueprint
 from blueprints.straddle_chart import straddle_bp  # Import the straddle chart blueprint
 from blueprints.strategy_chart import strategy_chart_bp  # Import the strategy chart blueprint
-<<<<<<< HEAD
-from blueprints.strategy_synthesis import strategy_synthesis_bp  # Strategy synthesis route (fork-only)
-=======
 from blueprints.strategy_module import strategy_module_bp  # Multi-leg options strategies with RMS
->>>>>>> upstream/main
+from blueprints.strategy_synthesis import strategy_synthesis_bp  # Strategy synthesis route (fork-only)
 from blueprints.strategy_portfolio import strategy_portfolio_bp  # Strategy Builder portfolio
 from blueprints.trade_plan import trade_plan_bp  # Trade-stack hub plans for Strategy Builder
 from blueprints.trade_charges import trade_charges_bp  # Per-leg F&O charges for Strategy Builder
@@ -607,9 +604,12 @@ def create_app():
         error_description = str(error)
         is_csrf_error = "csrf" in error_description.lower()
 
-<<<<<<< HEAD
+        from utils.url_redaction import redact_url_credentials
+
         if is_csrf_error:
-            logger.warning(f"CSRF Error on {request.path}: {error_description}")
+            logger.warning(
+                f"CSRF Error on {redact_url_credentials(request.path)}: {error_description}"
+            )
         else:
             # Not an actual CSRF failure (Flask-WTF's message always contains
             # "CSRF") - most often Werkzeug's generic could-not-parse-request
@@ -629,15 +629,9 @@ def create_app():
             except Exception as diag_error:
                 diag = f"<diagnostic fields unavailable: {diag_error!r}>"
             logger.warning(
-                f"Bad Request (400, non-CSRF) on {request.path}: {error_description} ({diag})"
+                f"Bad Request (400, non-CSRF) on {redact_url_credentials(request.path)}: "
+                f"{error_description} ({diag})"
             )
-=======
-        from utils.url_redaction import redact_url_credentials
-
-        logger.warning(
-            f"CSRF Error on {redact_url_credentials(request.path)}: {error_description}"
-        )
->>>>>>> upstream/main
 
         # Check if it's a CSRF error
         if is_csrf_error:

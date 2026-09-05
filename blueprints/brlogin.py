@@ -39,17 +39,13 @@ def ratelimit_handler(e):
 @limiter.limit(LOGIN_RATE_LIMIT_HOUR)
 def broker_callback(broker, para=None):
     logger.info(f"Broker callback initiated for: {broker}")
-<<<<<<< HEAD
     try:
         from utils.broker_credentials import apply_broker_credentials
 
         apply_broker_credentials(broker)
     except Exception as exc:
         logger.debug("broker credential apply skipped: %s", exc)
-    logger.debug(f"Session contents: {dict(session)}")
-=======
     logger.debug("Session keys: %s", sorted(session.keys()))
->>>>>>> upstream/main
     logger.info(f"Session has user key: {'user' in session}")
 
     # Special handling for brokers that come from external auth and might lose session

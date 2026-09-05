@@ -193,15 +193,6 @@ def _prune_old_tags() -> None:
             .filter(StrategyOrderTag.created_at < cutoff)
             .delete(synchronize_session=False)
         )
-<<<<<<< HEAD
-        # Commit unconditionally: .delete() always opens a transaction on the
-        # scoped session's connection, even when it matches zero rows (the
-        # common case). Committing only inside `if removed` left that
-        # transaction open indefinitely whenever there was nothing to prune,
-        # holding SQLite's WAL writer lock for the lifetime of the process and
-        # blocking every other writer (including other processes) to the same
-        # database file - not just this table.
-=======
         # Committed whether or not anything matched. The DELETE opens SQLite's
         # write transaction the moment it runs, and a prune that matches
         # nothing is the ordinary case, so committing only when `removed` was
@@ -215,7 +206,6 @@ def _prune_old_tags() -> None:
         # budget and failed with "database is locked", strategy recovery among
         # them, which is how a run that was already finished stayed open across
         # every restart.
->>>>>>> upstream/main
         db_session.commit()
         if removed:
             logger.info(f"Strategy book: pruned {removed} order tag(s) past retention")

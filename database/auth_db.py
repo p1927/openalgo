@@ -1018,11 +1018,6 @@ def get_auth_token_broker(provided_api_key, include_feed_token=False):
     # Generate cache key
     cache_key = f"{hashlib.sha256(provided_api_key.encode()).hexdigest()}_{include_feed_token}"
 
-<<<<<<< HEAD
-    # Check cache first (but still verify revocation status)
-    if cache_key in auth_cache:
-        cached_result = auth_cache[cache_key]
-=======
     # Check cache first (but still verify revocation status).
     #
     # One get rather than a membership test followed by a subscript. auth_cache
@@ -1035,16 +1030,12 @@ def get_auth_token_broker(provided_api_key, include_feed_token=False):
     cached_result = auth_cache.get(cache_key)
     if cached_result is not None:
         # Security: Still check if auth is revoked even with cached data
->>>>>>> upstream/main
         user_id = verify_api_key(provided_api_key)
         if user_id:
             try:
                 auth_obj = Auth.query.filter_by(name=user_id).first()
                 if auth_obj and auth_obj.is_revoked:
-<<<<<<< HEAD
-=======
                     # Token was revoked, remove from cache
->>>>>>> upstream/main
                     auth_cache.pop(cache_key, None)
                     logger.warning(f"Cached auth token was revoked for user_id '{user_id}'.")
                     return (None, None, None) if include_feed_token else (None, None)
@@ -1056,12 +1047,9 @@ def get_auth_token_broker(provided_api_key, include_feed_token=False):
                     return cached_result
             except Exception as e:
                 logger.exception(f"Error checking revocation status: {e}")
-<<<<<<< HEAD
-=======
                 # On error, don't use cache. pop, not del: this is the recovery
                 # path, and a del here raised a SECOND KeyError that nothing
                 # caught, turning a harmless cache miss into a failed request.
->>>>>>> upstream/main
                 auth_cache.pop(cache_key, None)
 
     # Cache miss or revocation check failed - fetch from database

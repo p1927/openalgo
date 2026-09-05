@@ -376,52 +376,27 @@ def resolve_and_place_leg(
         Result dictionary with leg details and order status
     """
     try:
-<<<<<<< HEAD
-        # Step 1: Resolve option symbol (explicit symbol or offset-based lookup)
-        leg_expiry = leg_data.get("expiry_date") or common_data.get("expiry_date")
-
+        # Step 1: Resolve option symbol (explicit symbol, absolute strike, or
+        # offset-based lookup). Use leg-specific expiry_date if provided,
+        # otherwise fall back to common expiry_date.
         explicit = resolve_explicit_leg_symbol(leg_data, common_data)
         if explicit:
             resolved_symbol, resolved_exchange = explicit
         else:
-            success, symbol_response, status_code = get_option_symbol(
-                underlying=common_data.get("underlying"),
-                exchange=common_data.get("exchange"),
-                expiry_date=leg_expiry,
-                strike_int=common_data.get("strike_int"),
-                offset=leg_data.get("offset"),
-                option_type=leg_data.get("option_type"),
-                api_key=api_key,
-                underlying_ltp=underlying_ltp,
+            success, symbol_response, status_code = resolve_leg_symbol(
+                leg_data, common_data, api_key, underlying_ltp
             )
 
             if not success:
                 return {
                     "leg": leg_index + 1,
                     "offset": leg_data.get("offset"),
+                    "strike": leg_data.get("strike"),
                     "option_type": leg_data.get("option_type", "").upper(),
                     "action": leg_data.get("action", "").upper(),
                     "status": "error",
                     "message": symbol_response.get("message", "Failed to resolve option symbol"),
                 }
-=======
-        # Step 1: Resolve option symbol
-        # Use leg-specific expiry_date if provided, otherwise fall back to common expiry_date
-        success, symbol_response, status_code = resolve_leg_symbol(
-            leg_data, common_data, api_key, underlying_ltp
-        )
-
-        if not success:
-            return {
-                "leg": leg_index + 1,
-                "offset": leg_data.get("offset"),
-                "strike": leg_data.get("strike"),
-                "option_type": leg_data.get("option_type", "").upper(),
-                "action": leg_data.get("action", "").upper(),
-                "status": "error",
-                "message": symbol_response.get("message", "Failed to resolve option symbol"),
-            }
->>>>>>> upstream/main
 
             resolved_symbol = symbol_response.get("symbol")
             resolved_exchange = symbol_response.get("exchange")
@@ -655,25 +630,12 @@ def process_multiorder_with_auth(
             # Resolve all option symbols first (DB lookups, fast)
             resolved_symbols = []
             for _, leg in buy_legs + sell_legs:
-<<<<<<< HEAD
                 explicit = resolve_explicit_leg_symbol(leg, common_data)
                 if explicit:
                     resolved_symbols.append({"symbol": explicit[0], "exchange": explicit[1]})
                     continue
-                leg_expiry = leg.get("expiry_date") or common_data.get("expiry_date")
-                success_sym, sym_response, _ = get_option_symbol(
-                    underlying=common_data.get("underlying"),
-                    exchange=common_data.get("exchange"),
-                    expiry_date=leg_expiry,
-                    strike_int=common_data.get("strike_int"),
-                    offset=leg.get("offset"),
-                    option_type=leg.get("option_type"),
-                    api_key=api_key,
-                    underlying_ltp=underlying_ltp,
-=======
                 success_sym, sym_response, _ = resolve_leg_symbol(
                     leg, common_data, api_key, underlying_ltp
->>>>>>> upstream/main
                 )
                 if success_sym:
                     sym = sym_response.get("symbol")

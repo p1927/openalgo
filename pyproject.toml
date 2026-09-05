@@ -115,12 +115,8 @@ dependencies = [
   "python-socketio==5.16.4",
   "python-telegram-bot==22.8",
   "wars==0.1.4",
-<<<<<<< HEAD
   "watchdog==6.0.0",
-  "pytz==2026.2",
-=======
   "pytz==2026.3.post1",
->>>>>>> upstream/main
   "PyYAML==6.0.3",
   "pyzmq==27.2.0",
   "qrcode==8.2",
@@ -156,13 +152,10 @@ dependencies = [
   "zipp==3.23.1",
   "opengreeks>=0.2.0",
   "openstatz==0.4.1",
-<<<<<<< HEAD
   "stockstats>=0.6.8",
-=======
   "litellm==1.99.0",
   "agno==3.0.5",
   "ddgs>=9.16.0",
->>>>>>> upstream/main
 ]
 
 [build-system]

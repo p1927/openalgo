@@ -148,11 +148,10 @@ def place_order_with_auth(
 
     api_key = original_data.get("apikey", "")
 
-<<<<<<< HEAD
-    # Alpaca US: analyze_mode uses Alpaca paper API, not OpenAlgo sandbox
-    if get_analyze_mode() and broker != "alpaca":
-=======
     # If in analyze mode, route to sandbox for sandbox trading.
+    #
+    # Alpaca US is excluded: analyze_mode there uses Alpaca's own paper API,
+    # not OpenAlgo's sandbox.
     #
     # force_live opts out, for a caller that already decided the pipe. The
     # strategy module picks live or sandbox per RUN, not per platform: two runs
@@ -166,8 +165,7 @@ def place_order_with_auth(
     # (see orderbook_service). This is the same idea made explicit, because a
     # write path should not infer intent from whether a logging argument
     # happens to be None.
-    if get_analyze_mode() and not force_live:
->>>>>>> upstream/main
+    if get_analyze_mode() and broker != "alpaca" and not force_live:
         from services.sandbox_service import sandbox_place_order
 
         if not api_key:

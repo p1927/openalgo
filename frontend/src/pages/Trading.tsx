@@ -13,9 +13,7 @@ const AgentPanel = lazy(() =>
 
 import { ChartPane } from '@/components/trading/ChartPane'
 import { DrawingRail } from '@/components/trading/DrawingRail'
-<<<<<<< HEAD
 import { SimulatorModeBadge } from '@/components/trading/SimulatorModeBadge'
-=======
 import { DOCK_ID } from '@/components/trading/dock/DockShell'
 import {
   type DockTab,
@@ -29,7 +27,6 @@ import { isPanelId, type PanelId, RightRail } from '@/components/trading/RightRa
 import { TickBox } from '@/components/trading/TickBox'
 import { WatchlistPanel } from '@/components/trading/WatchlistPanel'
 import { Badge } from '@/components/ui/badge'
->>>>>>> upstream/main
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -376,10 +373,10 @@ export default function Trading() {
   }, [layoutId])
 
   useEffect(() => {
-<<<<<<< HEAD
     if (!brokerLoaded) fetchCapabilities()
   }, [brokerLoaded, fetchCapabilities])
-=======
+
+  useEffect(() => {
     if (panel) localStorage.setItem(PANEL_KEY, panel)
     else localStorage.removeItem(PANEL_KEY)
   }, [panel])
@@ -463,7 +460,6 @@ export default function Trading() {
     const group = linkRef.current
     return () => group?.destroy()
   }, [])
->>>>>>> upstream/main
 
   // Fetch the API key + WS URL once; every pane shares them.
   useEffect(() => {
@@ -638,44 +634,6 @@ export default function Trading() {
           Layout's centred container. See NavbarProps.fluid. */}
       <Navbar fluid />
       <div className="flex flex-1 flex-col overflow-hidden">
-<<<<<<< HEAD
-        {/* Layout selector (visual presets) */}
-        <div className="flex items-center gap-2 border-b bg-background/95 px-3 py-1.5">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="h-8 gap-1.5">
-                <LayoutGrid className="h-4 w-4" />
-                <span className="text-xs font-medium">Layout</span>
-                <ChevronDown className="h-3.5 w-3.5 opacity-60" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-56">
-              <div className="grid grid-cols-4 gap-1 p-1">
-                {LAYOUTS.map((l) => (
-                  <DropdownMenuItem
-                    key={l.id}
-                    onSelect={() => setLayoutId(l.id)}
-                    title={l.label}
-                    className={cn(
-                      'flex aspect-square flex-col items-center justify-center gap-1 rounded border',
-                      l.id === layoutId
-                        ? 'border-primary bg-primary/10 text-primary'
-                        : 'text-muted-foreground'
-                    )}
-                  >
-                    <LayoutIcon preset={l} />
-                    <span className="text-[9px] font-medium">{l.cells.length}</span>
-                  </DropdownMenuItem>
-                ))}
-              </div>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <span className="text-xs text-muted-foreground">{layout.label}</span>
-          <SimulatorModeBadge />
-        </div>
-
-=======
->>>>>>> upstream/main
         {/* Rail + grid */}
         <main className="flex min-h-0 flex-1">
           {showRail && apiKey && wsUrl && (
@@ -690,11 +648,7 @@ export default function Trading() {
               onShortcut={onDrawKey}
             />
           )}
-<<<<<<< HEAD
-          <div className="min-h-0 flex-1">
-=======
           <div className="min-h-0 min-w-0 flex-1">
->>>>>>> upstream/main
             {noApiKey ? (
               <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
                 <p className="text-sm text-muted-foreground">No API key found for charting.</p>
@@ -720,12 +674,6 @@ export default function Trading() {
                     style={{ gridArea: cell }}
                     sharedTool={tool}
                     sharedMagnet={magnet}
-<<<<<<< HEAD
-                    onFocusPane={focusPane}
-                    onDrawStats={setStats}
-                    onToggleRail={() => setShowRail((v) => !v)}
-                    railVisible={showRail}
-=======
                     sharedStay={stay}
                     onFocusPane={focusPane}
                     onSymbolChange={noteSymbol}
@@ -741,10 +689,10 @@ export default function Trading() {
                           {layoutPicker}
                           {syncPicker}
                           {armedControl}
+                          <SimulatorModeBadge />
                         </>
                       ) : undefined
                     }
->>>>>>> upstream/main
                   />
                 ))}
               </div>

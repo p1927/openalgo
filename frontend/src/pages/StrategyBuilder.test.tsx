@@ -1448,18 +1448,13 @@ describe('StrategyBuilder identity orchestration', () => {
     expect(screen.queryByRole('button', { name: 'Remove position' })).not.toBeInTheDocument()
 
     await addOneLeg()
-<<<<<<< HEAD
     expect(screen.getByRole('slider', { name: 'Spot price shift' })).toHaveValue('0')
-  })
-=======
-    expect(screen.getAllByRole('slider')[0]).toHaveValue('0')
     // Slow for the same reason as its neighbours: it drives the full builder
     // through two identity changes and rebuilds the legs each time. It fits in
     // the default 5s on a plain run and does not under `vitest --coverage`,
     // where v8 instrumentation pushed this file to 65s in CI. The work is real,
     // so the timeout is what is wrong, not the test.
   }, SLOW_INTEGRATION_TEST_TIMEOUT)
->>>>>>> upstream/main
 
   it('does not let an in-flight margin response repopulate state after an identity reset', async () => {
     const staleMargin = deferred<{

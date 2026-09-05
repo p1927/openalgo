@@ -107,7 +107,6 @@ changed** (real login, ~3 AM rollover, logout/revoke).
 - **Gate the teardown on a real token change.** `upsert_auth` compares the new token / feed-token / broker / revoke flag against the stored row using **decrypted plaintext** — Fernet ciphertext is non-deterministic, so never compare encrypted blobs. If nothing material changed, clear the cheap in-process caches and return early, leaving the live feed up. Only a genuine change (or `revoke=True`) runs the ZMQ-publish + `cleanup_pools_for_user` path.
 - **Why:** without the gate, a same-day 2nd-device login kills the 1st device's stream until it refreshes (Shoonya), and on single-active-session Finvasia/Noren brokers the disconnect churn drops the broker token entirely (Flattrade "broker session expired"). See issue #1591. The teardown itself is the #1394/#765/#851 fix — keep it, just keep it gated. Broker-agnostic.
 
-<<<<<<< HEAD
 ### `stock_simulator` broker never reaches a real broker, and never shares INDmoney credentials with the recorder
 
 Two independent things both talk to INDmoney's data and must stay
@@ -133,7 +132,7 @@ this broker is selected is OpenAlgo's Analyzer/sandbox paper-fill engine.
   broker session — the simulator has no channel to place a real order or
   acquire a real broker token, by construction, not by convention.
   Full design: `docs/superpowers/plans/2026-08-18-stock-simulator-openalgo-broker-design.md`.
-=======
+
 ### Risk rules live in services/risk/ and are never reimplemented
 
 One place decides whether a position has hit its stop, taken its target, earned
@@ -192,7 +191,6 @@ The same shape applies wherever a stop is finalised: a stop whose exit orders
 were refused must leave the run **open and managed**, because the position is
 still there. Reporting success and clearing the state is how a position ends up
 with nothing watching it.
->>>>>>> upstream/main
 
 ### SQLite uses NullPool, never StaticPool
 
