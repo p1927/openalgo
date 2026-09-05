@@ -67,6 +67,32 @@ export default defineConfig(({ command }) => ({
         target: 'http://localhost:5001',
         changeOrigin: true,
       },
+      // Setup.tsx's one-time setup-wizard POST goes to a bare `/setup`
+      // (see blueprints/core.py's `core_bp.route("/setup", methods=["POST"])`)
+      // rather than under `/auth` or `/api`, so neither of those proxy
+      // entries covers it. Without this, the request resolves against Vite
+      // itself (no such route there) and 404s -- a genuinely fresh scratch
+      // instance's setup wizard silently fails through the UI, even though
+      // curling the same path straight at Flask works.
+      //
+      // `/setup` is ALSO a React Router page route (blueprints/react_app.py's
+      // `@react_bp.route("/setup")` only exists so Flask doesn't 404 a direct
+      // page load before falling through to the SPA), the same collision the
+      // blueprint-api regex below documents for `/search`/`/sandbox`/etc. --
+      // proxying the bare path unconditionally would send the page's own GET
+      // navigation to Flask's `serve_react_app()` catch-all too, which hands
+      // back the *built* `dist/index.html` (asset paths prefixed
+      // `/apps/openalgo/`, per the `base` comment above) instead of Vite's
+      // dev shell, breaking the page load. `bypass` lets only the POST
+      // through to Flask; any other method is left for Vite to serve
+      // normally.
+      '/setup': {
+        target: 'http://localhost:5001',
+        changeOrigin: true,
+        bypass: (req) => {
+          if (req.method !== 'POST') return req.url
+        },
+      },
       // stock_simulator's connect URL is a relative `/stock_simulator/callback`
       // (see utils/broker_login.py) rather than an absolute HOST_SERVER one,
       // so the browser stays on whatever origin actually served the
