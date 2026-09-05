@@ -214,7 +214,7 @@ def seed_holidays_2025():
         },
         {
             "date": "2025-08-27",
-            "description": "Janmashtami",
+            "description": "Shri Ganesh Chaturthi",
             "holiday_type": "TRADING_HOLIDAY",
             "closed": ["NSE", "BSE", "NFO", "BFO", "CDS", "BCD"],
             "open": [{"exchange": "MCX", "start_time": 1756383000000, "end_time": 1756436700000}],
@@ -222,21 +222,14 @@ def seed_holidays_2025():
         # October
         {
             "date": "2025-10-02",
-            "description": "Mahatma Gandhi Jayanti",
+            "description": "Mahatma Gandhi Jayanti / Dussehra",
             "holiday_type": "TRADING_HOLIDAY",
             "closed": ["NSE", "BSE", "NFO", "BFO", "CDS", "BCD", "MCX"],
             "open": [],
         },
+        # October / November - Diwali with Muhurat Trading
         {
             "date": "2025-10-21",
-            "description": "Dussehra",
-            "holiday_type": "TRADING_HOLIDAY",
-            "closed": ["NSE", "BSE", "NFO", "BFO", "CDS", "BCD"],
-            "open": [{"exchange": "MCX", "start_time": 1761091800000, "end_time": 1761145500000}],
-        },
-        # November - Diwali with Muhurat Trading
-        {
-            "date": "2025-11-01",
             "description": "Diwali Laxmi Pujan (Muhurat Trading)",
             "holiday_type": "SPECIAL_SESSION",
             "closed": [],  # No exchange fully closed - all have special session
@@ -244,47 +237,54 @@ def seed_holidays_2025():
                 # Muhurat Trading session - typically 6:00 PM to 7:15 PM IST
                 {
                     "exchange": "NSE",
-                    "start_time": 1730469000000,
-                    "end_time": 1730473500000,
+                    "start_time": 1729518600000,
+                    "end_time": 1729523100000,
                 },  # 18:00-19:15
                 {
                     "exchange": "BSE",
-                    "start_time": 1730469000000,
-                    "end_time": 1730473500000,
+                    "start_time": 1729518600000,
+                    "end_time": 1729523100000,
                 },  # 18:00-19:15
                 {
                     "exchange": "NFO",
-                    "start_time": 1730469000000,
-                    "end_time": 1730473500000,
+                    "start_time": 1729518600000,
+                    "end_time": 1729523100000,
                 },  # 18:00-19:15
                 {
                     "exchange": "BFO",
-                    "start_time": 1730469000000,
-                    "end_time": 1730473500000,
+                    "start_time": 1729518600000,
+                    "end_time": 1729523100000,
                 },  # 18:00-19:15
                 {
                     "exchange": "CDS",
-                    "start_time": 1730469000000,
-                    "end_time": 1730473500000,
+                    "start_time": 1729518600000,
+                    "end_time": 1729523100000,
                 },  # 18:00-19:15
                 {
                     "exchange": "BCD",
-                    "start_time": 1730469000000,
-                    "end_time": 1730473500000,
+                    "start_time": 1729518600000,
+                    "end_time": 1729523100000,
                 },  # 18:00-19:15
                 {
                     "exchange": "MCX",
-                    "start_time": 1730469000000,
-                    "end_time": 1730491500000,
+                    "start_time": 1729518600000,
+                    "end_time": 1729541100000,
                 },  # 18:00-00:15 (next day)
             ],
         },
         {
-            "date": "2025-11-14",
-            "description": "Guru Nanak Jayanti",
+            "date": "2025-10-22",
+            "description": "Diwali Balipratipada",
             "holiday_type": "TRADING_HOLIDAY",
             "closed": ["NSE", "BSE", "NFO", "BFO", "CDS", "BCD"],
-            "open": [{"exchange": "MCX", "start_time": 1763152200000, "end_time": 1763205900000}],
+            "open": [{"exchange": "MCX", "start_time": 1761091800000, "end_time": 1761145500000}],
+        },
+        {
+            "date": "2025-11-05",
+            "description": "Prakash Gurpurb Sri Guru Nanak Dev",
+            "holiday_type": "TRADING_HOLIDAY",
+            "closed": ["NSE", "BSE", "NFO", "BFO", "CDS", "BCD"],
+            "open": [{"exchange": "MCX", "start_time": 1762374600000, "end_time": 1762428300000}],
         },
         # December
         {
