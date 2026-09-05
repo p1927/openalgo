@@ -5,6 +5,15 @@ import { compression } from 'vite-plugin-compression2'
 import path from 'path'
 
 // https://vite.dev/config/
+// Backend origin the dev-server proxy rules below forward to. Hardcoded to
+// the real `trade dev` port (5001) by default so normal dev/`trade dev`
+// usage is unchanged -- override with OPENALGO_BACKEND_URL to point a
+// second, independently-launched Vite dev server (e.g. for an isolated
+// scratch/E2E-test OpenAlgo backend on its own port) without touching this
+// file. See `.claude/backlog/items/2026-09-05-openalgo-e2e-order-placement-and-deep-chain-coverage.md`
+// for the scratch-instance E2E suite that needs this.
+const BACKEND_URL = process.env.OPENALGO_BACKEND_URL || 'http://localhost:5001'
+
 export default defineConfig(({ command }) => ({
   // Serve this SPA under the gateway path /apps/openalgo/ — but only for the
   // BUILD (`vite build`, `command === 'build'`). The prebuilt dist/ bundle
@@ -56,15 +65,15 @@ export default defineConfig(({ command }) => ({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:5001',
+        target: BACKEND_URL,
         changeOrigin: true,
       },
       '/socket.io': {
-        target: 'http://localhost:5001',
+        target: BACKEND_URL,
         ws: true,
       },
       '/auth': {
-        target: 'http://localhost:5001',
+        target: BACKEND_URL,
         changeOrigin: true,
       },
       // Setup.tsx's one-time setup-wizard POST goes to a bare `/setup`
@@ -87,7 +96,7 @@ export default defineConfig(({ command }) => ({
       // through to Flask; any other method is left for Vite to serve
       // normally.
       '/setup': {
-        target: 'http://localhost:5001',
+        target: BACKEND_URL,
         changeOrigin: true,
         bypass: (req) => {
           if (req.method !== 'POST') return req.url
@@ -104,7 +113,7 @@ export default defineConfig(({ command }) => ({
       // reaching Flask. Proxy it through like `/auth` above so it works
       // under both topologies.
       '/stock_simulator/callback': {
-        target: 'http://localhost:5001',
+        target: BACKEND_URL,
         changeOrigin: true,
       },
       // Every blueprint's data-fetch routes live at `/<blueprint>/api/*`
@@ -133,7 +142,7 @@ export default defineConfig(({ command }) => ({
       // aborts the whole module graph before `main.tsx` ever runs, and the
       // app renders as a blank page — deterministically, not a timing race.
       '^/(?!src/)[^/]+/api/.*': {
-        target: 'http://localhost:5001',
+        target: BACKEND_URL,
         changeOrigin: true,
       },
     },
