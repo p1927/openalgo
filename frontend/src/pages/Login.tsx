@@ -9,7 +9,7 @@ import {
   MessageCircle,
   ShieldCheck,
 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { API_BASE_URL } from '@/api/client'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -30,6 +30,13 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Tracks whether the user has typed into either field, so the dev-autofill
+  // auto-submit below (added because a stale/expired browser session
+  // otherwise leaves users stuck on this page needing a manual click even
+  // though .env already has working credentials) never overwrites or
+  // submits over real input.
+  const hasUserEditedRef = useRef(false)
+  const autoSubmitAttemptedRef = useRef(false)
 
   // Check if setup is required or already logged in, in the background — the
   // login form below renders immediately (not gated on this) so it's present
@@ -78,34 +85,11 @@ export default function Login() {
     checkSetup()
   }, [navigate])
 
-  // Local-dev convenience: ask the backend for OPENALGO_USERNAME/OPENALGO_PASSWORD
-  // (loopback-only, opt-in — see /auth/dev-autofill-credentials) and prefill the
-  // form if available. A remote deployment always gets available: false.
-  useEffect(() => {
-    const tryDevAutofill = async () => {
-      try {
-        const response = await fetch(`${API_BASE_URL}/auth/dev-autofill-credentials`, {
-          credentials: 'include',
-        })
-        if (!response.ok) return
-        const data = await response.json()
-        if (data.available) {
-          // Only fill a field the user hasn't already started typing into —
-          // this fetch resolves asynchronously, and unconditionally
-          // overwriting here would stomp real input typed in the window
-          // between initial paint and this response landing.
-          setUsername((current) => current || data.username)
-          setPassword((current) => current || data.password)
-        }
-      } catch (_err) {
-        // Autofill is a convenience only; ignore failures.
-      }
-    }
-    tryDevAutofill()
-  }, [])
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  // Shared by the manual submit button and the dev-autofill auto-submit
+  // below. Takes explicit credentials (rather than reading `username`/
+  // `password` state) so the auto-submit path can fire immediately with the
+  // freshly-fetched values instead of racing a pending setState.
+  const performLogin = async (loginUsername: string, loginPassword: string) => {
     setIsLoading(true)
     setError(null)
 
@@ -125,8 +109,8 @@ export default function Login() {
 
       // Create form data with CSRF token (matches original Flask template approach)
       const formData = new FormData()
-      formData.append('username', username)
-      formData.append('password', password)
+      formData.append('username', loginUsername)
+      formData.append('password', loginPassword)
       formData.append('csrf_token', csrfData.csrf_token)
 
       // Use native fetch like the original template
@@ -164,7 +148,7 @@ export default function Login() {
         setError(null)
       } else {
         // Set login state (broker from response if session was resumed, empty otherwise)
-        setLogin(username, data.broker || '')
+        setLogin(loginUsername, data.broker || '')
         showToast.success('Login successful', 'system')
         // Use redirect from response if provided, otherwise go to broker
         navigate(data.redirect || '/broker')
@@ -174,6 +158,51 @@ export default function Login() {
     } finally {
       setIsLoading(false)
     }
+  }
+
+  // Local-dev convenience: ask the backend for OPENALGO_USERNAME/OPENALGO_PASSWORD
+  // (loopback-only, opt-in — see /auth/dev-autofill-credentials), prefill the
+  // form, and log in automatically. A remote deployment always gets
+  // available: false, so this is a no-op there. Auto-submitting (rather than
+  // just prefilling) closes the gap where a stale/expired browser session
+  // left the dev user stuck on this page needing a manual click even though
+  // .env already has working credentials — see
+  // .claude/backlog/items/2026-09-05-openalgo-auto-apikey-wiring.md.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only autofill/auto-submit check; performLogin only closes over stable setState setters and navigate/setLogin, so including it would not change behavior but would need it wrapped in useCallback for no benefit.
+  useEffect(() => {
+    const tryDevAutofill = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/auth/dev-autofill-credentials`, {
+          credentials: 'include',
+        })
+        if (!response.ok) return
+        const data = await response.json()
+        if (!data.available) return
+
+        // Only fill a field the user hasn't already started typing into —
+        // this fetch resolves asynchronously, and unconditionally
+        // overwriting here would stomp real input typed in the window
+        // between initial paint and this response landing.
+        setUsername((current) => current || data.username)
+        setPassword((current) => current || data.password)
+
+        // Auto-submit at most once, and only when the user hasn't touched
+        // either field — an in-flight edit means they're taking over the
+        // login manually, so this must not steal focus or submit under them.
+        if (!autoSubmitAttemptedRef.current && !hasUserEditedRef.current) {
+          autoSubmitAttemptedRef.current = true
+          await performLogin(data.username, data.password)
+        }
+      } catch (_err) {
+        // Autofill is a convenience only; ignore failures.
+      }
+    }
+    tryDevAutofill()
+  }, [])
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    await performLogin(username, password)
   }
 
   const handleTotpSubmit = async (e: React.FormEvent) => {
@@ -255,7 +284,10 @@ export default function Login() {
                       type="text"
                       placeholder="Enter your username"
                       value={username}
-                      onChange={(e) => setUsername(e.target.value)}
+                      onChange={(e) => {
+                        hasUserEditedRef.current = true
+                        setUsername(e.target.value)
+                      }}
                       required
                       disabled={isLoading}
                       autoComplete="username"
@@ -270,7 +302,10 @@ export default function Login() {
                         type={showPassword ? 'text' : 'password'}
                         placeholder="Enter your password"
                         value={password}
-                        onChange={(e) => setPassword(e.target.value)}
+                        onChange={(e) => {
+                          hasUserEditedRef.current = true
+                          setPassword(e.target.value)
+                        }}
                         required
                         disabled={isLoading}
                         autoComplete="current-password"

@@ -1151,8 +1151,16 @@ def load_and_check_env_variables() -> None:
     if os.path.exists(repo_root_env_path):
         load_dotenv(dotenv_path=repo_root_env_path, override=False)
 
-    # Define the path to the .env file in the main application path
-    env_path = os.path.join(os.path.dirname(__file__), "..", ".env")
+    # Define the path to the .env file in the main application path.
+    # OPENALGO_ENV_FILE (a real process env var, set before launch) overrides
+    # this when present, so an isolated/scratch instance can point the whole
+    # process at its own .env instead of always resolving to whichever
+    # checkout this module happens to be imported from — see
+    # utils/broker_env_sync.py::_env_path() for the sibling override this
+    # mirrors (that module re-reads/re-syncs the same file later at runtime).
+    env_path = os.getenv("OPENALGO_ENV_FILE", "").strip() or os.path.join(
+        os.path.dirname(__file__), "..", ".env"
+    )
 
     # Check if the .env file exists
     if not os.path.exists(env_path):

@@ -2228,7 +2228,15 @@ def _resolve_env_path() -> Path:
     same answer. We resolve once and validate the file exists rather
     than trying multiple candidates — a missing .env is a deployment bug
     the operator needs to fix, not something we paper over.
+
+    ``OPENALGO_ENV_FILE`` overrides when set, for the same reason
+    utils/broker_env_sync.py::_env_path() honors it — an isolated/scratch
+    instance may be launched from the main checkout's cwd (e.g. via `uv run`
+    against that project) while still needing its own .env.
     """
+    override = os.getenv("OPENALGO_ENV_FILE", "").strip()
+    if override:
+        return Path(override).resolve()
     return Path(os.getcwd()).resolve() / ".env"
 
 

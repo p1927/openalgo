@@ -18,7 +18,16 @@ broker_credentials_bp = Blueprint("broker_credentials_bp", __name__, url_prefix=
 
 
 def get_env_path():
-    """Get the absolute path to the .env file."""
+    """Get the absolute path to the .env file.
+
+    ``OPENALGO_ENV_FILE`` overrides when set (see
+    utils/broker_env_sync.py::_env_path() for why — an isolated/scratch
+    instance needs this to point at its own .env rather than always
+    resolving to whichever checkout this module happens to be imported from).
+    """
+    override = os.getenv("OPENALGO_ENV_FILE", "").strip()
+    if override:
+        return os.path.normpath(os.path.abspath(override))
     base_dir = os.path.dirname(os.path.abspath(__file__))
     return os.path.normpath(os.path.join(base_dir, "..", ".env"))
 

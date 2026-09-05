@@ -24,6 +24,18 @@ ENV_TOKEN_BROKERS = frozenset({"indmoney", "groww", "deltaexchange", "dhan_sandb
 
 
 def _env_path() -> str:
+    """Resolve the .env file this process should read/write.
+
+    ``OPENALGO_ENV_FILE`` (a real process env var, set before launch — never
+    read from inside the .env file it's meant to override) takes precedence
+    when set, so an isolated/scratch OpenAlgo instance can point this sync
+    module at its own .env instead of always resolving to the checkout this
+    module happens to be imported from. Falls back to the historical
+    __file__-relative path (unchanged) for the normal single-instance case.
+    """
+    override = os.getenv("OPENALGO_ENV_FILE", "").strip()
+    if override:
+        return os.path.normpath(os.path.abspath(override))
     base_dir = os.path.dirname(os.path.abspath(__file__))
     return os.path.normpath(os.path.join(base_dir, "..", ".env"))
 

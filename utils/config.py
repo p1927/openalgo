@@ -24,7 +24,16 @@ if _repo_root_env.is_file():
 # `FLASK_DEBUG=False` — the process still starts, but with no reloader and
 # no error, so edits stop taking effect with no visible symptom.
 _preset_flask_debug = os.environ.get("FLASK_DEBUG")
-load_dotenv(override=True)
+# OPENALGO_ENV_FILE overrides the implicit find_dotenv() search below (which
+# walks up from this file's own directory, so it always lands on whichever
+# checkout this module happens to be imported from) — see
+# utils/broker_env_sync.py::_env_path() for the sibling override this
+# mirrors, needed so an isolated/scratch instance's own .env actually wins.
+_env_file_override = os.environ.get("OPENALGO_ENV_FILE", "").strip()
+if _env_file_override:
+    load_dotenv(dotenv_path=_env_file_override, override=True)
+else:
+    load_dotenv(override=True)
 if _preset_flask_debug is not None:
     os.environ["FLASK_DEBUG"] = _preset_flask_debug
 
