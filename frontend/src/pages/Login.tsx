@@ -170,6 +170,17 @@ export default function Login() {
   // .claude/backlog/items/2026-09-05-openalgo-auto-apikey-wiring.md.
   // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only autofill/auto-submit check; performLogin only closes over stable setState setters and navigate/setLogin, so including it would not change behavior but would need it wrapped in useCallback for no benefit.
   useEffect(() => {
+    // Guard must be checked-and-set synchronously, before any `await` —
+    // React 18 StrictMode (see main.tsx) double-invokes effects on mount in
+    // dev builds, running this callback twice back-to-back. If the guard
+    // lived inside the async closure (after the fetch/json awaits), both
+    // invocations could race past it before either set it, firing two
+    // concurrent POST /auth/login calls that corrupt the shared session
+    // cookie/broker-resume state — observed live as a stuck black screen
+    // after clicking Login.
+    if (autoSubmitAttemptedRef.current) return
+    autoSubmitAttemptedRef.current = true
+
     const tryDevAutofill = async () => {
       try {
         const response = await fetch(`${API_BASE_URL}/auth/dev-autofill-credentials`, {
@@ -186,11 +197,12 @@ export default function Login() {
         setUsername((current) => current || data.username)
         setPassword((current) => current || data.password)
 
-        // Auto-submit at most once, and only when the user hasn't touched
-        // either field — an in-flight edit means they're taking over the
-        // login manually, so this must not steal focus or submit under them.
-        if (!autoSubmitAttemptedRef.current && !hasUserEditedRef.current) {
-          autoSubmitAttemptedRef.current = true
+        // Only auto-submit when the user hasn't touched either field — an
+        // in-flight edit means they're taking over the login manually, so
+        // this must not steal focus or submit under them. (The "at most
+        // once" part is now guaranteed by the synchronous guard above, not
+        // by this check.)
+        if (!hasUserEditedRef.current) {
           await performLogin(data.username, data.password)
         }
       } catch (_err) {
