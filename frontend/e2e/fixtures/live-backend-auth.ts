@@ -21,43 +21,22 @@ import type { Page } from '@playwright/test'
  * repo owner's real single-user account. Do not run this suite against a
  * shared dev/release OpenAlgo instance that has a real broker configured;
  * run it against an isolated scratch instance (own DB files, own port) with
- * VALID_BROKERS='stock_simulator' in its .env.
+ * VALID_BROKERS='stock_simulator' in its .env AND launched with
+ * `OPENALGO_ENV_FILE` pointed at that scratch `.env` (see
+ * `openalgo/utils/config.py`/`broker_env_sync.py`/`env_check.py` — without
+ * this override, several `.env`-resolution spots fall back to the real
+ * checkout's own `.env` regardless of the launching process's env, which
+ * used to leak the real `INDMONEY_ACCESS_TOKEN` into a "scratch" instance;
+ * see the closed `2026-09-05-indmoney-gate-env-isolation-leak` backlog item).
+ * With `OPENALGO_ENV_FILE` set, `IndMoneyTokenGate`'s health-check endpoint
+ * (`GET /api/broker/indmoney-recorder-token`) genuinely resolves
+ * `not_configured` against the scratch instance's own blank token — no
+ * Playwright-side stub is needed to keep this suite off the real INDmoney API.
  */
 
 export const E2E_USERNAME = process.env.OPENALGO_E2E_USERNAME || 'e2etester'
 export const E2E_PASSWORD = process.env.OPENALGO_E2E_PASSWORD || 'E2eTestPass!2026'
 const E2E_EMAIL = process.env.OPENALGO_E2E_EMAIL || 'e2etester@example.invalid'
-
-/**
- * The one deliberate exception to "no mocks" in this suite: `IndMoneyTokenGate`
- * (frontend/src/components/auth/IndMoneyTokenGate.tsx) is an orthogonal
- * recorder-market-data health check, unrelated to OpenAlgo's own broker
- * session/order-placement path under test here. Its GET handler
- * (`blueprints/indmoney_credentials.py:get_indmoney_recorder_token`) makes a
- * *live* outbound call to the real INDmoney API using whatever
- * `INDMONEY_ACCESS_TOKEN` is configured — and `utils/broker_env_sync.py`'s
- * `_env_path()` resolves via `__file__`, so it reloads the REAL
- * `openalgo/.env` on this submodule checkout regardless of which `.env` the
- * test process was started with, defeating attempts to isolate this one key
- * on a scratch instance. Left un-mocked, every authenticated page load in
- * this suite would depend on and exercise a real third-party financial API
- * with a real credential — never something to leave live in an automated
- * test. See the backlog item's Attempts log for the confirmed trace.
- *
- * Stubbing this single diagnostic endpoint does not touch anything on the
- * actual trading surface under test (auth, broker session, orders,
- * positions all stay fully live against the real backend).
- */
-async function stubIndMoneyRecorderGate(page: Page): Promise<void> {
-  await page.route('**/api/broker/indmoney-recorder-token', async (route) => {
-    if (route.request().method() !== 'GET') return route.continue()
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ status: 'success', data: { status: 'not_configured' } }),
-    })
-  })
-}
 
 /**
  * Ensure the throwaway admin user exists (idempotent — the one-time setup
@@ -67,8 +46,6 @@ async function stubIndMoneyRecorderGate(page: Page): Promise<void> {
  * authenticated against the real backend.
  */
 export async function ensureAuthenticated(page: Page): Promise<void> {
-  await stubIndMoneyRecorderGate(page)
-
   // 1. Setup (idempotent no-op if a user already exists on this instance).
   await page.goto('/setup')
   const usernameInput = page.locator('input[name="username"]')

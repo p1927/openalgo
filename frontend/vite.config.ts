@@ -56,15 +56,15 @@ export default defineConfig(({ command }) => ({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:5001',
+        target: 'http://localhost:5051',
         changeOrigin: true,
       },
       '/socket.io': {
-        target: 'http://localhost:5001',
+        target: 'http://localhost:5051',
         ws: true,
       },
       '/auth': {
-        target: 'http://localhost:5001',
+        target: 'http://localhost:5051',
         changeOrigin: true,
       },
       // stock_simulator's connect URL is a relative `/stock_simulator/callback`
@@ -78,7 +78,7 @@ export default defineConfig(({ command }) => ({
       // reaching Flask. Proxy it through like `/auth` above so it works
       // under both topologies.
       '/stock_simulator/callback': {
-        target: 'http://localhost:5001',
+        target: 'http://localhost:5051',
         changeOrigin: true,
       },
       // Every blueprint's data-fetch routes live at `/<blueprint>/api/*`
@@ -107,7 +107,7 @@ export default defineConfig(({ command }) => ({
       // aborts the whole module graph before `main.tsx` ever runs, and the
       // app renders as a blank page — deterministically, not a timing race.
       '^/(?!src/)[^/]+/api/.*': {
-        target: 'http://localhost:5001',
+        target: 'http://localhost:5051',
         changeOrigin: true,
       },
     },
