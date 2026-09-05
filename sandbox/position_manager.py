@@ -1047,39 +1047,17 @@ class PositionManager:
         """Get all executed trades for the user for current session only"""
         try:
             import os
-            from datetime import datetime, time, timedelta
+            from datetime import datetime
 
-            # Get session expiry time from config (e.g., '03:00'); this is an IST
-            # wall-clock time (broker sessions expire ~3 AM IST), not server-local.
+            # Get session expiry time from config (e.g., '03:00')
             session_expiry_str = os.getenv("SESSION_EXPIRY_TIME", "03:00")
-            expiry_hour, expiry_minute = map(int, session_expiry_str.split(":"))
-
-            # Get current time in IST -- never rely on server-local time, which
-            # may be UTC (or anything else) depending on deployment.
-            ist = pytz.timezone("Asia/Kolkata")
-            now_ist = datetime.now(ist)
-            today = now_ist.date()
-
-            # Calculate session start time
-            # If current time is before session expiry (e.g., before 3 AM),
-            # session started yesterday at expiry time
-            session_expiry_time = time(expiry_hour, expiry_minute)
-
-            if now_ist.time() < session_expiry_time:
-                # We're in the early morning before session expiry
-                # Session started yesterday at expiry time
-                session_start_ist = ist.localize(
-                    datetime.combine(today - timedelta(days=1), session_expiry_time)
-                )
-            else:
-                # We're after session expiry time
-                # Session started today at expiry time
-                session_start_ist = ist.localize(datetime.combine(today, session_expiry_time))
 
             # SandboxTrades.trade_timestamp is stamped via func.now() on SQLite,
-            # which resolves to naive UTC (CURRENT_TIMESTAMP), not local/IST time.
-            # Convert the IST boundary to naive UTC for a consistent comparison.
-            session_start = session_start_ist.astimezone(pytz.utc).replace(tzinfo=None)
+            # which resolves to naive UTC (CURRENT_TIMESTAMP), not local/IST
+            # time -- see sandbox/session_boundary.py for why every such
+            # comparison must be routed through here rather than converted by
+            # hand at the call site.
+            session_start = last_session_expiry_utc(session_expiry_str, datetime.now(IST))
 
             trades = (
                 SandboxTrades.query.filter(
