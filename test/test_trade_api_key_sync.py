@@ -18,6 +18,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # its target eagerly, before the function under test runs. Add the same path
 # up front so `patch("trade_integrations.env...")` can resolve it.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "integrations"))
+# Same guard production's ensure_trade_integrations_path() sets before
+# trade_integrations is ever imported: without it, importing the package
+# eagerly patches tradingagents (langchain_core, etc.) which isn't installed
+# in OpenAlgo's own isolated uv venv.
+os.environ.setdefault("TRADE_INTEGRATIONS_SKIP_APPLY", "1")
 
 import utils.trade_api_key_sync as trade_api_key_sync  # noqa: E402
 
