@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Browser } from '@playwright/test'
 import { ensureAuthenticated } from './fixtures/live-backend-auth'
 
 /**
@@ -17,19 +17,37 @@ import { ensureAuthenticated } from './fixtures/live-backend-auth'
  *   - backend on the port this project's baseURL proxies to (5001 by
  *     default per `frontend/vite.config.ts`)
  *
+ * Authenticates ONCE in `beforeAll` and shares the resulting storage state
+ * across every test in this file, rather than logging in per-test — partly
+ * for speed, but mainly because the real backend's own
+ * `LOGIN_RATE_LIMIT_MIN = "5 per minute"` throttle (a real security control,
+ * not a test artifact) trips after only a handful of fresh logins in quick
+ * succession.
+ *
  * Not yet wired into CI (`ci.yml:115-134` starts only the frontend dev
  * server) — see the backlog item's Plan step 4. Run locally via:
  *   npx playwright test trading-surface.spec.ts
  */
 
-test.describe.serial('Trading surface (live sandbox backend)', () => {
-  test.beforeEach(async ({ page }) => {
-    await ensureAuthenticated(page)
+async function loginStorageState(browser: Browser, baseURL: string | undefined) {
+  const context = await browser.newContext({ baseURL })
+  const page = await context.newPage()
+  await ensureAuthenticated(page)
+  const storageState = await context.storageState()
+  await context.close()
+  return storageState
+}
+
+test.describe('Trading surface (live sandbox backend)', () => {
+  test.use({
+    storageState: async ({ browser, baseURL }, use) => {
+      await use(await loginStorageState(browser, baseURL))
+    },
   })
 
   test('positions screen loads real backend data', async ({ page }) => {
     await page.goto('/positions')
-    await page.waitForLoadState('networkidle')
+    await page.waitForLoadState('domcontentloaded')
 
     // Real backend call — no route mocking. A fresh sandbox account has
     // no open positions, so assert the real empty-state OR a real table,
@@ -38,6 +56,11 @@ test.describe.serial('Trading surface (live sandbox backend)', () => {
     const table = page.locator('table')
     const emptyState = page.getByText(/no (open )?positions/i)
     await expect(table.or(emptyState).first()).toBeVisible({ timeout: 15000 })
+
+    // Real broker/mode chrome from the actual sandbox session — proves this
+    // rendered from a genuinely authenticated, broker-connected backend call
+    // rather than a static/error shell.
+    await expect(page.getByText('stock_simulator')).toBeVisible()
 
     // No client-side crash / unhandled rejection surfaced as a visible error
     // boundary.
@@ -53,7 +76,7 @@ test.describe.serial('Trading surface (live sandbox backend)', () => {
     })
 
     await page.goto('/trading')
-    await page.waitForLoadState('networkidle')
+    await page.waitForLoadState('domcontentloaded')
 
     // Real backend calls: /api/websocket/apikey + /api/websocket/config.
     // A logged-in, broker-connected session always has an API key
@@ -75,7 +98,7 @@ test.describe.serial('Trading surface (live sandbox backend)', () => {
 
   test('option chain screen loads against the real backend', async ({ page }) => {
     await page.goto('/optionchain')
-    await page.waitForLoadState('networkidle')
+    await page.waitForLoadState('domcontentloaded')
 
     // Real backend call for the underlying/expiry selectors (oiProfileApi).
     // This is a smoke-level check (page mounts, makes real API calls, does
@@ -89,7 +112,7 @@ test.describe.serial('Trading surface (live sandbox backend)', () => {
 
   test('strategy builder screen loads against the real backend', async ({ page }) => {
     await page.goto('/strategybuilder')
-    await page.waitForLoadState('networkidle')
+    await page.waitForLoadState('domcontentloaded')
 
     await expect(page.getByText(/something went wrong/i)).toHaveCount(0)
     await expect(page.locator('body')).toBeVisible()
