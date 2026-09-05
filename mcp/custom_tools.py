@@ -635,6 +635,8 @@ def register(mcpserver):
         user_text: str | None = None,
         allowed_instruments: list[str] | None = None,
         vibe_session_id: str | None = None,
+        max_open_positions: int | None = None,
+        market_hours_only: bool | None = None,
     ) -> str:
         """
         Propose a persistent autonomous trading agent (read-only — user confirms in UI).
@@ -655,6 +657,9 @@ def register(mcpserver):
             user_text: Original user message for market hint resolution
             allowed_instruments: equity and/or options — omit to auto-infer (RELIANCE defaults equity)
             vibe_session_id: Orchestrator chat session id
+            max_open_positions: Concurrent open positions allowed (default 1)
+            market_hours_only: Gate on real market hours; set False for a stock_simulator
+                replay-only agent (default True, except US which is always False)
 
         Returns:
             JSON with status, proposal_id, missing_fields, and proposal when ready.
@@ -675,6 +680,8 @@ def register(mcpserver):
                 user_text=user_text,
                 allowed_instruments=allowed_instruments,
                 orchestrator_session_id=vibe_session_id,
+                max_open_positions=max_open_positions,
+                market_hours_only=market_hours_only,
             )
             return json.dumps(result, indent=2, default=str)
         except Exception as e:
