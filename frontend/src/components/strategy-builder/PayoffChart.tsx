@@ -104,6 +104,7 @@ function selectEvenly<T>(items: T[], limit: number): T[] {
   })
 }
 
+<<<<<<< HEAD
 /**
  * Extends a piecewise-linear payoff series flat-out to the visible axis
  * edges by linearly extrapolating the outermost segment's slope. Needed
@@ -196,6 +197,21 @@ interface CrosshairInfo {
  * component had one) is real interaction surface to maintain for a job a
  * plain HTML range slider does natively, accessibly, and for free.
  */
+=======
+// Pixels below the plot area occupied by the x tick labels and the "Underlying
+// Price" title, and the height of the one-line horizontal legend that sits
+// under them. Both are measured from the rendered figure (Plotly places tick
+// labels and an axis title at a fixed pixel offset regardless of figure
+// height), which is why they are pixels and not paper fractions.
+const AXIS_TITLE_BAND_PX = 52
+const LEGEND_ROW_PX = 30
+const BOTTOM_MARGIN_PX = AXIS_TITLE_BAND_PX + LEGEND_ROW_PX
+
+// A sigma caption nearer to the spot line than this fraction of the plotted
+// domain is dropped rather than printed through the spot label.
+const SIGMA_LABEL_CLEARANCE = 0.07
+
+>>>>>>> upstream/main
 export function PayoffChart({
   title,
   chartIdentity = title,
@@ -635,8 +651,21 @@ export function PayoffChart({
         { x: b1.upper, text: '+1σ' },
         { x: b2.upper, text: '+2σ' },
       ]
+      // A sigma label whose tick sits almost on the spot line is dropped. Both
+      // rows of text share y=1.06, and the spot label is the widest annotation
+      // on that row, so an adjacent sigma label is printed straight through it
+      // and neither is readable. The dotted sigma tick is still drawn, so the
+      // boundary is not lost, only its caption. The threshold is a fraction of
+      // the plotted domain rather than a price, because the domain width
+      // differs by orders of magnitude between NIFTY and a single stock.
+      const spotLabelClearance = (domainHi - domainLo) * SIGMA_LABEL_CLEARANCE
       for (const s of sigmaLabels) {
+<<<<<<< HEAD
         if (!inAxisDomain(s.x)) continue
+=======
+        if (!inDomain(s.x)) continue
+        if (Math.abs(s.x - spot) < spotLabelClearance) continue
+>>>>>>> upstream/main
         annotations.push({
           x: s.x,
           y: 1.05,
@@ -683,14 +712,30 @@ export function PayoffChart({
         font: { color: colors.text, size: 12 },
         bordercolor: colors.mutedText,
       },
+<<<<<<< HEAD
       margin: CHART_MARGIN,
+=======
+      margin: { l: 70, r: 30, t: 80, b: BOTTOM_MARGIN_PX },
+>>>>>>> upstream/main
       showlegend: true,
       legend: {
         orientation: 'h',
         x: 0.5,
         xanchor: 'center',
+<<<<<<< HEAD
         y: -0.18,
         font: { color: colors.text, size: 12 },
+=======
+        // Paper units are a fraction of the plot area, not of the figure, so a
+        // constant offset that clears the x-axis title at the default 440px
+        // height lands on top of it at the 300px height the agent's payoff card
+        // uses: "Underlying Price" and "At Expiry" printed through each other.
+        // Deriving the offset from the plot height keeps the gap a fixed number
+        // of pixels at every height this component is rendered at.
+        y: -AXIS_TITLE_BAND_PX / Math.max(height - 80 - BOTTOM_MARGIN_PX, 1),
+        yanchor: 'top',
+        font: { color: colors.text, size: 11 },
+>>>>>>> upstream/main
       },
       xaxis: {
         title: { text: 'Underlying Price', font: { color: colors.text, size: 12 } },
@@ -748,9 +793,12 @@ export function PayoffChart({
     colors,
     isDark,
     formatCurrency,
+<<<<<<< HEAD
     strikeLegs,
     perLegCharges,
     underlyingSymbol,
+=======
+>>>>>>> upstream/main
     height,
   ])
 

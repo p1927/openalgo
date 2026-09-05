@@ -13,7 +13,7 @@ Features:
 import os
 import sys
 import time
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from datetime import time as dt_time
 from decimal import Decimal
 
@@ -26,6 +26,7 @@ from database.sandbox_db import SandboxPositions, SandboxTrades, db_session, get
 from database.token_db import get_symbol_info
 from sandbox.fund_manager import FundManager
 from sandbox.holdings_manager import HoldingsManager
+from sandbox.session_boundary import IST, last_session_expiry_utc
 from services.market_data_service import get_market_data_service
 from services.quotes_service import get_multiquotes, get_quotes
 from utils.logging import get_logger
@@ -456,13 +457,13 @@ class PositionManager:
         """
         try:
             import os
-            from datetime import datetime, time, timedelta
+            from datetime import datetime
 
             # Get session expiry time from config (e.g., '03:00'); this is an IST
             # wall-clock time (broker sessions expire ~3 AM IST), not server-local.
             session_expiry_str = os.getenv("SESSION_EXPIRY_TIME", "03:00")
-            expiry_hour, expiry_minute = map(int, session_expiry_str.split(":"))
 
+<<<<<<< HEAD
             # Get current time in IST -- never rely on server-local time, which
             # may be UTC (or anything else) depending on deployment.
             ist = pytz.timezone("Asia/Kolkata")
@@ -493,6 +494,15 @@ class PositionManager:
             last_session_expiry = last_session_expiry_ist.astimezone(pytz.utc).replace(
                 tzinfo=None
             )
+=======
+            # updated_at is stored in the database's clock (UTC on SQLite),
+            # so the boundary must be resolved in UTC too — see
+            # last_session_expiry_utc().
+            last_session_expiry = last_session_expiry_utc(
+                session_expiry_str, datetime.now(IST)
+            )
+            today = datetime.now(UTC).date()
+>>>>>>> upstream/main
 
             # Get all positions (including zero quantity ones from current session)
             positions_query = SandboxPositions.query.filter(

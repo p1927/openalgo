@@ -46,7 +46,7 @@ Use `GET /auth/brokers` (session-authenticated) for login UI broker lists.
 
 ## Capability Loading
 
-At startup `utils/plugin_loader.py` caches metadata for all 34 plugin directories. `/api/broker/capabilities` resolves the current session broker. A missing capability record falls back to a minimal `IN_stock` object with no exchanges.
+At startup `utils/plugin_loader.py` caches metadata for all 36 plugin directories. `/api/broker/capabilities` resolves the current session broker. A missing capability record falls back to a minimal `IN_stock` object with no exchanges.
 
 ## Security Boundaries
 
