@@ -52,10 +52,27 @@ def test_eviction_past_maxlen_does_not_break_since_seq_filtering():
 # --- execute_workflow_scheduled instrumentation ----------------------------
 
 
+def _active_workflow(nodes=None):
+    # An active workflow with no "start" node, matching what
+    # get_market_hours_config() falls back to (market-hours gating disabled).
+    from types import SimpleNamespace
+
+    return SimpleNamespace(id=1, is_active=True, nodes=nodes or [])
+
+
 def test_execute_workflow_scheduled_logs_missing_api_key():
     from services.flow_scheduler_service import execute_workflow_scheduled
 
-    execute_workflow_scheduled(5, api_key=None)
+    # The workflow itself must resolve (upstream's "workflow is None"/
+    # "not is_active" gates in execute_workflow_scheduled now run BEFORE the
+    # API-key check, so a missing-workflow lookup would short-circuit on
+    # "no longer exists" instead of ever reaching the API-key branch this
+    # test targets); get_workflow_api_key also returning falsy is what drives
+    # the "no API key available" path once api_key=None is passed in.
+    with mock.patch(
+        "database.flow_db.get_workflow", return_value=_active_workflow()
+    ), mock.patch("database.flow_db.get_workflow_api_key", return_value=None):
+        execute_workflow_scheduled(5, api_key=None)
 
     messages = [e["message"] for e in buf.get_logs_since("flow_workflow_5")]
     assert messages == ["starting", "failed: no API key available"]
@@ -64,7 +81,9 @@ def test_execute_workflow_scheduled_logs_missing_api_key():
 def test_execute_workflow_scheduled_logs_completion_on_success():
     from services.flow_scheduler_service import execute_workflow_scheduled
 
-    with mock.patch("database.flow_db.get_workflow", return_value=None), mock.patch(
+    with mock.patch(
+        "database.flow_db.get_workflow", return_value=_active_workflow()
+    ), mock.patch(
         "services.flow_executor_service.execute_workflow",
         return_value={"status": "success"},
     ), mock.patch("utils.db_sessions.remove_all_scoped_sessions"):
@@ -77,7 +96,9 @@ def test_execute_workflow_scheduled_logs_completion_on_success():
 def test_execute_workflow_scheduled_logs_failure_on_exception():
     from services.flow_scheduler_service import execute_workflow_scheduled
 
-    with mock.patch("database.flow_db.get_workflow", return_value=None), mock.patch(
+    with mock.patch(
+        "database.flow_db.get_workflow", return_value=_active_workflow()
+    ), mock.patch(
         "services.flow_executor_service.execute_workflow",
         side_effect=RuntimeError("boom"),
     ), mock.patch("utils.db_sessions.remove_all_scoped_sessions"):

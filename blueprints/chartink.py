@@ -1,3 +1,4 @@
+import atexit
 import json
 import os
 import queue
@@ -57,6 +58,30 @@ chartink_bp = Blueprint("chartink_bp", __name__, url_prefix="/chartink")
 # Initialize scheduler for time-based controls
 scheduler = BackgroundScheduler(timezone=pytz.timezone("Asia/Kolkata"))
 scheduler.start()
+
+
+def _shutdown_scheduler() -> None:
+    """Pause, then stop, this module's scheduler on interpreter exit.
+
+    Previously there was no shutdown path at all for this scheduler: on a dev
+    reload (Werkzeug's reloader kills the child process on every code change)
+    or a normal process exit, it just got torn down mid-flight with the
+    ThreadPoolExecutor never told to stop. Pausing first narrows (does not
+    fully close — see services/strategy_module/scheduler.py's shutdown() for
+    the full explanation) the window for APScheduler's own known
+    shutdown-vs-dispatch race, which otherwise logs a harmless but noisy
+    "cannot schedule new futures after shutdown" from a job whose
+    submit_job() call was already in flight.
+    """
+    try:
+        if scheduler.running:
+            scheduler.pause()
+            scheduler.shutdown(wait=False)
+    except Exception:
+        logger.exception("Could not shut the Chartink scheduler down cleanly")
+
+
+atexit.register(_shutdown_scheduler)
 
 # Get base URL from environment or default to localhost
 BASE_URL = os.getenv("HOST_SERVER", "http://127.0.0.1:5000")

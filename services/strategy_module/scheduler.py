@@ -149,13 +149,34 @@ def start(paused: bool = False) -> BackgroundScheduler:
 
 
 def shutdown() -> None:
-    """Stop the shared scheduler and drop it. Idempotent."""
+    """Stop the shared scheduler and drop it. Idempotent.
+
+    Pausing before shutting down closes (does not eliminate — see below) the
+    window for APScheduler's own known race: ``BaseScheduler.shutdown()``
+    tears down the executor's ``ThreadPoolExecutor`` before it joins the
+    background dispatch thread, so a due job whose ``submit_job()`` call was
+    already in flight at that instant can hit the pool mid-teardown and raise
+    ``RuntimeError: cannot schedule new futures after shutdown`` from
+    ``concurrent/futures/thread.py``. APScheduler already catches that inside
+    its own dispatch loop (``schedulers/base.py``'s `except BaseException:
+    self._logger.exception(...)`) — it never reaches this function or corrupts
+    anything — but it does show up as log noise on every dev-server hot
+    reload, most easily via the 5-second ``reconcile_pending_stops`` job.
+    ``pause()`` stops the dispatch loop from *starting* a new
+    ``_process_jobs()`` pass, but cannot recall one already in progress at the
+    moment ``pause()`` is called, so this narrows the race to (in practice)
+    zero rather than proving it closed.
+    """
     global _scheduler
     with _lock:
         if _scheduler is None:
             return
         try:
             if _scheduler.running:
+                try:
+                    _scheduler.pause()
+                except Exception:
+                    logger.exception("Could not pause the strategy module scheduler before shutdown")
                 _scheduler.shutdown(wait=False)
             logger.info("Strategy module scheduler shut down")
         except Exception:
@@ -519,10 +540,15 @@ def list_jobs() -> list[dict[str, Any]]:
 
 def run_scheduled_start(strategy_id: int) -> None:
     """Start a strategy on its schedule."""
+    from services.scheduler_run_log_buffer import append_log
+
+    job_id = start_job_id(strategy_id)
+    append_log(job_id, f"scheduled start fired for strategy {strategy_id}")
     try:
         row = store.get_strategy_unscoped(strategy_id)
         if row is None:
             logger.warning("Scheduled start skipped: strategy %s no longer exists", strategy_id)
+            append_log(job_id, f"skipped: strategy {strategy_id} no longer exists")
             return
 
         config = row.scheduler if isinstance(row.scheduler, dict) else {}
@@ -532,6 +558,7 @@ def run_scheduled_start(strategy_id: int) -> None:
             logger.warning(
                 "Scheduled start skipped: the scheduler is disabled on strategy %s", strategy_id
             )
+            append_log(job_id, f"skipped: scheduler disabled on strategy {strategy_id}")
             return
 
         # Idempotent by design. The UI, an inbound webhook and this job can all
@@ -539,6 +566,7 @@ def run_scheduled_start(strategy_id: int) -> None:
         # normal case, not a conflict.
         if row.status == "running":
             logger.info("Scheduled start skipped: strategy %s is already running", strategy_id)
+            append_log(job_id, f"skipped: strategy {strategy_id} is already running")
             return
 
         mode = config.get("default_mode") or "sandbox"
@@ -548,6 +576,7 @@ def run_scheduled_start(strategy_id: int) -> None:
                 strategy_id,
                 mode,
             )
+            append_log(job_id, f"failed: unknown default_mode {mode!r}")
             return
 
         if mode == "live" and not row.live_enabled:
@@ -564,6 +593,7 @@ def run_scheduled_start(strategy_id: int) -> None:
                 severity="warn",
                 payload={"trigger_source": "scheduler", "mode": mode},
             )
+            append_log(job_id, f"skipped: {message}")
             return
 
         from services.strategy_module import engine
@@ -576,14 +606,21 @@ def run_scheduled_start(strategy_id: int) -> None:
                 getattr(result, "run_id", None),
                 mode,
             )
+            append_log(
+                job_id,
+                f"completed: opened run {getattr(result, 'run_id', None)} in {mode} mode",
+            )
         else:
+            error = getattr(result, "error", "unknown error")
             logger.error(
                 "Scheduled start of strategy %s failed: %s",
                 strategy_id,
-                getattr(result, "error", "unknown error"),
+                error,
             )
-    except Exception:
+            append_log(job_id, f"failed: {error}")
+    except Exception as exc:
         logger.exception("Scheduled start failed for strategy %s", strategy_id)
+        append_log(job_id, f"failed: {exc}")
     finally:
         from utils.db_sessions import remove_all_scoped_sessions
 
@@ -597,14 +634,20 @@ def run_scheduled_stop(strategy_id: int) -> None:
     the pair, and a run that is open must be closed whatever the config now
     says.
     """
+    from services.scheduler_run_log_buffer import append_log
+
+    job_id = stop_job_id(strategy_id)
+    append_log(job_id, f"scheduled square-off fired for strategy {strategy_id}")
     try:
         row = store.get_strategy_unscoped(strategy_id)
         if row is None:
             logger.warning("Scheduled stop skipped: strategy %s no longer exists", strategy_id)
+            append_log(job_id, f"skipped: strategy {strategy_id} no longer exists")
             return
 
         if row.status != "running" or not row.current_run_id:
             logger.info("Scheduled stop skipped: strategy %s is not running", strategy_id)
+            append_log(job_id, f"skipped: strategy {strategy_id} is not running")
             return
         run_id = int(row.current_run_id)
         user_id = str(row.user_id)
@@ -620,12 +663,17 @@ def run_scheduled_stop(strategy_id: int) -> None:
                 run_id,
                 strategy_id,
             )
+            append_log(
+                job_id,
+                f"accepted: run {run_id} of strategy {strategy_id}; exit fills pending",
+            )
         elif accepted:
             logger.info(
                 "Scheduled square-off closed run %s of strategy %s",
                 run_id,
                 strategy_id,
             )
+            append_log(job_id, f"completed: closed run {run_id} of strategy {strategy_id}")
         elif pending:
             error = result.get("error") if isinstance(result, dict) else result
             logger.error(
@@ -634,11 +682,14 @@ def run_scheduled_stop(strategy_id: int) -> None:
                 strategy_id,
                 error,
             )
+            append_log(job_id, f"failed: refused, retryable: {error}")
         else:
             error = result.get("error") if isinstance(result, dict) else result
             logger.error("Scheduled square-off of strategy %s failed: %s", strategy_id, error)
-    except Exception:
+            append_log(job_id, f"failed: {error}")
+    except Exception as exc:
         logger.exception("Scheduled stop failed for strategy %s", strategy_id)
+        append_log(job_id, f"failed: {exc}")
     finally:
         from utils.db_sessions import remove_all_scoped_sessions
 

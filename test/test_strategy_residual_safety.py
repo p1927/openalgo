@@ -7,23 +7,21 @@ repository under audit. A failure is audit evidence, not an approved xfail.
 
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 
-import dotenv
 import pytest
 
-# Match the repository test harness before importing application modules.
-dotenv.load_dotenv = lambda *args, **kwargs: False
-dotenv.main.load_dotenv = dotenv.load_dotenv
-os.environ["DATABASE_URL"] = "sqlite:///db/openalgo-test.db"
-os.environ["SANDBOX_DATABASE_URL"] = "sqlite:///db/sandbox-test.db"
-os.environ["LOGS_DATABASE_URL"] = "sqlite:///db/logs-test.db"
-os.environ["LATENCY_DATABASE_URL"] = "sqlite:///db/latency-test.db"
-os.environ["LOG_DIR"] = "log/test"
-os.environ.setdefault("API_KEY_PEPPER", "0" * 64)
-os.environ.setdefault("APP_KEY", "test-only-app-key")
+# test/conftest.py already assigns DATABASE_URL/SANDBOX_DATABASE_URL/
+# LOGS_DATABASE_URL/LATENCY_DATABASE_URL/LOG_DIR to an isolated per-process
+# tmp directory (and neutralises dotenv) before this file is collected. This
+# used to reassign all of them here to the fixed, shared `db/*-test.db`
+# paths — harmless if this file happened to be the first to import
+# database.strategy_module_db, but if it wasn't, and if it ran before some
+# other suite's own first import of that module, it silently reintroduced
+# the exact same-file, concurrent-session collision the tmp-dir isolation
+# was written to eliminate. Removed rather than fixed in place: conftest's
+# values are already correct, so there's nothing left for this block to do.
 REPO_ROOT = Path(__file__).resolve().parents[2] / "openalgo"
 sys.path.insert(0, str(REPO_ROOT))
 

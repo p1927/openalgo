@@ -502,8 +502,20 @@ class HistorifyScheduler:
                 logger.warning(f"Failed to emit {event}: {e}")
 
     def shutdown(self):
-        """Shutdown the scheduler"""
+        """Shutdown the scheduler.
+
+        Paused first to narrow (not fully close — see
+        services/strategy_module/scheduler.py's shutdown() docstring for the
+        full explanation) the window for APScheduler's own known
+        shutdown-vs-dispatch race, which otherwise logs a harmless but noisy
+        "cannot schedule new futures after shutdown" from a job whose
+        submit_job() call was already in flight.
+        """
         if self._scheduler:
+            try:
+                self._scheduler.pause()
+            except Exception:
+                logger.exception("Could not pause the Historify scheduler before shutdown")
             self._scheduler.shutdown(wait=False)
             self._initialized = False
             logger.info("Historify Scheduler shutdown")

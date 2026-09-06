@@ -48,7 +48,7 @@ def search_app():
     it on a clean test app. This keeps the test focused on the simulator
     seam logic and avoids dragging in the full session machinery.
     """
-    from openalgo.blueprints import search as search_bp_module
+    from blueprints import search as search_bp_module
 
     app = Flask(__name__)
     app.config["SECRET_KEY"] = "test-secret"
@@ -124,7 +124,7 @@ def test_simulator_session_falls_through_when_override_returns_none(search_app) 
         # ``get_distinct_expiries`` in the *search blueprint's*
         # imported-name slot, which is the cached wrapper.
         with patch(
-            "openalgo.blueprints.search.get_distinct_expiries",
+            "blueprints.search.get_distinct_expiries",
             return_value=["28-AUG-25"],
         ) as mock_default:
             res = client.get(
@@ -152,7 +152,7 @@ def test_non_simulator_session_skips_override(search_app) -> None:
         return_value=SimpleNamespace(),  # would explode if used
     ) as mock_override:
         with patch(
-            "openalgo.blueprints.search.get_distinct_expiries",
+            "blueprints.search.get_distinct_expiries",
             return_value=["28-AUG-25"],
         ) as mock_default:
             res = client.get(
@@ -175,7 +175,7 @@ def test_missing_broker_session_treated_as_non_simulator(search_app) -> None:
         "broker.stock_simulator.api.expiry_overrides.get_expiries_override",
     ) as mock_override:
         with patch(
-            "openalgo.blueprints.search.get_distinct_expiries",
+            "blueprints.search.get_distinct_expiries",
             return_value=[],
         ):
             res = client.get("/search/api/expiries?exchange=NFO&underlying=NIFTY")
@@ -205,7 +205,7 @@ def test_simulator_session_with_broken_override_import_falls_through(
         side_effect=ImportError("simulator package gone"),
     ):
         with patch(
-            "openalgo.blueprints.search.get_distinct_expiries",
+            "blueprints.search.get_distinct_expiries",
             return_value=["28-AUG-25"],
         ):
             res = client.get(
@@ -227,17 +227,16 @@ def test_mc_status_check_handles_db_error(monkeypatch) -> None:
     and treated as "not ready". The chain call then falls through
     to the symtoken path, which is the safer degraded state.
 
-    Note: the override imports via the top-level ``database.``
-    package (not ``openalgo.database.``); the conftest adds
-    ``openalgo/`` to sys.path so the same file is reachable both
-    ways, but as two distinct module objects. We patch the path
-    the override actually uses.
+    ``_is_master_contract_ready`` re-imports ``get_status`` from
+    ``database.master_contract_status_db`` fresh on every call, so
+    patching that module's attribute takes effect regardless of
+    which module imports it.
     """
     monkeypatch.setattr(
         "database.master_contract_status_db.get_status",
         lambda broker: (_ for _ in ()).throw(RuntimeError("DB down")),
     )
-    import openalgo.broker.stock_simulator.api.expiry_overrides as override_mod
+    import broker.stock_simulator.api.expiry_overrides as override_mod
     assert override_mod._is_master_contract_ready() is False
 
 
@@ -249,7 +248,7 @@ def test_mc_status_check_handles_missing_status_row(monkeypatch) -> None:
     monkeypatch.setattr(
         "database.master_contract_status_db.get_status", lambda broker: None
     )
-    import openalgo.broker.stock_simulator.api.expiry_overrides as override_mod
+    import broker.stock_simulator.api.expiry_overrides as override_mod
     assert override_mod._is_master_contract_ready() is False
 
 
@@ -261,7 +260,7 @@ def test_mc_status_check_uses_is_ready_field(monkeypatch) -> None:
     representative status dict shapes — including the
     ``is_ready``-missing case which is treated as not-ready.
     """
-    import openalgo.broker.stock_simulator.api.expiry_overrides as override_mod
+    import broker.stock_simulator.api.expiry_overrides as override_mod
 
     # is_ready explicitly True -> ready
     monkeypatch.setattr(

@@ -1,16 +1,17 @@
-"""Live-log-tail instrumentation for strategy/chartink squareoff and
+"""Live-log-tail instrumentation for strategy_module/chartink squareoff and
 python_strategy's five scheduled job functions — the remaining scope of
 .claude/backlog/items/2026-08-29-unified-scheduler-registry.md.
 
 Unlike Flow/Historify's single async dispatch function, these sources have no
-one callback every scheduled invocation funnels through end-to-end: strategy/
-chartink's squareoff only queues orders (the actual placement happens later in
-a decoupled worker thread with no job id in scope), and python_strategy's five
-job functions include two batch jobs (market_hours_enforcer,
-daily_trading_day_check) that can touch many strategy_ids per fire. Each
-function logs what it itself did (start/skip/complete/fail), at its own
-APScheduler job id, matching the coarse start/complete/fail granularity used
-for Flow/Historify.
+one callback every scheduled invocation funnels through end-to-end: chartink's
+squareoff only queues orders (the actual placement happens later in a
+decoupled worker thread with no job id in scope), strategy_module's
+run_scheduled_start/run_scheduled_stop dispatch to services.strategy_module.
+engine, and python_strategy's five job functions include two batch jobs
+(market_hours_enforcer, daily_trading_day_check) that can touch many
+strategy_ids per fire. Each function logs what it itself did (start/skip/
+complete/fail), at its own APScheduler job id, matching the coarse
+start/complete/fail granularity used for Flow/Historify.
 """
 
 from __future__ import annotations
@@ -30,75 +31,96 @@ def _isolate_buffers():
     buf._SEQ_COUNTERS.clear()
 
 
-# --- strategy.py's squareoff_positions --------------------------------------
+# --- strategy_module's run_scheduled_start/run_scheduled_stop --------------
+#
+# The legacy blueprints/strategy.py module (bare module-level scheduler,
+# squareoff_positions()) was retired upstream and replaced end-to-end by
+# services/strategy_module/scheduler.py's run_scheduled_start/
+# run_scheduled_stop, which carry the same append_log instrumentation this
+# file exercises for chartink and python_strategy.
 
 
 def _strategy_obj(user_id="u1", name="My Strategy", is_intraday=True):
     return SimpleNamespace(user_id=user_id, name=name, is_intraday=is_intraday)
 
 
-def _mapping(symbol="INFY", exchange="NSE", product_type="MIS"):
-    return SimpleNamespace(symbol=symbol, exchange=exchange, product_type=product_type)
+def _strategy_row(
+    user_id="u1", status="running", current_run_id=1, scheduler=None, live_enabled=False
+):
+    return SimpleNamespace(
+        user_id=user_id,
+        status=status,
+        current_run_id=current_run_id,
+        scheduler=scheduler if scheduler is not None else {"enabled": True, "default_mode": "sandbox"},
+        live_enabled=live_enabled,
+    )
 
 
-def test_strategy_squareoff_logs_no_api_key():
-    from blueprints import strategy as strategy_bp
+def _sm_scheduler():
+    from services.strategy_module import scheduler as sm_scheduler
 
-    with mock.patch.object(strategy_bp, "get_strategy", return_value=_strategy_obj()), \
-        mock.patch.object(strategy_bp, "get_api_key_for_tradingview", return_value=None):
-        strategy_bp.squareoff_positions("s1")
-
-    messages = [e["message"] for e in buf.get_logs_since("squareoff_s1")]
-    assert messages == [
-        "starting squareoff for strategy s1",
-        "failed: no API key for strategy s1",
-    ]
+    return sm_scheduler
 
 
-def test_strategy_squareoff_logs_skip_not_intraday():
-    from blueprints import strategy as strategy_bp
-
-    with mock.patch.object(
-        strategy_bp, "get_strategy", return_value=_strategy_obj(is_intraday=False)
-    ):
-        strategy_bp.squareoff_positions("s1")
-
-    messages = [e["message"] for e in buf.get_logs_since("squareoff_s1")]
-    assert messages == [
-        "starting squareoff for strategy s1",
-        "skipped: strategy not found or not intraday for strategy s1",
-    ]
-
-
-def test_strategy_squareoff_logs_completion_on_success():
-    from blueprints import strategy as strategy_bp
-
-    with mock.patch.object(strategy_bp, "get_strategy", return_value=_strategy_obj()), \
-        mock.patch.object(strategy_bp, "get_api_key_for_tradingview", return_value="key"), \
-        mock.patch.object(
-            strategy_bp, "get_symbol_mappings", return_value=[_mapping(), _mapping("TCS")]
-        ), \
-        mock.patch.object(strategy_bp, "queue_order") as queue_order:
-        strategy_bp.squareoff_positions("s1")
-
-    assert queue_order.call_count == 2
-    messages = [e["message"] for e in buf.get_logs_since("squareoff_s1")]
-    assert messages == [
-        "starting squareoff for strategy s1",
-        "squareoff completed: 2 order(s) queued",
-    ]
-
-
-def test_strategy_squareoff_logs_failure_on_exception():
-    from blueprints import strategy as strategy_bp
+def test_strategy_module_scheduled_stop_logs_skip_not_running():
+    sm_scheduler = _sm_scheduler()
 
     with mock.patch.object(
-        strategy_bp, "get_strategy", side_effect=RuntimeError("db down")
+        sm_scheduler.store,
+        "get_strategy_unscoped",
+        return_value=_strategy_row(status="stopped", current_run_id=None),
     ):
-        strategy_bp.squareoff_positions("s1")
+        sm_scheduler.run_scheduled_stop(1)
 
-    messages = [e["message"] for e in buf.get_logs_since("squareoff_s1")]
-    assert messages == ["starting squareoff for strategy s1", "failed: db down"]
+    messages = [e["message"] for e in buf.get_logs_since("strategy:1:stop")]
+    assert messages == [
+        "scheduled square-off fired for strategy 1",
+        "skipped: strategy 1 is not running",
+    ]
+
+
+def test_strategy_module_scheduled_stop_logs_skip_no_longer_exists():
+    sm_scheduler = _sm_scheduler()
+
+    with mock.patch.object(sm_scheduler.store, "get_strategy_unscoped", return_value=None):
+        sm_scheduler.run_scheduled_stop(1)
+
+    messages = [e["message"] for e in buf.get_logs_since("strategy:1:stop")]
+    assert messages == [
+        "scheduled square-off fired for strategy 1",
+        "skipped: strategy 1 no longer exists",
+    ]
+
+
+def test_strategy_module_scheduled_stop_logs_completion_on_success():
+    sm_scheduler = _sm_scheduler()
+
+    with mock.patch.object(
+        sm_scheduler.store, "get_strategy_unscoped", return_value=_strategy_row()
+    ), mock.patch("services.strategy_module.engine.stop_run", return_value={"ok": True}), \
+        mock.patch("utils.db_sessions.remove_all_scoped_sessions"):
+        sm_scheduler.run_scheduled_stop(1)
+
+    messages = [e["message"] for e in buf.get_logs_since("strategy:1:stop")]
+    assert messages == [
+        "scheduled square-off fired for strategy 1",
+        "completed: closed run 1 of strategy 1",
+    ]
+
+
+def test_strategy_module_scheduled_stop_logs_failure_on_exception():
+    sm_scheduler = _sm_scheduler()
+
+    with mock.patch.object(
+        sm_scheduler.store, "get_strategy_unscoped", side_effect=RuntimeError("db down")
+    ), mock.patch("utils.db_sessions.remove_all_scoped_sessions"):
+        sm_scheduler.run_scheduled_stop(1)
+
+    messages = [e["message"] for e in buf.get_logs_since("strategy:1:stop")]
+    assert messages == [
+        "scheduled square-off fired for strategy 1",
+        "failed: db down",
+    ]
 
 
 # --- chartink.py's squareoff_positions --------------------------------------

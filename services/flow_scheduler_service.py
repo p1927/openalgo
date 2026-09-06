@@ -343,8 +343,20 @@ class FlowScheduler:
             return False
 
     def shutdown(self):
-        """Shutdown the scheduler"""
+        """Shutdown the scheduler.
+
+        Paused first to narrow (not fully close — see
+        services/strategy_module/scheduler.py's shutdown() docstring for the
+        full explanation) the window for APScheduler's own known
+        shutdown-vs-dispatch race, which otherwise logs a harmless but noisy
+        "cannot schedule new futures after shutdown" from a job whose
+        submit_job() call was already in flight.
+        """
         if self._scheduler:
+            try:
+                self._scheduler.pause()
+            except Exception:
+                logger.exception("Could not pause the Flow scheduler before shutdown")
             self._scheduler.shutdown(wait=False)
             self._initialized = False
             logger.info("Flow Scheduler shutdown")
@@ -568,6 +580,7 @@ def execute_workflow_scheduled(
             logger.warning(
                 f"Skipping scheduled workflow {workflow_id}: it no longer exists"
             )
+            append_log(job_id, f"skipped: workflow {workflow_id} no longer exists")
             return
 
         # Fail closed. A job can outlive the deactivation that should have
@@ -579,6 +592,7 @@ def execute_workflow_scheduled(
             logger.warning(
                 f"Skipping scheduled workflow {workflow_id}: it is not active"
             )
+            append_log(job_id, f"skipped: workflow {workflow_id} is not active")
             return
 
         if not api_key:
@@ -599,6 +613,7 @@ def execute_workflow_scheduled(
 
     if not api_key:
         logger.error(f"No API key available for workflow {workflow_id}")
+        append_log(job_id, "failed: no API key available")
         return
 
     if config["enabled"] and not is_within_market_hours(

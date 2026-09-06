@@ -19,9 +19,6 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Force in-memory DB before importing market_calendar_db
-os.environ["DATABASE_URL"] = "sqlite:///:memory:"
-
 import pytz  # noqa: E402
 
 IST = pytz.timezone("Asia/Kolkata")

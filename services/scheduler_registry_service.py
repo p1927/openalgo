@@ -34,16 +34,17 @@ VALID_SOURCES = ("flow", "historify", "strategy", "chartink", "python_strategy")
 # Sources whose scheduled entry points have been instrumented with
 # scheduler_run_log_buffer.append_log calls and have a live-log-tail SSE
 # route (restx_api/scheduler_registry.py's `.../stream` endpoint).
-# strategy/chartink's squareoff_positions and python_strategy's five job
-# functions (scheduled_start_strategy, scheduled_stop_strategy,
-# daily_trading_day_check, market_hours_enforcer, cleanup_dead_processes)
-# each log start/skip/complete/fail at their own APScheduler job id, even
-# though (unlike Flow/Historify's one async dispatch function) the actual
-# order placement/subprocess work happens downstream of that entry point
-# (order queue drained by a separate worker thread; subprocess lifecycle
-# funneled through start_strategy_process/stop_strategy_process) — the log
-# line describes what the scheduled job itself did, not full downstream
-# execution detail.
+# chartink's squareoff_positions, strategy_module's run_scheduled_start/
+# run_scheduled_stop (the legacy blueprints/strategy.py module they replace
+# was retired upstream), and python_strategy's five job functions
+# (scheduled_start_strategy, scheduled_stop_strategy, daily_trading_day_check,
+# market_hours_enforcer, cleanup_dead_processes) each log start/skip/
+# complete/fail at their own APScheduler job id, even though (unlike Flow/
+# Historify's one async dispatch function) the actual order placement/
+# subprocess work happens downstream of that entry point (order queue
+# drained by a separate worker thread; subprocess lifecycle funneled through
+# start_strategy_process/stop_strategy_process) — the log line describes
+# what the scheduled job itself did, not full downstream execution detail.
 _LIVE_LOG_SOURCES = frozenset({"flow", "historify", "strategy", "chartink", "python_strategy"})
 
 
@@ -71,9 +72,13 @@ def _get_scheduler(source: str):
         except RuntimeError:
             return None
     if source == "strategy":
-        from blueprints.strategy import scheduler
+        # The legacy blueprints/strategy.py module (bare module-level
+        # scheduler) was retired upstream; the new strategy_module system
+        # keeps the same "strategy" source name but is backed by its own
+        # shared scheduler singleton instead.
+        from services.strategy_module.scheduler import get_scheduler
 
-        return scheduler
+        return get_scheduler()
     if source == "chartink":
         from blueprints.chartink import scheduler
 

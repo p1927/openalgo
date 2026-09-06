@@ -7,43 +7,56 @@ Simulates the scenario where:
 4. get_auth_token_broker() should cache negative results for revoked users
    to prevent log spam from background polling (every 5s)
 
-To run inside the OpenAlgo container:
-    docker exec openalgo python test_orphaned_apikey.py
+Each test gets its own throwaway in-memory engine bound onto
+``database.auth_db.db_session`` via ``monkeypatch``, which reverts the
+binding automatically when the test ends. This file used to reassign
+``auth_db.db_session`` directly and set ``os.environ["DATABASE_URL"]`` at
+import time — neither was ever undone, so whichever database module pytest
+had not yet imported picked up the stray in-memory URL and got a private,
+table-less engine for the rest of the run (surfacing as "no such table" in
+unrelated suites collected later, e.g. test_portfolio_ledger_service.py).
 """
 
 import hashlib
-import os
-import sys
 
-sys.path.insert(0, os.path.dirname(__file__))
-
-# Force in-memory DB for testing
-os.environ["DATABASE_URL"] = "sqlite:///:memory:"
+import pytest
 
 
-def setup_test_db():
-    """Create a fresh in-memory database with test data."""
-    # Re-import to pick up the in-memory DATABASE_URL
-    # We need to patch the module's engine before it's used
+@pytest.fixture()
+def auth_mod(monkeypatch):
+    """A real ``database.auth_db`` module bound to a fresh in-memory engine
+    for the duration of one test only."""
     from sqlalchemy import create_engine
     from sqlalchemy.orm import scoped_session, sessionmaker
 
     import database.auth_db as auth_mod
 
     engine = create_engine("sqlite:///:memory:")
-    auth_mod.db_session = scoped_session(
+    session = scoped_session(
         sessionmaker(autocommit=False, autoflush=False, bind=engine)
     )
-    auth_mod.Base.query = auth_mod.db_session.query_property()
+    monkeypatch.setattr(auth_mod, "db_session", session)
+    # Base.query is a descriptor bound to whichever session created it via
+    # query_property(); reading it back (as monkeypatch.setattr would, to
+    # save the old value for teardown) invokes that binding, and Base itself
+    # isn't a mapped class, so it raises. Read/restore the class's raw
+    # __dict__ entry instead of going through the descriptor.
+    original_query = auth_mod.Base.__dict__.get("query")
+    auth_mod.Base.query = session.query_property()
     auth_mod.Base.metadata.create_all(engine)
 
-    return auth_mod
+    yield auth_mod
+
+    if original_query is not None:
+        auth_mod.Base.query = original_query
+    else:
+        delattr(auth_mod.Base, "query")
+    session.remove()
+    engine.dispose()
 
 
-def test_get_first_available_api_key_skips_revoked():
+def test_get_first_available_api_key_skips_revoked(auth_mod):
     """get_first_available_api_key() must skip users with revoked auth sessions."""
-    auth_mod = setup_test_db()
-
     # Setup: admin with revoked session (no broker)
     admin_auth = auth_mod.Auth(
         name="admin", auth="", feed_token=None, broker="", is_revoked=1
@@ -88,10 +101,8 @@ def test_get_first_available_api_key_skips_revoked():
     print("PASS: get_first_available_api_key() returns None when all sessions revoked")
 
 
-def test_get_first_available_api_key_skips_no_broker():
+def test_get_first_available_api_key_skips_no_broker(auth_mod):
     """get_first_available_api_key() must skip users with empty broker field."""
-    auth_mod = setup_test_db()
-
     # User with active session but no broker configured
     no_broker_auth = auth_mod.Auth(
         name="no_broker_user", auth="", feed_token=None,
@@ -119,10 +130,8 @@ def test_get_first_available_api_key_skips_no_broker():
     print("PASS: get_first_available_api_key() skips users with empty broker")
 
 
-def test_auth_token_broker_caches_negative_result():
+def test_auth_token_broker_caches_negative_result(auth_mod):
     """get_auth_token_broker() should cache revoked results to prevent log spam."""
-    auth_mod = setup_test_db()
-
     # Clear all caches
     auth_mod.auth_cache.clear()
     auth_mod.verified_api_key_cache.clear()
@@ -156,7 +165,7 @@ def test_auth_token_broker_caches_negative_result():
     print("PASS: get_auth_token_broker() caches negative result for revoked users")
 
 
-def test_only_admin_revoked_reproduces_original_bug():
+def test_only_admin_revoked_reproduces_original_bug(auth_mod):
     """Reproduce the exact production scenario from 2026-03-25.
 
     State:
@@ -171,8 +180,6 @@ def test_only_admin_revoked_reproduces_original_bug():
 
     After fix: get_first_available_api_key() returns jagat's key.
     """
-    auth_mod = setup_test_db()
-
     # Exact production state
     admin_auth = auth_mod.Auth(
         name="admin", auth="", feed_token=None, broker="", is_revoked=1
@@ -200,20 +207,7 @@ def test_only_admin_revoked_reproduces_original_bug():
 
 
 if __name__ == "__main__":
-    print("=" * 60)
-    print("Testing orphaned API key handling")
-    print("=" * 60)
-    print()
-
-    test_get_first_available_api_key_skips_revoked()
-    print()
-    test_get_first_available_api_key_skips_no_broker()
-    print()
-    test_auth_token_broker_caches_negative_result()
-    print()
-    test_only_admin_revoked_reproduces_original_bug()
-
-    print()
-    print("=" * 60)
-    print("All tests passed!")
-    print("=" * 60)
+    # Each test now takes the `auth_mod` fixture (a monkeypatch-scoped,
+    # throwaway in-memory engine), so running this file directly means
+    # deferring to pytest rather than calling the functions bare.
+    raise SystemExit(pytest.main([__file__, "-v"]))

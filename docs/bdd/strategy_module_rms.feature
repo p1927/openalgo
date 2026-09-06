@@ -72,7 +72,7 @@ Feature: Strategy module and risk management
     Then the first event changes only the order and position_ref it names
     And every repeat changes neither exposure nor realized P&L
 
-  # Source: test/test_strategy_residual_safety.py:145
+  # Source: test/test_strategy_residual_safety.py:143
   Scenario: A signal flip settles only the owner its fill names
     Given a leg has an outgoing superseded side and a live replacement side
     When the retried outgoing exit fills

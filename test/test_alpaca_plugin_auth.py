@@ -6,6 +6,14 @@ from unittest.mock import patch
 
 import pytest
 
+from database import settings_db
+
+
+@pytest.fixture(autouse=True)
+def _settings_db():
+    """authenticate_broker reads analyze-mode from the settings table."""
+    settings_db.init_db()
+
 
 @pytest.mark.unit
 def test_authenticate_broker_from_env(monkeypatch) -> None:

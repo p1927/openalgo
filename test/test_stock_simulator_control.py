@@ -91,7 +91,7 @@ def control_app(monkeypatch, fake_client):
     """Build a minimal Flask app with the stock_simulator_control blueprint only."""
     from flask import Flask
 
-    from openalgo.blueprints import stock_simulator_control as sc
+    from blueprints import stock_simulator_control as sc
 
     monkeypatch.setattr(sc, "_client", lambda: fake_client)
     monkeypatch.setattr(sc, "_require_control_token", lambda: None)
@@ -111,7 +111,7 @@ def control_token(monkeypatch) -> str:
 def test_pause_returns_503_without_token(monkeypatch) -> None:
     from flask import Flask
 
-    from openalgo.blueprints import stock_simulator_control as sc
+    from blueprints import stock_simulator_control as sc
 
     monkeypatch.delenv("SIMULATOR_CONTROL_TOKEN", raising=False)
     app = Flask(__name__)

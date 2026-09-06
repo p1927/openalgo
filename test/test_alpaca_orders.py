@@ -8,6 +8,13 @@ import pytest
 
 from broker.alpaca.api import order_api
 from broker.alpaca.mapping.order_data import map_order_data, transform_positions_data
+from database import settings_db
+
+
+@pytest.fixture(autouse=True)
+def _settings_db():
+    """order_api reads analyze-mode from the settings table on every call."""
+    settings_db.init_db()
 
 
 ORDER_RESPONSE = {

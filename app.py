@@ -651,7 +651,7 @@ def create_app():
 
     @app.errorhandler(404)
     def not_found_error(error):
-        from flask import jsonify, request, session
+        from flask import jsonify, make_response, request, session
 
         from database.traffic_db import Error404Tracker
         from utils.ip_helper import get_real_ip
@@ -697,7 +697,15 @@ def create_app():
         if path.startswith(("/assets/", "/static/")) or "." in path.rsplit("/", 1)[-1]:
             return "Not Found", 404
 
-        return serve_react_app(), 404
+        # serve_react_app() itself returns a (body, 503) tuple when the frontend
+        # hasn't been built (see blueprints/react_app.py) -- wrapping that in a
+        # second ", 404" tuple here produces a nested tuple Flask's make_response
+        # rejects with "the return type must be ... but it was a tuple". Route
+        # through make_response first so both its Response-object and tuple return
+        # shapes collapse to one real Response before the status gets overridden.
+        response = make_response(serve_react_app())
+        response.status_code = 404
+        return response
 
     @app.errorhandler(500)
     def internal_server_error(e):
