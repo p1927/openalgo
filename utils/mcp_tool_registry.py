@@ -71,7 +71,12 @@ TOOL_SCOPES: dict[str, str] = {
     "execute_autonomous_basket": SCOPE_WRITE_ORDERS,
     "get_autonomous_agent_status": SCOPE_READ_ACCOUNT,
     "get_autonomous_market_feedback": SCOPE_READ_ACCOUNT,
-    "record_autonomous_decision": SCOPE_READ_ACCOUNT,
+    # record_autonomous_decision mutates a *running* agent: it rewrites the
+    # instance thesis (direction, strategy, confidence) the next agent turn
+    # trades on, appends to the outcome ledger, and its EXIT branch is coupled
+    # to real exit-order validation. Tightened from read:account, which let a
+    # read-only token steer a live agent.
+    "record_autonomous_decision": SCOPE_WRITE_ORDERS,
     # ---- Trade-stack research widgets (Vibe advisor) ----
     "get_options_browse": SCOPE_READ_MARKET,
     "get_options_trade_plan": SCOPE_READ_MARKET,
@@ -132,6 +137,93 @@ TOOL_SCOPES: dict[str, str] = {
     # check uniform without inventing a fourth scope.
     "get_openalgo_version": SCOPE_READ_MARKET,
     "validate_order_constants": SCOPE_READ_MARKET,
+    # ================================================================
+    # Fork-added tools, defined in mcp/custom_tools.py rather than
+    # mcp/mcpserver.py. They are listed here, in the same dict, because
+    # this module's whole point is that TOOL_SCOPES is ONE place a
+    # security review can read -- a second, sidecar scope map would
+    # defeat that even though it would merge more cleanly.
+    #
+    # The line drawn across these tools: anything that can change what a
+    # live autonomous trading agent does with money -- dispatch an order,
+    # halt a running agent, rewrite the rules or thesis it acts on -- is
+    # write:orders and destructive, the same treatment place_order gets.
+    # Everything that only reads market/account state or produces a
+    # research artifact is read-scoped, even when it persists that
+    # artifact to the local hub cache (a cache write is not broker state,
+    # matching upstream's own read_only definition).
+    # ================================================================
+    # ---- Autonomous-agent order dispatch. Each of these reaches the
+    # nautilus_openalgo_bridge intent queue and submit_intent() is
+    # followed immediately by process_pending_intents(), so the order is
+    # placed within the call -- not merely queued for later review.
+    "submit_bridge_execution_intent": SCOPE_WRITE_ORDERS,
+    "submit_partial_close": SCOPE_WRITE_ORDERS,
+    "submit_hedge": SCOPE_WRITE_ORDERS,
+    "submit_roll": SCOPE_WRITE_ORDERS,
+    "submit_strike_roll": SCOPE_WRITE_ORDERS,
+    # ---- Autonomous-agent control. No order leaves in the call itself,
+    # but each one changes what a live agent will do next, so the blast
+    # radius is the order path -- the same argument analyzer_toggle above
+    # is scoped on.
+    # propose_autonomous_agent persists a proposal that is one UI
+    # confirmation away from a running trader; a read-only token must not
+    # be able to plant one.
+    "propose_autonomous_agent": SCOPE_WRITE_ORDERS,
+    # set_agent_watch_spec rewrites a running agent's trigger rules and
+    # re-syncs its handoff from the broker position book.
+    "set_agent_watch_spec": SCOPE_WRITE_ORDERS,
+    # create_session_watch / delete_watch add and remove live watches in
+    # the shared registry. Deleting is the dangerous direction: the watch
+    # removed may be the stop-level alert an open position is relying on.
+    "create_session_watch": SCOPE_WRITE_ORDERS,
+    "delete_watch": SCOPE_WRITE_ORDERS,
+    # ---- Autonomous-agent / account state (read only) ----
+    "list_watches": SCOPE_READ_ACCOUNT,
+    "get_quant_monitor_status": SCOPE_READ_ACCOUNT,
+    "get_portfolio_greeks": SCOPE_READ_ACCOUNT,
+    "get_us_paper_account": SCOPE_READ_ACCOUNT,
+    # market_context reports the active broker, analyzer/paper mode and
+    # simulator replay state. It reads the toggle analyzer_toggle writes;
+    # it cannot flip it.
+    "market_context": SCOPE_READ_ACCOUNT,
+    # ---- Market data ----
+    "get_us_quote": SCOPE_READ_MARKET,
+    "get_stock_browse": SCOPE_READ_MARKET,
+    "get_hub_fii_dii": SCOPE_READ_MARKET,
+    "get_hub_index_history": SCOPE_READ_MARKET,
+    # ---- Research / hub reads. These read the trade-stack hub and may
+    # refresh or persist its cached artifacts (parquet, widget JSON,
+    # scenario drafts). Local cache writes only -- no broker state, no
+    # money, no order -- so they stay read-scoped.
+    "get_research_status": SCOPE_READ_MARKET,
+    "get_hub_news": SCOPE_READ_MARKET,
+    "run_quant_review": SCOPE_READ_MARKET,
+    "get_pipeline_snapshot": SCOPE_READ_MARKET,
+    "get_pipeline_news_items": SCOPE_READ_MARKET,
+    "get_live_news_impact": SCOPE_READ_MARKET,
+    "get_playground_context": SCOPE_READ_MARKET,
+    "query_factor_explanation": SCOPE_READ_MARKET,
+    "query_factor_sensitivity": SCOPE_READ_MARKET,
+    "query_equation_coefficients": SCOPE_READ_MARKET,
+    "query_constituent_drivers": SCOPE_READ_MARKET,
+    "simulate_pipeline_scenario": SCOPE_READ_MARKET,
+    "list_scenario_factors": SCOPE_READ_MARKET,
+    "save_news_scenario_draft": SCOPE_READ_MARKET,
+    "run_news_event_scenario": SCOPE_READ_MARKET,
+    "get_news_scenario_widget": SCOPE_READ_MARKET,
+    # ---- Browser-driven research. These drive a local headless browser
+    # against public NSE/NSDL/web pages and write the parsed rows into the
+    # hub. Outward network activity, but a fetch, not a send: nothing
+    # account-identifying leaves and no broker state changes, so this is
+    # the same class as get_historical_data reaching the broker.
+    "get_nse_browser_status": SCOPE_READ_MARKET,
+    "get_nse_browser_data": SCOPE_READ_MARKET,
+    "run_nse_browser_mission": SCOPE_READ_MARKET,
+    "run_browser_task": SCOPE_READ_MARKET,
+    # ingest_nse_repository rebuilds the hub parquet cache from
+    # git-tracked files already in the checkout. No fetch, no broker.
+    "ingest_nse_repository": SCOPE_READ_MARKET,
 }
 
 

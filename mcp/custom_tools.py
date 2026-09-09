@@ -45,12 +45,23 @@ def register(mcpserver):
     """Register our custom MCP tools onto the shared FastMCP instance.
 
     `mcpserver` is the (partially-initialized) mcp/mcpserver.py module
-    object, exposing the ``mcp`` FastMCP instance our @mcp.tool()
-    decorators below register against.
+    object, exposing the ``openalgo_tool`` decorator our tools below
+    register through (it wraps the shared FastMCP instance).
     """
-    mcp = mcpserver.mcp
 
-    @mcp.tool()
+    # Register through mcpserver's own decorator, not a bare @mcp.tool(), so
+    # every fork tool lands in TOOL_META with MCP annotations, a toolset, and
+    # an output-risk class -- the three things utils/mcp_tool_registry.py and
+    # test/test_mcp_integrity.py cross-check against TOOL_SCOPES. A bare
+    # @mcp.tool() registers with FastMCP but is invisible to all of that, so
+    # the tool is unreachable over the HTTP/SSE transport and its write/read
+    # classification is never reviewed.
+    # See .claude/backlog/items/2026-09-10-mcp-custom-tools-no-scopes.md.
+    tool = mcpserver.openalgo_tool
+    RISK_BROKER_STRUCTURED = mcpserver.RISK_BROKER_STRUCTURED
+    RISK_EXTERNAL_TEXT = mcpserver.RISK_EXTERNAL_TEXT
+
+    @tool('marketdata', title='Get US Equity Quote', risk=RISK_BROKER_STRUCTURED)
     def get_us_quote(symbol: str) -> str:
         """
         Get a near-real-time US equity quote via Alpaca paper/live data API.
@@ -89,7 +100,7 @@ def register(mcpserver):
             return f"Error getting US quote: {str(e)}"
 
 
-    @mcp.tool()
+    @tool('account', title='Get US Paper Account', risk=RISK_BROKER_STRUCTURED)
     def get_us_paper_account() -> str:
         """
         Fetch Alpaca paper trading account summary (cash, equity, buying power).
@@ -258,7 +269,7 @@ def register(mcpserver):
         )
 
 
-    @mcp.tool()
+    @tool('research', title='Get Strategy Payoff', risk=RISK_BROKER_STRUCTURED)
     def get_strategy_payoff(
         legs: list[dict[str, Any]],
         spot: float,
@@ -297,7 +308,7 @@ def register(mcpserver):
             return f"Error computing strategy payoff: {str(e)}"
 
 
-    @mcp.tool()
+    @tool('research', title='Get Trade Charges', risk=RISK_BROKER_STRUCTURED)
     def get_trade_charges(
         legs: list[dict[str, Any]],
         broker_preset: str | None = None,
@@ -324,7 +335,7 @@ def register(mcpserver):
             return f"Error calculating trade charges: {str(e)}"
 
 
-    @mcp.tool()
+    @tool('marketdata', title='Browse Options Chain', risk=RISK_BROKER_STRUCTURED)
     def get_options_browse(
         underlying: str,
         exchange: str,
@@ -380,7 +391,7 @@ def register(mcpserver):
             return f"Error browsing options chain: {str(e)}"
 
 
-    @mcp.tool()
+    @tool('research', title='Get Options Trade Plan', risk=RISK_EXTERNAL_TEXT)
     def get_options_trade_plan(
         ticker: str,
         refresh: bool = False,
@@ -424,7 +435,7 @@ def register(mcpserver):
         return root
 
 
-    @mcp.tool()
+    @tool('research', title='Get Options Trade Widget', risk=RISK_EXTERNAL_TEXT)
     def get_options_trade_widget(
         ticker: str,
         refresh: bool = False,
@@ -475,7 +486,7 @@ def register(mcpserver):
             )
 
 
-    @mcp.tool()
+    @tool('account', title='Get Plan Position Status', risk=RISK_BROKER_STRUCTURED)
     def get_plan_position_status(widget_id: str) -> str:
         """
         Return execution ledger entry and matched broker positions for a trade widget.
@@ -564,7 +575,7 @@ def register(mcpserver):
         raise ValueError(f"expected dict or JSON string, got {type(value).__name__}")
 
 
-    @mcp.tool()
+    @tool('orders', title='Stop Autonomous Agents', write=True, destructive=True, risk=RISK_BROKER_STRUCTURED)
     def stop_autonomous_agents() -> str:
         """
         Stop all running autonomous agents and remove obsolete standalone cron jobs.
@@ -580,7 +591,7 @@ def register(mcpserver):
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
-    @mcp.tool()
+    @tool('account', title='Get Autonomous Market Feedback', risk=RISK_EXTERNAL_TEXT)
     def get_autonomous_market_feedback(
         agent_id: str | None = None,
         ticker: str | None = None,
@@ -600,7 +611,7 @@ def register(mcpserver):
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
-    @mcp.tool()
+    @tool('orders', title='Execute Autonomous Basket', write=True, destructive=True, risk=RISK_BROKER_STRUCTURED)
     def execute_autonomous_basket(
         widget_id: str,
         agent_id: str | None = None,
@@ -620,7 +631,7 @@ def register(mcpserver):
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
-    @mcp.tool()
+    @tool('account', title='Propose Autonomous Agent', write=True, destructive=True, risk=RISK_BROKER_STRUCTURED)
     def propose_autonomous_agent(
         symbols: list[str],
         name: str | None = None,
@@ -689,7 +700,7 @@ def register(mcpserver):
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
-    @mcp.tool()
+    @tool('account', title='Get Autonomous Agent Status', risk=RISK_BROKER_STRUCTURED)
     def get_autonomous_agent_status(agent_id: str | None = None) -> str:
         """
         Get status of one autonomous agent or list all agents.
@@ -709,7 +720,7 @@ def register(mcpserver):
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
-    @mcp.tool()
+    @tool('account', title='Record Autonomous Decision', write=True, destructive=True, risk=RISK_BROKER_STRUCTURED)
     def record_autonomous_decision(
         agent_id: str,
         decision: str,
@@ -743,7 +754,7 @@ def register(mcpserver):
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
-    @mcp.tool()
+    @tool('account', title='Set Agent Watch Spec', write=True, destructive=True, risk=RISK_BROKER_STRUCTURED)
     def set_agent_watch_spec(
         agent_id: str,
         watch_spec: dict | str | None = None,
@@ -798,7 +809,7 @@ def register(mcpserver):
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
-    @mcp.tool()
+    @tool('account', title='List Watches', risk=RISK_BROKER_STRUCTURED)
     def list_watches(
         session_id: str | None = None,
         agent_id: str | None = None,
@@ -819,7 +830,7 @@ def register(mcpserver):
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
-    @mcp.tool()
+    @tool('account', title='Create Session Watch', write=True, destructive=True, risk=RISK_BROKER_STRUCTURED)
     def create_session_watch(
         session_id: str,
         watch_spec: dict | str,
@@ -860,7 +871,7 @@ def register(mcpserver):
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
-    @mcp.tool()
+    @tool('account', title='Delete Watch', write=True, destructive=True, risk=RISK_BROKER_STRUCTURED)
     def delete_watch(watch_id: str) -> str:
         """
         Delete (deactivate) a watch by watch_id from the unified registry.
@@ -877,7 +888,7 @@ def register(mcpserver):
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
-    @mcp.tool()
+    @tool('account', title='Get Quant Monitor Status', risk=RISK_BROKER_STRUCTURED)
     def get_quant_monitor_status(agent_id: str) -> str:
         """
         Quant monitor snapshot for an autonomous agent (profile, baselines, last alert).
@@ -897,7 +908,7 @@ def register(mcpserver):
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
-    @mcp.tool()
+    @tool('orders', title='Submit Bridge Execution Intent', write=True, destructive=True, risk=RISK_BROKER_STRUCTURED)
     def submit_bridge_execution_intent(
         agent_id: str,
         action: str,
@@ -926,7 +937,7 @@ def register(mcpserver):
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
-    @mcp.tool()
+    @tool('orders', title='Submit Partial Position Close', write=True, destructive=True, risk=RISK_BROKER_STRUCTURED)
     def submit_partial_close(
         agent_id: str,
         fraction: float,
@@ -960,7 +971,7 @@ def register(mcpserver):
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
-    @mcp.tool()
+    @tool('orders', title='Submit Protective Hedge', write=True, destructive=True, risk=RISK_BROKER_STRUCTURED)
     def submit_hedge(
         agent_id: str,
         rationale: str,
@@ -1010,7 +1021,7 @@ def register(mcpserver):
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
-    @mcp.tool()
+    @tool('orders', title='Submit Calendar Roll', write=True, destructive=True, risk=RISK_BROKER_STRUCTURED)
     def submit_roll(
         agent_id: str,
         far_expiry: str,
@@ -1057,7 +1068,7 @@ def register(mcpserver):
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
-    @mcp.tool()
+    @tool('orders', title='Submit Strike Roll', write=True, destructive=True, risk=RISK_BROKER_STRUCTURED)
     def submit_strike_roll(
         agent_id: str,
         rationale: str,
@@ -1102,7 +1113,7 @@ def register(mcpserver):
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
-    @mcp.tool()
+    @tool('account', title='Get Portfolio Greeks', risk=RISK_BROKER_STRUCTURED)
     def get_portfolio_greeks(agent_id: str) -> str:
         """
         Net delta/gamma/theta/vega across an India autonomous agent's whole open
@@ -1123,7 +1134,7 @@ def register(mcpserver):
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
-    @mcp.tool()
+    @tool('research', title='Get Research Status', risk=RISK_BROKER_STRUCTURED)
     def get_research_status(
         ticker: str,
         asset_type: str = "stock",
@@ -1154,7 +1165,7 @@ def register(mcpserver):
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
-    @mcp.tool()
+    @tool('research', title='Get NSE Browser Status', risk=RISK_BROKER_STRUCTURED)
     def get_nse_browser_status() -> str:
         """
         Read hub status for NSE/NSDL browser datasets (nodriver module).
@@ -1172,7 +1183,7 @@ def register(mcpserver):
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
-    @mcp.tool()
+    @tool('research', title='Get NSE Browser Data', risk=RISK_EXTERNAL_TEXT)
     def get_nse_browser_data(
         dataset: str = "fii_dii",
         start_date: str | None = None,
@@ -1228,7 +1239,7 @@ def register(mcpserver):
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
-    @mcp.tool()
+    @tool('research', title='Ingest NSE Repository', risk=RISK_BROKER_STRUCTURED)
     def ingest_nse_repository() -> str:
         """
         Sync git-tracked data/nse parquet into hub without browser fetch.
@@ -1245,7 +1256,7 @@ def register(mcpserver):
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
-    @mcp.tool()
+    @tool('research', title='Run NSE Browser Mission', risk=RISK_EXTERNAL_TEXT)
     def run_nse_browser_mission(
         mission: str = "fii_dii_history",
         refresh_cookies: bool = False,
@@ -1281,7 +1292,7 @@ def register(mcpserver):
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
-    @mcp.tool()
+    @tool('research', title='Get Hub News', risk=RISK_EXTERNAL_TEXT)
     def get_hub_news(
         ticker: str = "NIFTY",
         limit: int = 20,
@@ -1311,7 +1322,7 @@ def register(mcpserver):
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
-    @mcp.tool()
+    @tool('marketdata', title='Get FII DII Flows', risk=RISK_BROKER_STRUCTURED)
     def get_hub_fii_dii(
         start_date: str | None = None,
         end_date: str | None = None,
@@ -1342,7 +1353,7 @@ def register(mcpserver):
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
-    @mcp.tool()
+    @tool('marketdata', title='Get Hub Index History', risk=RISK_BROKER_STRUCTURED)
     def get_hub_index_history(
         index: str = "NIFTY",
         start_date: str | None = None,
@@ -1371,7 +1382,7 @@ def register(mcpserver):
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
-    @mcp.tool()
+    @tool('research', title='Run Browser Task', risk=RISK_EXTERNAL_TEXT)
     def run_browser_task(
         goal: str,
         start_urls: str | None = None,
@@ -1414,7 +1425,7 @@ def register(mcpserver):
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
 
 
-    @mcp.tool()
+    @tool('research', title='Get Stock Trade Widget', risk=RISK_EXTERNAL_TEXT)
     def get_stock_trade_widget(
         ticker: str,
         refresh: bool = False,
@@ -1469,7 +1480,7 @@ def register(mcpserver):
         return run_agent_debate, load_agent_debate_json, is_agent_debate_cache_fresh
 
 
-    @mcp.tool()
+    @tool('research', title='Run TradingAgents Analysis', risk=RISK_EXTERNAL_TEXT)
     def run_tradingagents_analysis(
         ticker: str,
         asset_type: str = "stock",
@@ -1554,7 +1565,7 @@ def register(mcpserver):
         return run_quant_review, load_quant_review_json, is_quant_review_cache_fresh
 
 
-    @mcp.tool()
+    @tool('research', title='Run Quant Review', risk=RISK_EXTERNAL_TEXT)
     def run_quant_review(
         ticker: str = "NIFTY",
         horizon_days: int = 14,
@@ -1590,7 +1601,7 @@ def register(mcpserver):
             return json.dumps({"error": str(e), "ticker": ticker}, indent=2)
 
 
-    @mcp.tool()
+    @tool('marketdata', title='Browse Stock', risk=RISK_EXTERNAL_TEXT)
     def get_stock_browse(ticker: str) -> str:
         """
         Compact in-chat browse for an equity (price, sector, 52w range, peers).
@@ -1638,7 +1649,7 @@ def register(mcpserver):
             return f"Error browsing stock: {str(e)}"
 
 
-    @mcp.tool()
+    @tool('research', title='Get Stock Trade Plan', risk=RISK_EXTERNAL_TEXT)
     def get_stock_trade_plan(ticker: str, refresh: bool = False, lookahead_days: int = 14) -> str:
         """
         Load or generate a stock trade plan from the trade-stack hub.
@@ -1667,7 +1678,7 @@ def register(mcpserver):
             return f"Error loading stock trade plan: {str(e)}"
 
 
-    @mcp.tool()
+    @tool('research', title='Get Index Trade Plan', risk=RISK_EXTERNAL_TEXT)
     def get_index_trade_plan(
         ticker: str = "NIFTY",
         refresh: bool = False,
@@ -1726,7 +1737,7 @@ def register(mcpserver):
             return f"Error loading index trade plan: {str(e)}"
 
 
-    @mcp.tool()
+    @tool('research', title='Get Index Trade Widget', risk=RISK_EXTERNAL_TEXT)
     def get_index_trade_widget(
         ticker: str = "NIFTY",
         refresh: bool = False,
@@ -1767,7 +1778,7 @@ def register(mcpserver):
             return f"Error building index trade widget: {str(e)}"
 
 
-    @mcp.tool()
+    @tool('research', title='Get Pipeline Snapshot', risk=RISK_EXTERNAL_TEXT)
     def get_pipeline_snapshot(ticker: str = "NIFTY", pipeline_as_of: str = "") -> str:
         """Summarize the bound Analysis pipeline snapshot (spot, prediction, contributors)."""
         try:
@@ -1781,7 +1792,7 @@ def register(mcpserver):
             return f"Error: {e}"
 
 
-    @mcp.tool()
+    @tool('research', title='Query Factor Explanation', risk=RISK_EXTERNAL_TEXT)
     def query_factor_explanation(ticker: str = "NIFTY", pipeline_as_of: str = "", limit: int = 8) -> str:
         """Top macro factor contributors from the bound pipeline snapshot."""
         try:
@@ -1795,7 +1806,7 @@ def register(mcpserver):
             return f"Error: {e}"
 
 
-    @mcp.tool()
+    @tool('research', title='Query Factor Sensitivity', risk=RISK_BROKER_STRUCTURED)
     def query_factor_sensitivity(ticker: str = "NIFTY", pipeline_as_of: str = "", limit: int = 8) -> str:
         """Factor sensitivity curves from the bound pipeline snapshot."""
         try:
@@ -1809,7 +1820,7 @@ def register(mcpserver):
             return f"Error: {e}"
 
 
-    @mcp.tool()
+    @tool('research', title='Query Equation Coefficients', risk=RISK_BROKER_STRUCTURED)
     def query_equation_coefficients(ticker: str = "NIFTY", pipeline_as_of: str = "") -> str:
         """Ridge equation coefficients from the bound pipeline snapshot."""
         try:
@@ -1823,7 +1834,7 @@ def register(mcpserver):
             return f"Error: {e}"
 
 
-    @mcp.tool()
+    @tool('research', title='Query Constituent Drivers', risk=RISK_BROKER_STRUCTURED)
     def query_constituent_drivers(ticker: str = "NIFTY", pipeline_as_of: str = "", limit: int = 10) -> str:
         """Constituent drivers from the bound pipeline snapshot."""
         try:
@@ -1837,7 +1848,7 @@ def register(mcpserver):
             return f"Error: {e}"
 
 
-    @mcp.tool()
+    @tool('research', title='Get Pipeline News Items', risk=RISK_EXTERNAL_TEXT)
     def get_pipeline_news_items(
         ticker: str = "NIFTY",
         pipeline_as_of: str = "",
@@ -1859,7 +1870,7 @@ def register(mcpserver):
             return f"Error: {e}"
 
 
-    @mcp.tool()
+    @tool('research', title='Get Live News Impact', risk=RISK_EXTERNAL_TEXT)
     def get_live_news_impact(ticker: str = "NIFTY", pipeline_as_of: str = "", limit: int = 12) -> str:
         """Live news impact for `ticker` (ranked top factors + recent headlines), queried
         directly from the hub — unlike get_pipeline_news_items, reflects headlines ingested
@@ -1875,7 +1886,7 @@ def register(mcpserver):
             return f"Error: {e}"
 
 
-    @mcp.tool()
+    @tool('research', title='Get Playground Context', risk=RISK_EXTERNAL_TEXT)
     def get_playground_context(ticker: str = "NIFTY", pipeline_as_of: str = "") -> str:
         """Playground factor/headline bundle from the bound pipeline snapshot."""
         try:
@@ -1889,7 +1900,7 @@ def register(mcpserver):
             return f"Error: {e}"
 
 
-    @mcp.tool()
+    @tool('research', title='Simulate Pipeline Scenario', risk=RISK_BROKER_STRUCTURED)
     def simulate_pipeline_scenario(
         ticker: str = "NIFTY",
         pipeline_as_of: str = "",
@@ -1920,7 +1931,7 @@ def register(mcpserver):
             return f"Error: {e}"
 
 
-    @mcp.tool()
+    @tool('research', title='List Scenario Factors', risk=RISK_BROKER_STRUCTURED)
     def list_scenario_factors() -> str:
         """List valid primary_factor/factor_overrides keys for a news scenario draft."""
         try:
@@ -1934,7 +1945,7 @@ def register(mcpserver):
             return f"Error: {e}"
 
 
-    @mcp.tool()
+    @tool('research', title='Save News Scenario Draft', risk=RISK_EXTERNAL_TEXT)
     def save_news_scenario_draft(
         ticker: str = "NIFTY",
         pipeline_as_of: str = "",
@@ -1952,7 +1963,7 @@ def register(mcpserver):
             return f"Error: {e}"
 
 
-    @mcp.tool()
+    @tool('research', title='Run News Event Scenario', risk=RISK_EXTERNAL_TEXT)
     def run_news_event_scenario(
         ticker: str = "NIFTY",
         pipeline_as_of: str = "",
@@ -1973,7 +1984,7 @@ def register(mcpserver):
             return f"Error: {e}"
 
 
-    @mcp.tool()
+    @tool('research', title='Get News Scenario Widget', risk=RISK_EXTERNAL_TEXT)
     def get_news_scenario_widget(
         ticker: str = "NIFTY",
         pipeline_as_of: str = "",
@@ -1994,7 +2005,7 @@ def register(mcpserver):
             return f"Error: {e}"
 
     # Tool to get authoritative market context
-    @mcp.tool()
+    @tool('account', title='Get Market Context', risk=RISK_BROKER_STRUCTURED)
     def market_context() -> str:
         """
         Get authoritative OpenAlgo market context (broker, analyze mode, simulator).
@@ -2014,6 +2025,20 @@ def register(mcpserver):
         except Exception as e:
             logger.exception("market_context failed: %s", e)
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
+
+    # Export every tool defined above onto the mcpserver module object.
+    # These are closures local to register(), not module-level functions the
+    # way mcpserver.py's own tools are, and
+    # utils/mcp_tool_registry.get_tool_callable() resolves a tool with
+    # getattr(<mcpserver module>, name). Without this export the HTTP/SSE
+    # transport would advertise all of them (they are in TOOL_META and in
+    # TOOL_SCOPES) and then fail every tools/call with "unknown tool" -- a
+    # scope entry alone is necessary but not sufficient for reachability.
+    # Filtering on TOOL_META keeps helpers and locals out of the export.
+    # See .claude/backlog/items/2026-09-10-mcp-custom-tools-no-scopes.md.
+    for _tool_name, _tool_fn in list(locals().items()):
+        if _tool_name in mcpserver.TOOL_META:
+            setattr(mcpserver, _tool_name, _tool_fn)
 
     # mcpserver.py's own get_quote/get_multi_quotes/get_option_chain call these
     # helpers directly (not through this module), so they must exist on the
