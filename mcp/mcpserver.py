@@ -52,7 +52,7 @@ else:
     client = api(api_key=api_key, host=host)
 
 
-def init_for_http(api_key_value: str, host_value: str) -> None:
+def init_for_http(api_key_value: str, host_value: str, client_value: Any = None) -> None:
     """Wire the SDK client when running under the HTTP transport.
 
     Called once from blueprints/mcp_http.py after the Flask app has
@@ -60,11 +60,19 @@ def init_for_http(api_key_value: str, host_value: str) -> None:
     Idempotent — safe to call repeatedly with the same values; later
     calls overwrite the global so a restarted broker session can rotate
     the underlying SDK client without restarting Gunicorn.
+
+    `client_value` lets a caller that has already built the SDK client hand
+    it in instead of having one built here — mcp/key_reload.py does that so
+    a construction failure surfaces before anything is swapped. The three
+    globals are assigned only after the client exists, so a failed build
+    leaves the previous (api_key, host, client) triple intact rather than
+    half-swapped under an in-flight tool call.
     """
     global api_key, host, client
+    new_client = client_value if client_value is not None else api(api_key=api_key_value, host=host_value)
     api_key = api_key_value
     host = host_value
-    client = api(api_key=api_key_value, host=host_value)
+    client = new_client
 
 # Default strategy name for all order-related calls originating from the MCP server.
 # Surfaced in OpenAlgo logs and analyzer views so MCP-driven trades are identifiable.
@@ -2587,8 +2595,26 @@ if os.path.exists(_custom_tools_path):
     _custom_tools_module.register(sys.modules[__name__])
 
 
+# Same sidecar treatment for the api-key hot-reload watcher: the stdio branch
+# above binds api_key/host from argv once and never re-reads them, so rotating
+# OPENALGO_API_KEY leaves an already-running stdio server serving a dead key
+# until whichever MCP client spawned it is restarted. Loaded unconditionally —
+# a missing sidecar is a broken checkout, not a silent degradation.
+import importlib.util as _ilu  # noqa: E402  (module-scope loader, same as above)
+
+_key_reload_spec = _ilu.spec_from_file_location(
+    "openalgo_mcp_key_reload", os.path.join(os.path.dirname(__file__), "key_reload.py")
+)
+_key_reload = _ilu.module_from_spec(_key_reload_spec)
+_key_reload_spec.loader.exec_module(_key_reload)
+
+
 _finalize_registry()
 
 
 if __name__ == "__main__":
+    # Stdio transport only. The HTTP/SSE path imports this module (it never runs
+    # as __main__) and rotates its own client through init_for_http() from
+    # blueprints/mcp_http.py, so it must not get a second watcher.
+    _key_reload.start_key_watcher(sys.modules[__name__])
     mcp.run(transport="stdio")
