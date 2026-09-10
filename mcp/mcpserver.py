@@ -258,13 +258,18 @@ def _envelope(tool_name: str, risk: str, payload: str) -> str:
 
     return json.dumps(
         {
+            # data first: a UI that only previews the first ~200 chars of a
+            # tool result (Vibe's trade-widget cards) needs widget_id early,
+            # not buried after the security block's ~130-900 char message.
+            # The LLM itself still reads the full result, so the warning is
+            # not weakened by moving after data.
+            DATA_KEY: data,
             SECURITY_KEY: {
                 "trust": "untrusted_tool_output",
                 "tool": tool_name,
                 "risk": risk,
                 "instructions": TRUST_INSTRUCTIONS[risk],
             },
-            DATA_KEY: data,
         },
         indent=2,
         default=str,
