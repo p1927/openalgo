@@ -159,8 +159,9 @@ def set_replay_speed():
         speed = float(speed)
     except (TypeError, ValueError):
         return jsonify({"status": "error", "message": "speed must be a number"}), 400
-    if speed < 0:
-        return jsonify({"status": "error", "message": "speed must be >= 0"}), 400
+    # Trade docs/DECISIONS.md D19 — the simulator enforces this too; refuse early with the same rule.
+    if speed not in (1.0, 2.0, 5.0):
+        return jsonify({"status": "error", "message": "replay speed must be one of 1x, 2x, 5x"}), 400
     return _forward(lambda c: c.set_speed(speed))
 
 

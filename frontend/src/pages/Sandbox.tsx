@@ -79,7 +79,7 @@ export default function Sandbox() {
   const [showResetDialog, setShowResetDialog] = useState(false)
   const [simStatus, setSimStatus] = useState<Record<string, unknown> | null>(null)
   const [simDate, setSimDate] = useState('')
-  const [simSpeed, setSimSpeed] = useState('60')
+  const [simSpeed, setSimSpeed] = useState('2')
   const [simEvalMode, setSimEvalMode] = useState('continuous')
   const [simWeekMode, setSimWeekMode] = useState(true)
   const [simSaving, setSimSaving] = useState(false)
@@ -163,7 +163,7 @@ export default function Sandbox() {
   const applyDemoPreset = () => {
     simFormDirty.current = true
     setSimWeekMode(true)
-    setSimSpeed('60')
+    setSimSpeed('2')
     setSimEvalMode('continuous')
     const weekDates = (simStatus?.week_dates || []) as string[]
     if (weekDates.length > 0) {
@@ -174,7 +174,7 @@ export default function Sandbox() {
   const applyLastWeekPreset = () => {
     simFormDirty.current = true
     setSimWeekMode(true)
-    setSimSpeed('60')
+    setSimSpeed('2')
     setSimEvalMode('continuous')
     const weekDates = (simStatus?.week_dates || []) as string[]
     if (weekDates.length > 0) {
@@ -595,14 +595,17 @@ export default function Sandbox() {
           </div>
           <div>
             <Label htmlFor="sim-speed">Speed (x)</Label>
-            <Input
-              id="sim-speed"
-              type="number"
-              min="0"
-              step="0.5"
-              value={simSpeed}
-              onChange={(e) => { simFormDirty.current = true; setSimSpeed(e.target.value) }}
-            />
+            {/* Trade docs/DECISIONS.md D19: replay speed is 1x, 2x or 5x only. */}
+            <Select value={simSpeed} onValueChange={(v) => { simFormDirty.current = true; setSimSpeed(v) }}>
+              <SelectTrigger id="sim-speed">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {['1', '2', '5'].map((s) => (
+                  <SelectItem key={s} value={s}>{s}x</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div>
             <Label>Eval mode</Label>
