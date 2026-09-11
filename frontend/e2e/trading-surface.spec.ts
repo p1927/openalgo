@@ -42,9 +42,13 @@ import { ensureAuthenticated } from './fixtures/live-backend-auth'
  * not a test artifact) trips after only a handful of fresh logins in quick
  * succession.
  *
- * Not yet wired into CI (`ci.yml:115-134` starts only the frontend dev
- * server) — see the backlog item's Plan step 4. Run locally via:
- *   npx playwright test trading-surface.spec.ts
+ * Opt-in: the whole suite skips unless `OPENALGO_E2E_LIVE_BACKEND` is set.
+ * The ci.yml `frontend-e2e` job runs plain `npm run e2e` and starts only the
+ * frontend dev server, with no authenticated backend, so there it reports as
+ * skipped instead of failing on login. Wiring a real scratch backend into
+ * CI is still open work in the Trade backlog. Run locally against a scratch
+ * instance via:
+ *   OPENALGO_E2E_LIVE_BACKEND=1 npx playwright test trading-surface.spec.ts
  */
 
 async function loginStorageState(browser: Browser, baseURL: string | undefined) {
@@ -69,6 +73,15 @@ test.describe('Trading surface (live sandbox backend)', () => {
   // without needing a separate CI-only `workers: 1` override for the whole
   // suite.
   test.describe.configure({ mode: 'serial' })
+
+  // Opt-in only. This suite needs a real, authenticated scratch backend (see
+  // the file header). Plain `npm run e2e` includes ci.yml's frontend-e2e job,
+  // which starts only the Vite dev server. There the suite reports as
+  // skipped, visibly, rather than failing on the /login redirect.
+  test.skip(
+    !process.env.OPENALGO_E2E_LIVE_BACKEND,
+    'needs a live scratch OpenAlgo backend: set OPENALGO_E2E_LIVE_BACKEND=1 (see file header)'
+  )
 
   test.use({
     storageState: async ({ browser, baseURL }, use) => {
