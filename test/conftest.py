@@ -75,3 +75,45 @@ collect_ignore = [
     "test_websocket.py",
     "test_websocket_service.py",
 ]
+
+
+# One physical module loaded twice is a silent split-brain. pyproject's
+# `pythonpath = ["."]` makes every repo module importable bare (`database.x`),
+# and the empty root `__init__.py` makes the same file importable as
+# `openalgo.database.x` from the directory above. The two names are two module
+# objects with separate engines, Bases and `_initialized` flags, so a table
+# created through one is missing through the other - the "no such table"
+# family behind the search-API seam fix and the strategy-book flake
+# investigation (Trade backlog 2026-09-06-strategy-book-test-order-flake).
+# Checked after every test so the failure names the test that caused it.
+# Compared by file, not by name: the pinned `openalgo` SDK package legitimately
+# owns other `openalgo.*` names.
+import sys  # noqa: E402
+
+import pytest  # noqa: E402
+
+
+def _dual_loaded_modules():
+    pairs = []
+    for name, module in list(sys.modules.items()):
+        if not name.startswith("openalgo.") or module is None:
+            continue
+        bare = sys.modules.get(name[len("openalgo.") :])
+        dotted_file = getattr(module, "__file__", None)
+        if bare is None or bare is module or not dotted_file:
+            continue
+        if getattr(bare, "__file__", None) == dotted_file:
+            pairs.append((name, name[len("openalgo.") :]))
+    return pairs
+
+
+@pytest.fixture(autouse=True)
+def _no_module_loaded_under_two_names():
+    yield
+    pairs = _dual_loaded_modules()
+    if pairs:
+        pytest.fail(
+            "same file loaded as two modules (import it by its bare name): "
+            + ", ".join(f"{dotted} == {bare}" for dotted, bare in pairs),
+            pytrace=False,
+        )
