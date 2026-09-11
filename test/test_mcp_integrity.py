@@ -77,6 +77,7 @@ from utils.mcp_tool_registry import (  # noqa: E402
     SCOPE_READ_MARKET,
     SCOPE_WRITE_ORDERS,
     TOOL_SCOPES,
+    WRITE_SCOPE_EXCEPTIONS,
     _load_mcpserver_module,
     get_tool_callable,
     list_tools_for_scopes,
@@ -85,15 +86,29 @@ from utils.mcp_tool_registry import (  # noqa: E402
 
 READ_SCOPES = {SCOPE_READ_MARKET, SCOPE_READ_ACCOUNT}
 
-# Tools that change something but are deliberately not write-scoped.
-# Keep this list at zero-or-one entries and justify every addition —
-# each one is a tool a read-only OAuth token can still trigger.
-WRITE_SCOPE_EXCEPTIONS = {
+# The reviewed contract for WRITE_SCOPE_EXCEPTIONS (tools that change something
+# but are deliberately not write-scoped — each one is a tool a read-only OAuth
+# token can still trigger). The set itself is defined once, in
+# utils/mcp_tool_registry.py, and imported above; this constant is what that one
+# definition must equal. Keep it at zero-or-one entries and justify every addition.
+REVIEWED_WRITE_SCOPE_EXCEPTIONS = frozenset({
     # Delivers only to the account owner's own Telegram bot; cannot move
     # money or place an order. Rationale recorded alongside its entry in
     # utils/mcp_tool_registry.py.
     "send_telegram_alert",
-}
+})
+MAX_WRITE_SCOPE_EXCEPTIONS = 1
+
+
+def test_write_scope_exceptions_match_the_reviewed_contract():
+    """The registry's exception set is the one production reads; pin it here.
+
+    A new "writes but read-scoped" tool must change both this reviewed value and
+    the registry, and must not push the set past MAX_WRITE_SCOPE_EXCEPTIONS.
+    """
+    assert isinstance(WRITE_SCOPE_EXCEPTIONS, frozenset)
+    assert WRITE_SCOPE_EXCEPTIONS == REVIEWED_WRITE_SCOPE_EXCEPTIONS
+    assert len(WRITE_SCOPE_EXCEPTIONS) <= MAX_WRITE_SCOPE_EXCEPTIONS
 
 
 @pytest.fixture(scope="module")

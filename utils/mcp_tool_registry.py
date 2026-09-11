@@ -230,7 +230,9 @@ TOOL_SCOPES: dict[str, str] = {
 # Tools that change something but are deliberately not write-scoped.
 # Every entry is a tool a read-only token can still trigger, so each one
 # needs a justification next to its TOOL_SCOPES entry above.
-WRITE_SCOPE_EXCEPTIONS = {"send_telegram_alert"}
+# This is the ONE definition; test/test_mcp_integrity.py imports it and pins
+# it to a reviewed value, so widening it is a deliberate test edit too.
+WRITE_SCOPE_EXCEPTIONS = frozenset({"send_telegram_alert"})
 
 
 def required_scope(tool_name: str) -> str | None:
