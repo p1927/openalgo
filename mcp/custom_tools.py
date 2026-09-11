@@ -1398,7 +1398,7 @@ def register(mcpserver):
         goal: str,
         start_urls: str | None = None,
         output_schema: str | None = None,
-        max_steps: int = 50,
+        max_steps: int = 20,
         persist: bool = True,
     ) -> str:
         """
@@ -1411,7 +1411,8 @@ def register(mcpserver):
             goal: Natural-language objective (required)
             start_urls: JSON array of entry URLs, e.g. ["https://www.rbi.org.in/"]
             output_schema: JSON schema string for structured extraction
-            max_steps: MiniMax operator step budget (1–20)
+            max_steps: MiniMax operator step budget, 1-20 (default 20). A larger value is
+                capped at 20; the result's max_steps_effective reports the value used.
             persist: Save artifacts under reports/hub/_data/nse_browser/tasks/
 
         Returns:
