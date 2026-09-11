@@ -13,7 +13,7 @@ normal import).
 import json
 import os
 import sys
-from typing import Any
+from typing import Any, Literal
 
 
 def _get_logger():
@@ -653,7 +653,7 @@ def register(mcpserver):
         mode: str = "paper",
         execution_market: str | None = None,
         user_text: str | None = None,
-        allowed_instruments: list[str] | None = None,
+        allowed_instruments: list[Literal["equity", "options", "futures"]] | None = None,
         vibe_session_id: str | None = None,
         max_open_positions: int | None = None,
         market_hours_only: bool | None = None,
@@ -675,7 +675,9 @@ def register(mcpserver):
             mode: paper only in v1
             execution_market: Optional IN or US override when user explicitly chose market
             user_text: Original user message for market hint resolution
-            allowed_instruments: equity and/or options — omit to auto-infer (RELIANCE defaults equity)
+            allowed_instruments: A JSON ARRAY of strings, e.g. ["options"] or ["equity", "options"]
+                (values: equity, options, futures). Not an object. Omit to infer from the mandate;
+                an invalid value is rejected with an error, never replaced by a default.
             vibe_session_id: Orchestrator chat session id
             max_open_positions: Concurrent open positions allowed (default 1)
             market_hours_only: Gate on real market hours; set False for a stock_simulator
