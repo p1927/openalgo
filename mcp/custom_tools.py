@@ -132,6 +132,15 @@ def register(mcpserver):
             if path.is_dir() and str(path) not in sys.path:
                 sys.path.insert(0, str(path))
 
+    # Once, at register time, before any tool can run: every tool below that
+    # imports `trade_integrations` is covered, including ones added later.
+    # Without this, 19 tools imported it unguarded and whichever ran first in a
+    # cold MCP process (openalgo/.venv has no trade_stack .pth) failed with
+    # "No module named 'trade_integrations'", then silently worked once any
+    # guarded tool had run. The per-helper calls below stay (idempotent).
+    # See .claude/backlog/items/2026-09-10-mcp-unguarded-stack-import.md.
+    _ensure_trade_stack_import()
+
 
     def _import_payoff_charges():
         """Load trade-stack payoff/charges helpers when the repo is co-located."""
