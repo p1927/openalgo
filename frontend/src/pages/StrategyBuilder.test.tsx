@@ -26,7 +26,13 @@ const mocks = vi.hoisted(() => ({
   broker: null as string | null,
 }))
 
-vi.mock('@/api/client', () => ({
+// Partial mock: hooks the page mounts (useOptionChainPolling, useMarketStatus)
+// read API_BASE_URL / fetchCSRFToken from this module. A mock returning only
+// apiClient made those reads throw inside the polling fetch, which swallowed
+// the error, so the live chain was never requested and every orchestration
+// test waited out its timeout.
+vi.mock('@/api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/api/client')>()),
   apiClient: { post: mocks.apiPost },
 }))
 
