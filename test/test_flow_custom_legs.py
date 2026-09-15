@@ -21,6 +21,7 @@ import io
 import os
 import re
 import sys
+from datetime import datetime
 
 import pytest
 
@@ -314,6 +315,31 @@ class _FakeClient:
         return {"status": "success", "results": []}
 
 
+@pytest.fixture
+def frozen_flow_clock(monkeypatch):
+    """Pin the clock the relative-expiry rule reads to 2026-08-24.
+
+    `select_expiry` resolves the month types against today. The expiry lists
+    in these tests are fixed dates, so without a fixed today the expected
+    contract changes with the calendar: after 2026-08-28 "next_month" became
+    29OCT26 and three tests went red with no code change. The executor and the
+    endpoint call `select_expiry` without `now=` (production uses the real
+    date), so the clock is pinned where they read it.
+    """
+    import services.flow_node_contracts as contracts
+
+    fixed = datetime(2026, 8, 24, 10, 0)
+
+    class _FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed if tz is None else fixed.replace(tzinfo=tz)
+
+    monkeypatch.setattr(contracts, "datetime", _FixedDatetime)
+    return fixed
+
+
+@pytest.mark.usefixtures("frozen_flow_clock")
 class TestALegReachesTheBrokerAsBuilt:
     """The end of the chain: what the editor builds is what gets placed.
 
@@ -503,7 +529,7 @@ class TestOneExpiryRuleForTheRunAndThePicker:
 
 
 @pytest.fixture
-def leg_contracts_client(monkeypatch):
+def leg_contracts_client(monkeypatch, frozen_flow_clock):
     """The /flow/api/option-strikes endpoint with the broker calls stubbed.
 
     Auth and live market data are not what these check; the endpoint's job is
