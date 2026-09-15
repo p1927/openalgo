@@ -1023,7 +1023,9 @@ describe('StrategyBuilder live request orchestration', () => {
     expect(farGreekRow).toHaveTextContent('-400.00')
     expect(farGreekRow).toHaveTextContent('0.060000')
     expect(farGreekRow).toHaveTextContent('450.00')
-  })
+    // Full-builder test: well under 5s on a plain run, over it under `vitest --coverage`
+    // on CI runners (Trade backlog 2026-09-11-openalgo-strategybuilder-test-timeouts).
+  }, SLOW_INTEGRATION_TEST_TIMEOUT)
 
   it('refreshes each calendar expiry from its own option-chain Greeks response', async () => {
     const user = userEvent.setup()
@@ -1325,7 +1327,9 @@ describe('StrategyBuilder live request orchestration', () => {
     expect(greekCells[0]).toHaveTextContent('12.00')
     for (const cell of greekCells.slice(1)) expect(cell).toHaveTextContent('-')
     expect(editedRow).not.toHaveTextContent('0.4400')
-  })
+    // Full-builder test: well under 5s on a plain run, over it under `vitest --coverage`
+    // on CI runners (Trade backlog 2026-09-11-openalgo-strategybuilder-test-timeouts).
+  }, SLOW_INTEGRATION_TEST_TIMEOUT)
 })
 
 describe('StrategyBuilder identity orchestration', () => {
@@ -1394,7 +1398,9 @@ describe('StrategyBuilder identity orchestration', () => {
       expect(persistedDays).toBeGreaterThan(0.24)
       expect(persistedDays).toBeLessThan(0.26)
     })
-  })
+    // Full-builder test: well under 5s on a plain run, over it under `vitest --coverage`
+    // on CI runners (Trade backlog 2026-09-11-openalgo-strategybuilder-test-timeouts).
+  }, SLOW_INTEGRATION_TEST_TIMEOUT)
 
   it('disables Add immediately when expiry changes until the matching chain arrives', async () => {
     const nextChain = deferred<OptionChainResponse>()
