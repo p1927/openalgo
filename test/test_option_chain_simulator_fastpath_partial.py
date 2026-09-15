@@ -242,3 +242,36 @@ def test_full_fastpath_coverage_never_calls_multiquotes(monkeypatch, patched_opt
     assert status_code == 200
     assert multiquotes_calls == []
     assert response["warnings"] == []
+    # The fake chain declares no label, so the response must not invent one.
+    assert "simulated" not in response
+
+
+@pytest.mark.parametrize("simulated", [True, False])
+def test_simulator_chain_label_survives_the_fast_path(monkeypatch, patched_option_chain, simulated):
+    """The simulator labels a replayed chain `simulated`; rebuilding it into per-leg quotes used
+    to drop that label, so a replayed chain read back as live
+    (Trade backlog 2026-09-11-openalgo-chain-drops-simulated-flag)."""
+
+    def _labelled_get_option_chain(self, base_symbol, exchange, *, expiry_date, strike_count):
+        return {
+            "simulated": simulated,
+            "chain": [
+                {"strike": s, "ce_ltp": s * 0.01, "ce_oi": 1, "pe_ltp": s * 0.009, "pe_oi": 1}
+                for s in ALL_STRIKES
+            ],
+        }
+
+    monkeypatch.setattr(_FakeSimulatorBrokerData, "get_option_chain", _labelled_get_option_chain)
+
+    success, response, _ = svc.get_option_chain(
+        underlying=BASE_SYMBOL,
+        exchange=QUOTE_EXCHANGE,
+        expiry_date=FINAL_EXPIRY,
+        strike_count=STRIKE_COUNT,
+        api_key="fake-api-key",
+        with_quotes=True,
+        with_greeks=False,
+    )
+
+    assert success is True
+    assert response["simulated"] is simulated

@@ -674,9 +674,18 @@ def get_option_chain(
                                     for leg in sim_chain.get("chain", [])
                                 }
 
+                                # The simulator labels a replayed chain `simulated`; keep that
+                                # label on every leg built from it (read back in Step 9).
+                                sim_label = (
+                                    {"simulated": bool(sim_chain["simulated"])}
+                                    if "simulated" in sim_chain
+                                    else {}
+                                )
+
                                 def _sim_quote(ltp: float, oi: int) -> dict[str, Any]:
                                     spread = max(0.05, ltp * 0.0001)
                                     return {
+                                        **sim_label,
                                         "ltp": ltp,
                                         "oi": oi,
                                         "open": ltp,
@@ -848,6 +857,12 @@ def get_option_chain(
 
         warnings = [fastpath_partial_warning] if fastpath_partial_warning else []
 
+        # A quote source that labels its data `simulated` (the stock_simulator broker, for its
+        # replay answers) keeps that label on the chain as a whole, so a replayed chain can never
+        # be read back as live. Brokers that declare nothing get no key.
+        declared_sim = [q["simulated"] for q in quotes_map.values() if isinstance(q, dict) and "simulated" in q]
+        sim_flag = {"simulated": any(declared_sim)} if declared_sim else {}
+
         return (
             True,
             {
@@ -870,6 +885,7 @@ def get_option_chain(
                 # common case. Currently only populated by the stock_simulator
                 # fast-path's partial-coverage fill (see Step 8 above).
                 "warnings": warnings,
+                **sim_flag,
             },
             200,
         )
