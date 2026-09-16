@@ -1088,40 +1088,21 @@ class OrderManager:
         """Get all orders for the user for current session only"""
         try:
             import os
-            from datetime import datetime, timedelta
-            from datetime import time as dt_time
+            from datetime import datetime
+
+            from sandbox.session_boundary import IST, last_session_expiry_local
 
             # Get session expiry time from config (e.g., '03:00'); this is an IST
             # wall-clock time (broker sessions expire ~3 AM IST), not server-local.
             session_expiry_str = os.getenv("SESSION_EXPIRY_TIME", "03:00")
-            expiry_hour, expiry_minute = map(int, session_expiry_str.split(":"))
 
-            # Get current time in IST -- never rely on server-local time, which
-            # may be UTC (or anything else) depending on deployment.
-            ist = pytz.timezone("Asia/Kolkata")
-            now_ist = datetime.now(ist)
-            today = now_ist.date()
-
-            # Calculate session start time
-            # If current time is before session expiry (e.g., before 3 AM),
-            # session started yesterday at expiry time
-            session_expiry_time = dt_time(expiry_hour, expiry_minute)
-
-            if now_ist.time() < session_expiry_time:
-                # We're in the early morning before session expiry
-                # Session started yesterday at expiry time
-                session_start_ist = ist.localize(
-                    datetime.combine(today - timedelta(days=1), session_expiry_time)
-                )
-            else:
-                # We're after session expiry time
-                # Session started today at expiry time
-                session_start_ist = ist.localize(datetime.combine(today, session_expiry_time))
-
-            # SandboxOrders.order_timestamp is stamped via func.now() on SQLite,
-            # which resolves to naive UTC (CURRENT_TIMESTAMP), not local/IST time.
-            # Convert the IST boundary to naive UTC for a consistent comparison.
-            session_start = session_start_ist.astimezone(pytz.utc).replace(tzinfo=None)
+            # SandboxOrders.order_timestamp is always stamped explicitly at insert time
+            # (see order_timestamp=datetime.now(pytz.timezone("Asia/Kolkata")) above) with
+            # naive IST wall-clock time - the column's func.now() default is never actually
+            # hit for this table. SQLite drops the tzinfo on write, so the stored value is
+            # naive IST: resolve the session boundary in the same convention rather than
+            # converting it to UTC first (that used to skew this comparison by 5.5h).
+            session_start = last_session_expiry_local(session_expiry_str, datetime.now(IST))
 
             orders = (
                 SandboxOrders.query.filter(

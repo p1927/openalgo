@@ -40,19 +40,19 @@ def as_db_utc(aware_local):
     return aware_local.astimezone(UTC).replace(tzinfo=None)
 
 
-def last_session_expiry_utc(session_expiry_str, now_local):
-    """Resolve the most recent session boundary as a naive UTC datetime.
+def _last_session_expiry_boundary(session_expiry_str, now_local):
+    """Resolve the most recent session boundary as a timezone-aware local (IST) datetime.
 
     Args:
         session_expiry_str: Wall-clock boundary from config (e.g. '03:00').
         now_local: Timezone-aware current time in the host's timezone.
 
     Returns:
-        Naive UTC datetime of the most recent session expiry.
+        Timezone-aware IST datetime of the most recent session expiry.
     """
     if now_local.tzinfo is None:
         logger.warning(
-            "last_session_expiry_utc received a naive datetime; assuming Asia/Kolkata"
+            "_last_session_expiry_boundary received a naive datetime; assuming Asia/Kolkata"
         )
         now_local = IST.localize(now_local)
 
@@ -72,7 +72,42 @@ def last_session_expiry_utc(session_expiry_str, now_local):
         )
         boundary_today = now_local.replace(hour=3, minute=0, second=0, microsecond=0)
     if now_local >= boundary_today:
-        boundary = boundary_today
-    else:
-        boundary = boundary_today - timedelta(days=1)
-    return as_db_utc(boundary)
+        return boundary_today
+    return boundary_today - timedelta(days=1)
+
+
+def last_session_expiry_utc(session_expiry_str, now_local):
+    """Resolve the most recent session boundary as a naive UTC datetime.
+
+    For columns actually written by ``func.now()`` (naive UTC / ``CURRENT_TIMESTAMP``),
+    e.g. ``sandbox_positions.created_at``/``updated_at``.
+
+    Args:
+        session_expiry_str: Wall-clock boundary from config (e.g. '03:00').
+        now_local: Timezone-aware current time in the host's timezone.
+
+    Returns:
+        Naive UTC datetime of the most recent session expiry.
+    """
+    return as_db_utc(_last_session_expiry_boundary(session_expiry_str, now_local))
+
+
+def last_session_expiry_local(session_expiry_str, now_local):
+    """Resolve the most recent session boundary as a naive local (IST) datetime.
+
+    For columns that are always explicitly stamped with naive IST wall-clock time at
+    insert, never actually left to the ``func.now()`` default: ``SandboxOrders
+    .order_timestamp``/``update_timestamp`` and ``SandboxTrades.trade_timestamp``
+    (see ``sandbox/order_manager.py`` and ``sandbox/execution_engine.py``, which both
+    write ``datetime.now(pytz.timezone("Asia/Kolkata"))``). Comparing those columns
+    against a UTC-converted boundary silently skews by IST's +5:30 offset, exactly the
+    mistake ``as_db_utc``'s docstring warns about, just in the other direction.
+
+    Args:
+        session_expiry_str: Wall-clock boundary from config (e.g. '03:00').
+        now_local: Timezone-aware current time in the host's timezone.
+
+    Returns:
+        Naive IST datetime of the most recent session expiry.
+    """
+    return _last_session_expiry_boundary(session_expiry_str, now_local).replace(tzinfo=None)
