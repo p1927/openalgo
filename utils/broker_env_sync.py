@@ -198,8 +198,9 @@ def sync_env_token_brokers_on_startup() -> None:
     try:
         from utils.broker_credentials import apply_broker_credentials
 
-        apply_broker_credentials(get_configured_broker())
-        if is_env_token_broker():
+        broker = get_configured_broker()
+        apply_broker_credentials(broker)
+        if is_env_token_broker(broker):
             sync_result = sync_env_secret_to_auth_db(reload_env=False)
             if sync_result.get("synced"):
                 logger.info(
@@ -211,5 +212,17 @@ def sync_env_token_brokers_on_startup() -> None:
                     "Broker env sync on startup: %s",
                     sync_result.get("reason", "skipped"),
                 )
+            # An env-token broker never runs the interactive OAuth callback that would
+            # otherwise trigger this (`utils.auth_utils.handle_auth_success` — some of
+            # these, stock_simulator included, have a no-op login). Writing the token
+            # into the auth DB above makes the session look live without ever having
+            # fetched a master contract; check/kick it here regardless of whether the
+            # token above was new or already in sync, so a boot where nothing changed
+            # still gets a contract the first time. See
+            # 2026-08-28-openalgo-fno-eligibility-registry-empty (Trade monorepo).
+            if sync_result.get("reason") != "no_target_user":
+                from utils.auth_utils import ensure_master_contract
+
+                ensure_master_contract(broker)
     except Exception as e:
         logger.warning(f"Broker env sync on startup failed: {e}")

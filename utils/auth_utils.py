@@ -144,6 +144,36 @@ def should_download_master_contract(broker):
         return True, f"Download was before {cutoff_hour:02d}:{cutoff_minute:02d} {tz_label} cutoff"
 
 
+def ensure_master_contract(broker):
+    """Init this broker's master-contract status and kick a background download/load.
+
+    Shared by every path that gives a broker a live auth token: the interactive OAuth
+    callback (``handle_auth_success``) and the env-token startup sync
+    (``utils.broker_env_sync.sync_env_token_brokers_on_startup``). The two used to diverge —
+    the startup path wrote the token straight into the auth DB and never called this, so an
+    env-token broker (``stock_simulator`` among them) could sit with a live, authenticated
+    session and an empty symtoken table indefinitely: nothing about the auth DB looking
+    "logged in" implied the master contract had ever been fetched. See
+    2026-08-28-openalgo-fno-eligibility-registry-empty in the Trade monorepo's backlog.
+
+    Safe to call on every boot regardless of whether the token actually changed:
+    ``should_download_master_contract`` already answers "nothing to do" once a contract is
+    cached and fresh, so a no-op call here costs one status read, not a re-download.
+    """
+    init_broker_status(broker)
+
+    should_download, reason = should_download_master_contract(broker)
+    logger.info(f"Smart download check for {broker}: should_download={should_download}, reason={reason}")
+
+    if should_download:
+        thread = Thread(target=async_master_contract_download, args=(broker,), daemon=True)
+        thread.start()
+    else:
+        logger.info(f"Skipping download for {broker}: {reason}")
+        thread = Thread(target=load_existing_master_contract, args=(broker,), daemon=True)
+        thread.start()
+
+
 def load_existing_master_contract(broker):
     """
     Load existing master contract data without re-downloading.
@@ -451,22 +481,7 @@ def handle_auth_success(auth_token, user_session_key, broker, feed_token=None, u
     )
     if inserted_id:
         logger.info(f"Database record upserted with ID: {inserted_id}")
-        # Initialize master contract status for this broker
-        init_broker_status(broker)
-
-        # Smart download: Check if we need to download or can use cached data
-        should_download, reason = should_download_master_contract(broker)
-        logger.info(f"Smart download check for {broker}: should_download={should_download}, reason={reason}")
-
-        if should_download:
-            # Start async download in background thread
-            thread = Thread(target=async_master_contract_download, args=(broker,), daemon=True)
-            thread.start()
-        else:
-            # Use cached data - load existing master contract
-            logger.info(f"Skipping download for {broker}: {reason}")
-            thread = Thread(target=load_existing_master_contract, args=(broker,), daemon=True)
-            thread.start()
+        ensure_master_contract(broker)
 
         # Return JSON for AJAX requests (React), redirect for OAuth callbacks
         if is_ajax_request():
