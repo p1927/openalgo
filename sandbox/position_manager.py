@@ -26,7 +26,7 @@ from database.sandbox_db import SandboxPositions, SandboxTrades, db_session, get
 from database.token_db import get_symbol_info
 from sandbox.fund_manager import FundManager
 from sandbox.holdings_manager import HoldingsManager
-from sandbox.session_boundary import IST, last_session_expiry_utc
+from sandbox.session_boundary import IST, last_session_expiry_local, last_session_expiry_utc
 from services.market_data_service import get_market_data_service
 from services.quotes_service import get_multiquotes, get_quotes
 from utils.logging import get_logger
@@ -1052,12 +1052,15 @@ class PositionManager:
             # Get session expiry time from config (e.g., '03:00')
             session_expiry_str = os.getenv("SESSION_EXPIRY_TIME", "03:00")
 
-            # SandboxTrades.trade_timestamp is stamped via func.now() on SQLite,
-            # which resolves to naive UTC (CURRENT_TIMESTAMP), not local/IST
-            # time -- see sandbox/session_boundary.py for why every such
-            # comparison must be routed through here rather than converted by
-            # hand at the call site.
-            session_start = last_session_expiry_utc(session_expiry_str, datetime.now(IST))
+            # SandboxTrades.trade_timestamp is always stamped explicitly at insert
+            # time (sandbox/execution_engine.py:
+            # trade_timestamp=datetime.now(pytz.timezone("Asia/Kolkata"))) with naive
+            # IST wall-clock time -- the column's func.now() default is never actually
+            # hit for this table, unlike sandbox_positions.updated_at above. Resolve
+            # the boundary in the same IST convention rather than converting to UTC
+            # first (that used to skew this comparison by 5.5h) -- see
+            # sandbox/session_boundary.py.
+            session_start = last_session_expiry_local(session_expiry_str, datetime.now(IST))
 
             trades = (
                 SandboxTrades.query.filter(
