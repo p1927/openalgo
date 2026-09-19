@@ -1038,6 +1038,11 @@ def get_auth_token_broker(provided_api_key, include_feed_token=False):
                     # Token was revoked, remove from cache
                     auth_cache.pop(cache_key, None)
                     logger.warning(f"Cached auth token was revoked for user_id '{user_id}'.")
+                    # Fork sidecar: stock_simulator's no-op session reconnects itself (D123).
+                    from utils.stock_simulator_session import reconnect_if_configured
+
+                    if reconnect_if_configured(user_id):
+                        return get_auth_token_broker(provided_api_key, include_feed_token)
                     return (None, None, None) if include_feed_token else (None, None)
                 # Re-fetch from DB when cache holds a negative result (valid key, dead session)
                 if cached_result and cached_result[0] is None:
@@ -1073,6 +1078,11 @@ def get_auth_token_broker(provided_api_key, include_feed_token=False):
                 logger.debug(f"Auth token cached for user_id: {user_id}")
                 return result
             else:
+                # Fork sidecar: stock_simulator's no-op session reconnects itself (D123).
+                from utils.stock_simulator_session import reconnect_if_configured
+
+                if reconnect_if_configured(user_id):
+                    return get_auth_token_broker(provided_api_key, include_feed_token)
                 # Cache the negative result to prevent repeated DB queries and log spam
                 # (e.g., orphaned users with revoked sessions polled by background services)
                 negative_result = (None, None, None) if include_feed_token else (None, None)

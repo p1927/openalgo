@@ -200,6 +200,9 @@ def sync_env_token_brokers_on_startup() -> None:
 
         broker = get_configured_broker()
         apply_broker_credentials(broker)
+        from utils.stock_simulator_session import reconnect_if_configured
+
+        reconnect_if_configured()  # fork sidecar (D123): no-op session, no-op unless configured
         if is_env_token_broker(broker):
             sync_result = sync_env_secret_to_auth_db(reload_env=False)
             if sync_result.get("synced"):
