@@ -81,6 +81,10 @@ def init_db():
 
 def get_analyze_mode():
     """Get current analyze mode setting (cached for 1 hour)"""
+    from utils.stock_simulator_session import forces_sandbox_routing
+
+    if forces_sandbox_routing():  # stock_simulator broker: always the simulated market (D123)
+        return True
     cache_key = "analyze_mode"
 
     # Check cache first

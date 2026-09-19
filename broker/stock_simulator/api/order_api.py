@@ -1,4 +1,5 @@
-"""Order API stub — analyzer mode routes orders to OpenAlgo sandbox."""
+"""Order API stub — never reached: utils.stock_simulator_session.forces_sandbox_routing() sends
+every stock_simulator order to the OpenAlgo sandbox (simulated market), analyzer toggle or not."""
 
 from __future__ import annotations
 

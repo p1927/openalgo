@@ -43,3 +43,14 @@ def reconnect_if_configured(username: str | None = None) -> bool:
         return False
     logger.info("stock_simulator session auto-connected for user %s", username)
     return True
+
+
+def forces_sandbox_routing() -> bool:
+    """True when the configured broker is ``stock_simulator``: every order/read then goes through
+    the OpenAlgo sandbox engine (the simulated market), whatever the analyzer toggle says.
+
+    The broker's own ``order_api`` is a stub with no exchange behind it, so "live mode" for this
+    broker can only mean the sandbox. Hook: ``database.settings_db.get_analyze_mode`` -- the one
+    function all ~45 analyze-mode branches read. Any other broker: False, behaviour unchanged.
+    """
+    return get_configured_broker() == BROKER
