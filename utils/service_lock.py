@@ -25,9 +25,11 @@ from pathlib import Path
 
 
 def _lock_dir() -> Path:
-    from trade_integrations.runtime_root import vibe_trading_home  # tier-aware, like Trade's service_lock
-
-    d = vibe_trading_home() / "locks"
+    # Tier-aware like Trade's runtime_root.vibe_trading_home(), inlined on purpose: OpenAlgo runs in its
+    # own venv without `tradingagents`, so importing `trade_integrations` here crashes startup
+    # (acquire_service_lock runs before the app binds its port).
+    home = os.environ.get("VIBE_TRADING_HOME", "").strip()
+    d = (Path(home).expanduser() if home else Path.home() / ".vibe-trading") / "locks"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
