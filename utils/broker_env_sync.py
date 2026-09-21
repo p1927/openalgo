@@ -138,6 +138,10 @@ def sync_env_secret_to_auth_db(
         reload_env_from_file()
 
     broker = (broker or get_configured_broker()).lower()
+    # fork sidecar (D124): stock_simulator owns the auth row and needs no env token; INDmoney's
+    # token belongs to the Trade recorder, so it must never be written into OpenAlgo's auth table.
+    if get_configured_broker() == "stock_simulator":
+        return {"synced": False, "reason": "stock_simulator_owns_session", "broker": broker, "updated_users": []}
     if not is_env_token_broker(broker):
         return {"synced": False, "reason": "not_env_token_broker", "broker": broker, "updated_users": []}
 
