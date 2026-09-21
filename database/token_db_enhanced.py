@@ -1187,9 +1187,9 @@ def get_distinct_expiries_cached(
                 except ValueError:
                     return datetime.max
 
-        from services.expiry_service import _expiry_reference_date
+        from broker.stock_simulator.api.expiry_reference import expiry_reference_date
 
-        today = _expiry_reference_date(None)
+        today = expiry_reference_date(None)
         live_expiries = [e for e in expiries if parse_expiry(e).date() >= today]
         return sorted(live_expiries, key=parse_expiry)
 
