@@ -25,7 +25,9 @@ from pathlib import Path
 
 
 def _lock_dir() -> Path:
-    d = Path.home() / ".vibe-trading" / "locks"
+    from trade_integrations.runtime_root import vibe_trading_home  # tier-aware, like Trade's service_lock
+
+    d = vibe_trading_home() / "locks"
     d.mkdir(parents=True, exist_ok=True)
     return d
 

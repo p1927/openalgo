@@ -437,11 +437,11 @@ def register(mcpserver):
 
 
     def _trade_widget_store_dir():
-        from pathlib import Path
+        # The one tier-aware resolver (honours VIBE_TRADING_HOME); a literal ~/.vibe-trading
+        # here put release agents' widgets in dev's home (backlog 2026-09-20-release-agent-widgets-land-in-dev-home).
+        from trade_integrations.trade_widgets.store import trade_widget_dir
 
-        root = Path.home() / ".vibe-trading" / "trade_widgets"
-        root.mkdir(parents=True, exist_ok=True)
-        return root
+        return trade_widget_dir()
 
 
     @tool('research', title='Get Options Trade Widget', risk=RISK_EXTERNAL_TEXT)
