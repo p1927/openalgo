@@ -778,11 +778,17 @@ def register(mcpserver):
         confidence: int | None = None,
         direction: str | None = None,
         strategy: str | None = None,
+        exit_reason: str | None = None,
     ) -> str:
         """
         Log an autonomous agent decision (ENTER/REVISE/EXIT/HOLD/SKIP).
 
         Updates the agent instance thesis (direction, strategy, confidence, rationale).
+
+        Args:
+            exit_reason: for EXIT, why — one of thesis_broken, stop_hit, target_hit,
+                time_exit, risk_reduction, mandate, other. thesis_broken/stop_hit mark the
+                strategy FAILED; the rationale's wording is never used for that.
         """
         try:
             actions = _import_autonomous_agents()
@@ -795,6 +801,7 @@ def register(mcpserver):
                 confidence=confidence,
                 direction=direction,
                 strategy=strategy,
+                exit_reason=exit_reason,
             )
             return json.dumps(result, indent=2, default=str)
         except Exception as e:
