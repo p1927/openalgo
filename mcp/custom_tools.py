@@ -235,11 +235,11 @@ def register(mcpserver):
         )
 
 
-    def _fetch_expiries_via_channel(underlying: str, options_exchange: str) -> list[str]:
+    def _fetch_expiries_via_channel(underlying: str, exchange: str) -> list[str]:
         _ensure_trade_stack_import()
         from trade_integrations.openalgo.market_data import fetch_option_expiry_dates
 
-        return fetch_option_expiry_dates(underlying, options_exchange)
+        return fetch_option_expiry_dates(underlying, exchange)
 
 
     def _import_stock_research():
@@ -375,18 +375,9 @@ def register(mcpserver):
                 expiry_date=expiry_date,
                 strike_count=strike_count,
             )
-            if not chain_snapshot.get("expiry_date"):
-                options_exchange = "NFO" if exchange.upper() in ("NSE", "NSE_INDEX") else "BFO"
-                expiries = _fetch_expiries_via_channel(underlying, options_exchange)
-                if expiries and not expiry_date:
-                    chain_snapshot = _chain_snapshot_via_hub_channel(
-                        underlying,
-                        exchange,
-                        expiry_date=_normalize_openalgo_expiry(expiries[0]),
-                        strike_count=strike_count,
-                    )
-            options_exchange = "NFO" if exchange.upper() in ("NSE", "NSE_INDEX") else "BFO"
-            expiries = _fetch_expiries_via_channel(underlying, options_exchange)
+            # The chain call resolves the nearest expiry itself (and maps NSE_INDEX -> NFO for
+            # it) or raises; this listing is only for the browse summary's expiry picker.
+            expiries = _fetch_expiries_via_channel(underlying, exchange)
             chain_snapshot["expiries"] = [_normalize_openalgo_expiry(e) for e in expiries]
 
             summary = build_browse_summary(chain_snapshot)
