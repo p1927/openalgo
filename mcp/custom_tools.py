@@ -10,6 +10,7 @@ the name collides with the pip-installed ``mcp`` SDK, so this can't be a
 normal import).
 """
 
+import functools
 import json
 import os
 import sys
@@ -41,6 +42,49 @@ def _get_logger():
 logger = _get_logger()
 
 
+def _error_result_text(result: Any) -> str | None:
+    """The message when ``result`` is one of this module's two error-return shapes, else None.
+
+    The tools below report failure by *returning* either ``"Error ..."`` prose or a JSON object
+    whose top-level ``status`` is ``"error"``. Returned like that, FastMCP sends them as a
+    successful result (``isError: false``), so the vibe agent's tool trail and every dashboard
+    counted them as ``ok``.
+    """
+    if not isinstance(result, str):
+        return None
+    if result.startswith("Error"):
+        return result
+    if not result.lstrip().startswith("{"):
+        return None
+    try:
+        data = json.loads(result)
+    except ValueError:
+        return None
+    return result if isinstance(data, dict) and data.get("status") == "error" else None
+
+
+def _raise_on_error_result(fn):
+    """Make an error-shaped return a real MCP tool error.
+
+    FastMCP turns an exception raised by a tool into ``isError: true``, and the stdio client
+    (vibetrading ``tools/mcp.py``) maps that to ``status: error``. The message is the tool's own
+    error text, so the model still reads exactly what it did before. One wrapper here, not 56
+    edits to the individual error returns. See Trade backlog
+    2026-09-23-mcp-tool-errors-reported-ok.
+    """
+    from mcp.server.fastmcp.exceptions import ToolError
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        result = fn(*args, **kwargs)
+        message = _error_result_text(result)
+        if message is not None:
+            raise ToolError(message)
+        return result
+
+    return wrapper
+
+
 def register(mcpserver):
     """Register our custom MCP tools onto the shared FastMCP instance.
 
@@ -57,7 +101,9 @@ def register(mcpserver):
     # the tool is unreachable over the HTTP/SSE transport and its write/read
     # classification is never reviewed.
     # See .claude/backlog/items/2026-09-10-mcp-custom-tools-no-scopes.md.
-    tool = mcpserver.openalgo_tool
+    def tool(*args, **kwargs):
+        register_tool = mcpserver.openalgo_tool(*args, **kwargs)
+        return lambda fn: register_tool(_raise_on_error_result(fn))
     RISK_BROKER_STRUCTURED = mcpserver.RISK_BROKER_STRUCTURED
     RISK_EXTERNAL_TEXT = mcpserver.RISK_EXTERNAL_TEXT
 
@@ -1387,8 +1433,8 @@ def register(mcpserver):
     @tool('research', title='Run Browser Task', risk=RISK_EXTERNAL_TEXT)
     def run_browser_task(
         goal: str,
-        start_urls: str | None = None,
-        output_schema: str | None = None,
+        start_urls: list[str] | None = None,
+        output_schema: dict[str, Any] | None = None,
         max_steps: int = 20,
         persist: bool = True,
     ) -> str:
@@ -1400,8 +1446,8 @@ def register(mcpserver):
 
         Args:
             goal: Natural-language objective (required)
-            start_urls: JSON array of entry URLs, e.g. ["https://www.rbi.org.in/"]
-            output_schema: JSON schema string for structured extraction
+            start_urls: Array of entry URLs, e.g. ["https://www.rbi.org.in/"]
+            output_schema: JSON schema object for structured extraction
             max_steps: MiniMax operator step budget, 1-20 (default 20). A larger value is
                 capped at 20; the result's max_steps_effective reports the value used.
             persist: Save artifacts under reports/hub/_data/nse_browser/tasks/
@@ -1412,17 +1458,16 @@ def register(mcpserver):
         try:
             from trade_integrations.tools.nse_browser_tools import query_run_browser_task as _run
 
-            urls: list[str] | None = None
-            if start_urls:
-                parsed = json.loads(start_urls)
-                if isinstance(parsed, list):
-                    urls = [str(u) for u in parsed]
-                elif isinstance(parsed, str):
-                    urls = [parsed]
-            schema: dict | None = None
-            if output_schema:
-                schema = json.loads(output_schema)
-            return _run(goal, start_urls=urls, output_schema=schema, max_steps=max_steps, persist=persist)
+            # Typed list/dict so the schema the model sees is the contract (it sent arrays and was
+            # rejected while these were declared `str`). FastMCP still parses a JSON-string
+            # argument into these types, so an older caller that sends a string keeps working.
+            return _run(
+                goal,
+                start_urls=start_urls or None,
+                output_schema=output_schema or None,
+                max_steps=max_steps,
+                persist=persist,
+            )
         except Exception as e:
             logger.exception("run_browser_task failed: %s", e)
             return json.dumps({"status": "error", "error": str(e)}, indent=2)
