@@ -276,6 +276,16 @@ def _envelope(tool_name: str, risk: str, payload: str) -> str:
     )
 
 
+# Fork sidecar: refuse raw order tools from an autonomous agent's session (mcp/agent_order_guard.py).
+import importlib.util as _ilu  # noqa: E402
+
+_agent_order_guard_spec = _ilu.spec_from_file_location(
+    "openalgo_mcp_agent_order_guard", os.path.join(os.path.dirname(__file__), "agent_order_guard.py")
+)
+_agent_order_guard = _ilu.module_from_spec(_agent_order_guard_spec)
+_agent_order_guard_spec.loader.exec_module(_agent_order_guard)
+
+
 def openalgo_tool(
     toolset: str,
     *,
@@ -312,6 +322,7 @@ def openalgo_tool(
     is_write = write or destructive
 
     def decorator(fn):
+        fn = _agent_order_guard.guard(fn)
         name = fn.__name__
         active = toolset in ACTIVE_TOOLSETS and not (READ_ONLY and is_write)
 

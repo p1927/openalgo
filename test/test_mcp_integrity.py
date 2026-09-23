@@ -649,3 +649,35 @@ def test_documented_tools_exist(fastmcp_tools):
     }
     missing = sorted(documented - set(fastmcp_tools))
     assert not missing, f"documented but not registered: {missing}"
+
+
+def test_raw_order_tools_refuse_an_autonomous_agent_session(server, fastmcp_tools, monkeypatch):
+    """Every raw order tool takes the host-injected vibe_session_id and refuses an agent's session.
+
+    Backstop to the Vibe registry filter (Trade intent_capabilities.RAW_ORDER_TOOLS): an agent orders
+    only through execute_autonomous_basket / submit_* intents, never these. A caller whose session
+    no agent owns, or with no session id (any other MCP client), reaches the tool unchanged.
+    """
+    guard = server._agent_order_guard
+    write_tools = {n for n, s in TOOL_SCOPES.items() if s == SCOPE_WRITE_ORDERS}
+    assert set(guard.RAW_ORDER_TOOLS) <= write_tools, "every guarded name must be a write:orders tool"
+    for name in guard.RAW_ORDER_TOOLS:
+        assert "vibe_session_id" in fastmcp_tools[name].parameters["properties"], name
+    for name in ("execute_autonomous_basket", "submit_bridge_execution_intent", "get_quote"):
+        assert "vibe_session_id" not in fastmcp_tools[name].parameters["properties"], name
+
+    monkeypatch.setattr(guard, "_owning_agent_id", lambda sid: "aa_x" if sid == "agent-sess" else None)
+    calls = []
+
+    class _Client:
+        def optionsmultiorder(self, **kw):
+            calls.append(kw)
+            return {"status": "success"}
+
+    monkeypatch.setattr(server, "client", _Client())
+    kwargs = {"strategy": "s", "underlying": "NIFTY", "exchange": "NSE_INDEX", "legs": [{"offset": "ATM"}]}
+    out = server.place_options_multi_order(**kwargs, vibe_session_id="agent-sess")
+    assert "agent_raw_order_refused" in out and not calls
+    server.place_options_multi_order(**kwargs, vibe_session_id="human-sess")
+    server.place_options_multi_order(**kwargs)
+    assert len(calls) == 2 and all("vibe_session_id" not in kw for kw in calls)
