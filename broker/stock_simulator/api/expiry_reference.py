@@ -23,36 +23,62 @@ to ``datetime.now().date()``).
 """
 
 import os
-from datetime import date, datetime
+import time
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
+
+_IST = ZoneInfo("Asia/Kolkata")
 
 
 def _broker_is_stock_simulator(api_key: str | None) -> bool:
     if os.getenv("STOCK_SIMULATOR_MODE", "").strip().lower() == "replay":
         return True
-    if api_key:
-        from database.auth_db import get_broker_name
+    from database.auth_db import get_broker_name, get_first_available_api_key
 
-        if get_broker_name(api_key) == "stock_simulator":
-            return True
     from flask import has_request_context, session
 
-    return has_request_context() and session.get("broker") == "stock_simulator"
+    if has_request_context() and session.get("broker") == "stock_simulator":
+        return True
+    # No key and no browser session (the sandbox's own position/expiry sweeps): the
+    # single-user install's logged-in broker decides.
+    key = api_key or get_first_available_api_key()
+    return bool(key) and get_broker_name(key) == "stock_simulator"
 
 
-def simulator_today() -> date:
-    """The day the stock_simulator service's clock is on. Raises if the service cannot be
-    asked: a stale guess here serves expired contracts as live."""
+def simulator_now() -> datetime:
+    """The IST instant the stock_simulator service's clock is on. Raises if the service cannot
+    be asked: a stale guess here serves expired contracts as live, or settles live ones."""
     from broker.stock_simulator.api._trade_path import ensure_trade_integrations_path
 
     ensure_trade_integrations_path()
     from trade_integrations.stock_simulator.client import StockSimulatorClient
-    from trade_integrations.stock_simulator.run_identity import simulator_day
+    from trade_integrations.stock_simulator.run_identity import simulator_now as _from_status
 
-    return simulator_day(StockSimulatorClient().status())
+    return _from_status(StockSimulatorClient().status())
 
 
-def expiry_reference_date(api_key: str | None) -> date:
-    """Wall-clock today for live brokers; the simulator's own day for stock_simulator."""
+def expiry_reference_now(api_key: str | None = None) -> datetime:
+    """IST-aware "now" for contract expiry: the wall clock for live brokers, the simulator's
+    own instant for stock_simulator. The sandbox settled contracts that were live on the
+    replayed day because it compared their expiry against the wall clock
+    (Trade backlog 2026-09-23-entry-fills-expired-contract).
+
+    ponytail: memoised for 1 s — the sandbox asks once per position/order in a loop, and each
+    answer costs a DB key lookup plus a simulator HTTP call; 1 s staleness cannot move a
+    contract across its expiry in any way that matters.
+    """
+    cached = _NOW_CACHE.get(api_key)
+    if cached is not None and time.monotonic() - cached[0] < 1.0:
+        return cached[1] + timedelta(seconds=time.monotonic() - cached[0])
+    now = _expiry_reference_now_uncached(api_key)
+    _NOW_CACHE[api_key] = (time.monotonic(), now)
+    return now
+
+
+_NOW_CACHE: dict[str | None, tuple[float, datetime]] = {}
+
+
+def _expiry_reference_now_uncached(api_key: str | None) -> datetime:
     try:
         from broker.stock_simulator.api._trade_path import hydrate_simulator_env_from_db
 
@@ -61,5 +87,10 @@ def expiry_reference_date(api_key: str | None) -> date:
         pass
 
     if _broker_is_stock_simulator(api_key):
-        return simulator_today()
-    return datetime.now().date()
+        return simulator_now()
+    return datetime.now(_IST)
+
+
+def expiry_reference_date(api_key: str | None) -> date:
+    """Wall-clock today (IST) for live brokers; the simulator's own day for stock_simulator."""
+    return expiry_reference_now(api_key).date()

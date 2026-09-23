@@ -221,13 +221,15 @@ def is_contract_expired_now(expiry_date, exchange, now=None):
     Args:
         expiry_date: datetime.date of contract expiry (None returns False)
         exchange: Exchange code, used to pick the closing time
-        now: Optional aware datetime for testing; defaults to IST now
+        now: Optional aware datetime for testing; defaults to the broker's IST now
+            (the replay clock under stock_simulator, see expiry_reference_now)
     """
     if expiry_date is None:
         return False
 
-    ist = pytz.timezone("Asia/Kolkata")
-    now = now or datetime.now(ist)
+    from broker.stock_simulator.api.expiry_reference import expiry_reference_now
+
+    now = now or expiry_reference_now()
     today = now.date()
 
     if today > expiry_date:
