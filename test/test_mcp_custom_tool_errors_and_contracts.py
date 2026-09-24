@@ -139,7 +139,7 @@ def test_record_autonomous_decision_actions_taken_is_a_string_array() -> None:
 
 
 def test_in_app_http_transport_does_not_serve_the_trade_tools(monkeypatch) -> None:
-    """Trade DECISIONS D348 (Trade backlog 2026-09-23-openalgo-http-mcp-lacks-trade-deps): inside
+    """Trade DECISIONS D349 (Trade backlog 2026-09-23-openalgo-http-mcp-lacks-trade-deps): inside
     the broker app (OPENALGO_MCP_IN_APP=1, openalgo/.venv) the Trade tools are defined but
     unregistered, so an HTTP call fails with "Tool not implemented"; stdio still serves them."""
     from types import SimpleNamespace

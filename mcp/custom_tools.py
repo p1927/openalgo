@@ -65,7 +65,7 @@ def register(mcpserver):
     # (sklearn, nselib, ...), which only the stdio server runs on (scripts/run_openalgo_mcp.sh);
     # the broker app runs on openalgo/.venv. Each is still defined and listed in TOOL_META, but
     # unregistered, so a call over HTTP fails loudly with "Tool not implemented" instead of
-    # running and failing deep inside Trade research (Trade DECISIONS D348).
+    # running and failing deep inside Trade research (Trade DECISIONS D349).
     in_app = os.environ.get("OPENALGO_MCP_IN_APP") == "1"
 
     def tool(*args, **kwargs):
