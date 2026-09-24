@@ -140,6 +140,17 @@ class WebSocketExecutionEngine:
         """Build index of pending orders from database"""
         subscriptions_to_add: dict[str, list[tuple[str, str]]] = {}
 
+        # "Contract expired" is judged against the broker's own day: the replayed day under
+        # stock_simulator, not the wall clock. Resolved once, before the lock: it can make a DB
+        # and an HTTP call, and a real lock's critical section stays in-memory (eventlet).
+        try:
+            from broker.stock_simulator.api.expiry_reference import expiry_reference_date
+
+            today = expiry_reference_date(None)
+        except Exception as e:
+            logger.exception(f"Error building order index: cannot resolve the expiry reference day: {e}")
+            return
+
         with self._lock:
             self._pending_orders_index.clear()
             self._pending_gtt_index.clear()
@@ -165,12 +176,10 @@ class WebSocketExecutionEngine:
                     # deliberately NOT done here, since cancel_order re-enters
                     # this engine via notify_order_completed and would deadlock
                     # on self._lock.
-                    from datetime import date
-
                     from sandbox.position_manager import get_contract_expiry
 
                     expiry_date = get_contract_expiry(order.symbol, order.exchange)
-                    if expiry_date is not None and date.today() > expiry_date:
+                    if expiry_date is not None and today > expiry_date:
                         logger.info(
                             f"Skipping WS subscription for {order.symbol}: contract "
                             f"expired {expiry_date}; order {order.orderid} awaits auto-cancel"
@@ -208,8 +217,6 @@ class WebSocketExecutionEngine:
                 # Contracts already past expiry are skipped -- their positions
                 # are awaiting settlement, and the symbol may already be gone
                 # from the master contract.
-                from datetime import date
-
                 from database.sandbox_db import SandboxPositions
                 from sandbox.position_manager import get_contract_expiry
 
@@ -219,7 +226,7 @@ class WebSocketExecutionEngine:
                 pos_subscribed = 0
                 for pos in open_positions:
                     expiry = get_contract_expiry(pos.symbol, pos.exchange)
-                    if expiry is not None and date.today() > expiry:
+                    if expiry is not None and today > expiry:
                         continue
                     key = f"{pos.exchange}:{pos.symbol}"
                     if (pos.user_id, key) not in self._position_refs:
