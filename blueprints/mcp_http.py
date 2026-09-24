@@ -216,6 +216,9 @@ def init_http_transport() -> None:
     # Make the legacy stdio module skip its argv check when the HTTP
     # transport boots it. MUST be set BEFORE loading mcp/mcpserver.py.
     os.environ["OPENALGO_MCP_HTTP_BOOT"] = "1"
+    # Fork: tells mcp/custom_tools.py it is loaded inside the broker app, which does not serve the
+    # Trade tools (they need the Trade stack's interpreter; Trade DECISIONS D348).
+    os.environ["OPENALGO_MCP_IN_APP"] = "1"
 
     # The local ``mcp/`` directory is not a Python package (no
     # ``__init__.py``) — adding one would shadow the pip-installed
@@ -645,8 +648,18 @@ def _dispatch_tool_call(
     started = time.perf_counter()
     outcome = "success"
     error_detail: str | None = None
+    from mcp.server.fastmcp.exceptions import ToolError
+
+    tool_error_text: str | None = None
     try:
         result_text = fn(**arguments)  # tools accept kwargs only
+    except ToolError as e:
+        # A tool's own error answer (mcp/agent_order_guard.py raises its returned error text so
+        # stdio clients see isError). It is the text the tool designed for the caller, so it is
+        # passed back as an isError result, not hidden like an unexpected exception.
+        outcome = "tool_error"
+        tool_error_text = str(e)
+        result_text = None
     except TypeError as e:
         outcome = "bad_arguments"
         error_detail = str(e)[:300]
@@ -673,6 +686,11 @@ def _dispatch_tool_call(
         }
     )
 
+    if tool_error_text is not None:
+        return _jsonrpc_result(
+            rpc_id,
+            {"content": [{"type": "text", "text": tool_error_text}], "isError": True},
+        )
     if outcome != "success":
         # Do NOT echo error_detail back to the client — it can carry SQL
         # error messages, internal paths, or function-signature reveals

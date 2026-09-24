@@ -676,8 +676,13 @@ def test_raw_order_tools_refuse_an_autonomous_agent_session(server, fastmcp_tool
 
     monkeypatch.setattr(server, "client", _Client())
     kwargs = {"strategy": "s", "underlying": "NIFTY", "exchange": "NSE_INDEX", "legs": [{"offset": "ATM"}]}
-    out = server.place_options_multi_order(**kwargs, vibe_session_id="agent-sess")
-    assert "agent_raw_order_refused" in out and not calls
+    # The refusal is a real MCP tool error (isError), not an ok result carrying an error body
+    # (Trade backlog 2026-09-23-mcp-wrapper-ok-on-tool-refusal).
+    from mcp.server.fastmcp.exceptions import ToolError
+
+    with pytest.raises(ToolError, match="agent_raw_order_refused"):
+        server.place_options_multi_order(**kwargs, vibe_session_id="agent-sess")
+    assert not calls
     server.place_options_multi_order(**kwargs, vibe_session_id="human-sess")
     server.place_options_multi_order(**kwargs)
     assert len(calls) == 2 and all("vibe_session_id" not in kw for kw in calls)

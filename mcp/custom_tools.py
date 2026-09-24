@@ -10,7 +10,6 @@ the name collides with the pip-installed ``mcp`` SDK, so this can't be a
 normal import).
 """
 
-import functools
 import json
 import os
 import sys
@@ -42,49 +41,6 @@ def _get_logger():
 logger = _get_logger()
 
 
-def _error_result_text(result: Any) -> str | None:
-    """The message when ``result`` is one of this module's two error-return shapes, else None.
-
-    The tools below report failure by *returning* either ``"Error ..."`` prose or a JSON object
-    whose top-level ``status`` is ``"error"``. Returned like that, FastMCP sends them as a
-    successful result (``isError: false``), so the vibe agent's tool trail and every dashboard
-    counted them as ``ok``.
-    """
-    if not isinstance(result, str):
-        return None
-    if result.startswith("Error"):
-        return result
-    if not result.lstrip().startswith("{"):
-        return None
-    try:
-        data = json.loads(result)
-    except ValueError:
-        return None
-    return result if isinstance(data, dict) and data.get("status") == "error" else None
-
-
-def _raise_on_error_result(fn):
-    """Make an error-shaped return a real MCP tool error.
-
-    FastMCP turns an exception raised by a tool into ``isError: true``, and the stdio client
-    (vibetrading ``tools/mcp.py``) maps that to ``status: error``. The message is the tool's own
-    error text, so the model still reads exactly what it did before. One wrapper here, not 56
-    edits to the individual error returns. See Trade backlog
-    2026-09-23-mcp-tool-errors-reported-ok.
-    """
-    from mcp.server.fastmcp.exceptions import ToolError
-
-    @functools.wraps(fn)
-    def wrapper(*args, **kwargs):
-        result = fn(*args, **kwargs)
-        message = _error_result_text(result)
-        if message is not None:
-            raise ToolError(message)
-        return result
-
-    return wrapper
-
-
 def register(mcpserver):
     """Register our custom MCP tools onto the shared FastMCP instance.
 
@@ -101,9 +57,34 @@ def register(mcpserver):
     # the tool is unreachable over the HTTP/SSE transport and its write/read
     # classification is never reviewed.
     # See .claude/backlog/items/2026-09-10-mcp-custom-tools-no-scopes.md.
+    # An error-shaped return becomes a real MCP error inside openalgo_tool (agent_order_guard.py),
+    # for every tool alike (Trade backlog 2026-09-23-mcp-wrapper-ok-on-tool-refusal).
+    #
+    # Not served by the broker app's in-app HTTP/SSE transport (OPENALGO_MCP_IN_APP=1, set by
+    # blueprints/mcp_http.py). These tools are Trade code: they need the Trade stack's interpreter
+    # (sklearn, nselib, ...), which only the stdio server runs on (scripts/run_openalgo_mcp.sh);
+    # the broker app runs on openalgo/.venv. Each is still defined and listed in TOOL_META, but
+    # unregistered, so a call over HTTP fails loudly with "Tool not implemented" instead of
+    # running and failing deep inside Trade research (Trade DECISIONS D348).
+    in_app = os.environ.get("OPENALGO_MCP_IN_APP") == "1"
+
     def tool(*args, **kwargs):
         register_tool = mcpserver.openalgo_tool(*args, **kwargs)
-        return lambda fn: register_tool(_raise_on_error_result(fn))
+        if not in_app:
+            return register_tool
+
+        def register_unserved(fn):
+            out = register_tool(fn)
+            meta = mcpserver.TOOL_META.get(fn.__name__)
+            if meta is not None and meta.registered:
+                mcpserver.mcp.remove_tool(fn.__name__)
+                meta.registered = False
+            return out
+
+        return register_unserved
+
+    if in_app:
+        logger.info("Trade custom MCP tools are not served by the in-app HTTP transport (stdio only)")
     RISK_BROKER_STRUCTURED = mcpserver.RISK_BROKER_STRUCTURED
     RISK_EXTERNAL_TEXT = mcpserver.RISK_EXTERNAL_TEXT
 
