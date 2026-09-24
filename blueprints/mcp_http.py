@@ -217,7 +217,7 @@ def init_http_transport() -> None:
     # transport boots it. MUST be set BEFORE loading mcp/mcpserver.py.
     os.environ["OPENALGO_MCP_HTTP_BOOT"] = "1"
     # Fork: tells mcp/custom_tools.py it is loaded inside the broker app, which does not serve the
-    # Trade tools (they need the Trade stack's interpreter; Trade DECISIONS D349).
+    # Trade tools (they need the Trade stack's interpreter; Trade DECISIONS, backlog 2026-09-23-openalgo-http-mcp-lacks-trade-deps).
     os.environ["OPENALGO_MCP_IN_APP"] = "1"
 
     # The local ``mcp/`` directory is not a Python package (no
