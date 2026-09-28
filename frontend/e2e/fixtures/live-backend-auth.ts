@@ -47,9 +47,13 @@ const E2E_EMAIL = process.env.OPENALGO_E2E_EMAIL || 'e2etester@example.invalid'
  */
 export async function ensureAuthenticated(page: Page): Promise<void> {
   // 1. Setup (idempotent no-op if a user already exists on this instance).
+  // Ask the backend rather than probing the page: `isVisible()` returns at once (its timeout is
+  // ignored), so on a cold Vite dev server it raced the wizard render and skipped setup.
+  const { needs_setup } = await (await page.request.get('/auth/check-setup')).json()
   await page.goto('/setup')
   const usernameInput = page.locator('input[name="username"]')
-  if (await usernameInput.isVisible({ timeout: 3000 }).catch(() => false)) {
+  if (needs_setup) {
+    await usernameInput.waitFor({ state: 'visible' })
     await usernameInput.fill(E2E_USERNAME)
     await page.locator('input[name="email"]').fill(E2E_EMAIL)
     // Password field(s) — setup form has password + confirm.
@@ -68,7 +72,9 @@ export async function ensureAuthenticated(page: Page): Promise<void> {
   await page.locator('input#username, input[name="username"]').first().fill(E2E_USERNAME)
   await page.locator('input[type="password"]').first().fill(E2E_PASSWORD)
   await page.locator('button[type="submit"]').click()
-  await page.waitForLoadState('domcontentloaded')
+  // Login lands on /broker (no broker session yet) or /dashboard; wait for that navigation so the
+  // check below does not read the still-/login URL and skip the broker connect.
+  await page.waitForURL(/\/(broker|dashboard)/, { timeout: 15000 })
 
   // 3. Broker connect — VALID_BROKERS is restricted to stock_simulator on the
   // scratch instance this suite targets, so the select defaults to it; the

@@ -102,6 +102,12 @@ def check_tmp_noexec() -> None:
         pass  # Can't read /proc/mounts, skip the check
 
 
+def _env_file_path() -> str:
+    """The .env this process reads: ``OPENALGO_ENV_FILE`` (a real process env var set before
+    launch, so an isolated/scratch instance can use its own file), else the checkout's own."""
+    return os.getenv("OPENALGO_ENV_FILE", "").strip() or os.path.join(os.path.dirname(__file__), "..", ".env")
+
+
 def check_env_version_compatibility() -> bool:
     """
     Check if the .env file version matches the .sample.env version.
@@ -110,7 +116,7 @@ def check_env_version_compatibility() -> bool:
         bool: True if compatible, False if an update is needed.
     """
     base_dir = os.path.dirname(__file__) + "/.."
-    env_path = os.path.join(base_dir, ".env")
+    env_path = _env_file_path()
     sample_env_path = os.path.join(base_dir, ".sample.env")
 
     # Check if both files exist
@@ -1158,9 +1164,7 @@ def load_and_check_env_variables() -> None:
     # checkout this module happens to be imported from — see
     # utils/broker_env_sync.py::_env_path() for the sibling override this
     # mirrors (that module re-reads/re-syncs the same file later at runtime).
-    env_path = os.getenv("OPENALGO_ENV_FILE", "").strip() or os.path.join(
-        os.path.dirname(__file__), "..", ".env"
-    )
+    env_path = _env_file_path()
 
     # Check if the .env file exists
     if not os.path.exists(env_path):

@@ -21,19 +21,13 @@ import { ensureAuthenticated } from './fixtures/live-backend-auth'
  *     for `playwright.config.ts`) to run against an independently-launched
  *     scratch instance without colliding with a real `trade dev` on 5001)
  *
- * Master-contract + tick-data plumbing (2026-09-05-openalgo-e2e-order-placement-and-deep-chain-coverage):
- * the scratch instance's `.env` builds a REAL master contract (NIFTY/
- * BANKNIFTY/SENSEX index + options, plus whatever equities the recorder has
- * captured) straight off the checked-in HF replay parquet bundle
- * (`NSE_REPLAY_DATA_ROOT` pointed at the main checkout's `data/nse/historic_data`
- * — read-only, no network call) and reads real quotes/option-chain data via
- * `STOCK_SIMULATOR_URL` pointed at the real shared dev `stock_simulator`
- * service, GET-only (`/data/*` — this suite must NEVER call that service's
- * `/control/replay/*` endpoints, which would mutate the shared replay clock
- * other concurrent sessions depend on). See that item's Attempts log for the
- * full setup and the follow-on gap it surfaced (the stock_simulator
- * service's own replay-arm state is not test-isolatable from the same
- * checkout).
+ * Master-contract + tick-data plumbing: run this suite through
+ * `scripts/openalgo_e2e_scratch_stack.py` (Trade root), which starts a private
+ * `stock_simulator` (own state dir and replay clock), a private OpenAlgo (own DBs, `.env` via
+ * `OPENALGO_ENV_FILE`, `VALID_BROKERS='stock_simulator'`) and its own Vite server on free ports,
+ * then runs this file. The master contract is built from the HF replay parquet bundle
+ * (`NSE_REPLAY_DATA_ROOT`, read-only) and quotes come from that private simulator, so nothing
+ * shared with `trade dev`/`trade release` is read or mutated.
  *
  * Authenticates ONCE in `beforeAll` and shares the resulting storage state
  * across every test in this file, rather than logging in per-test — partly
@@ -45,10 +39,9 @@ import { ensureAuthenticated } from './fixtures/live-backend-auth'
  * Opt-in: the whole suite skips unless `OPENALGO_E2E_LIVE_BACKEND` is set.
  * The ci.yml `frontend-e2e` job runs plain `npm run e2e` and starts only the
  * frontend dev server, with no authenticated backend, so there it reports as
- * skipped instead of failing on login. Wiring a real scratch backend into
- * CI is still open work in the Trade backlog. Run locally against a scratch
- * instance via:
- *   OPENALGO_E2E_LIVE_BACKEND=1 npx playwright test trading-surface.spec.ts
+ * skipped instead of failing on login. It stays a local/nightly check: the replay
+ * parquet it needs is ~2 GB and not checked in. Run it via:
+ *   python scripts/openalgo_e2e_scratch_stack.py   (from the Trade root)
  */
 
 async function loginStorageState(browser: Browser, baseURL: string | undefined) {
@@ -131,8 +124,9 @@ test.describe('Trading surface (live sandbox backend)', () => {
       timeout: 15000,
     })
 
-    // Layout selector is real chrome present once the terminal mounts.
-    await expect(page.getByText('Layout')).toBeVisible({ timeout: 15000 })
+    // The chart toolbar's symbol search (ChartPane.tsx) is real chrome present once the terminal
+    // mounts. (An older "Layout" text selector no longer exists in the toolbar.)
+    await expect(page.getByRole('button', { name: 'Search symbol' })).toBeVisible({ timeout: 15000 })
 
     const seriousErrors = consoleErrors.filter(
       (e) => !/favicon|ResizeObserver|Websocket.*reconnect/i.test(e)
