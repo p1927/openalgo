@@ -79,10 +79,6 @@ _NOW_CACHE: dict[str | None, tuple[float, datetime]] = {}
 
 
 def _expiry_reference_now_uncached(api_key: str | None) -> datetime:
-    from broker.stock_simulator.api._trade_path import hydrate_simulator_env_from_db
-
-    hydrate_simulator_env_from_db()
-
     if _broker_is_stock_simulator(api_key):
         return simulator_now()
     return datetime.now(_IST)

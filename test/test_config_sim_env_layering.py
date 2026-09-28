@@ -73,3 +73,17 @@ def test_openalgo_env_still_wins_for_non_sim_keys(tmp_path, monkeypatch) -> None
     openalgo_config._load_env_layers(root_env, str(openalgo_env))
 
     assert os.environ["HOST_SERVER"] == "http://openalgo-value"
+
+
+@pytest.mark.unit
+def test_openalgo_env_sim_key_is_ignored_when_root_env_does_not_set_it(tmp_path, monkeypatch) -> None:
+    """A worktree has no root .env: a stale NSE_REPLAY_SPEED=60 in openalgo/.env must not apply."""
+    monkeypatch.delenv("NSE_REPLAY_SPEED", raising=False)
+    monkeypatch.setattr(openalgo_config, "load_dotenv", _fake_load_dotenv)
+
+    openalgo_env = tmp_path / "openalgo.env"
+    openalgo_env.write_text("NSE_REPLAY_SPEED=60\n")
+
+    openalgo_config._load_env_layers(tmp_path / "no-root.env", str(openalgo_env))
+
+    assert "NSE_REPLAY_SPEED" not in os.environ
