@@ -11,7 +11,7 @@ broker-specific date resolution here, rather than inline in
 expiry_service.py, keeps the shared expiry-filtering logic broker-agnostic.
 
 The simulator's clock is read from the stock_simulator service itself
-(``/control/replay/status``), never from ``NSE_REPLAY_DATE``: that value
+(the one "live or replay?" call, ``GET /data/mode``, D248), never from ``NSE_REPLAY_DATE``: that value
 is whatever replay date was last persisted in the sandbox DB, and it went
 stale while the service replayed a different day (dev: anchor 2026-08-21
 while the service replayed 2026-09-22, so the nearest "live" NIFTY expiry
@@ -51,10 +51,10 @@ def simulator_now() -> datetime:
     from broker.stock_simulator.api._trade_path import ensure_trade_integrations_path
 
     ensure_trade_integrations_path()
-    from trade_integrations.stock_simulator.client import StockSimulatorClient
+    from trade_integrations.stock_simulator.integration import simulator_status
     from trade_integrations.stock_simulator.run_identity import simulator_now as _from_status
 
-    return _from_status(StockSimulatorClient().status())
+    return _from_status(simulator_status())
 
 
 def expiry_reference_now(api_key: str | None = None) -> datetime:
@@ -79,12 +79,9 @@ _NOW_CACHE: dict[str | None, tuple[float, datetime]] = {}
 
 
 def _expiry_reference_now_uncached(api_key: str | None) -> datetime:
-    try:
-        from broker.stock_simulator.api._trade_path import hydrate_simulator_env_from_db
+    from broker.stock_simulator.api._trade_path import hydrate_simulator_env_from_db
 
-        hydrate_simulator_env_from_db()
-    except Exception:
-        pass
+    hydrate_simulator_env_from_db()
 
     if _broker_is_stock_simulator(api_key):
         return simulator_now()

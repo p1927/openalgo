@@ -25,25 +25,22 @@ def hydrate_simulator_env_from_db() -> None:
     global _hydrated
     if _hydrated:
         return
-    try:
-        from database.sandbox_db import get_config
+    from database.sandbox_db import get_config
 
-        applied = False
-        db_has_sim_keys = False
-        for db_key, env_key in _SIM_DB_ENV:
-            val = get_config(db_key)
-            if val is not None:
-                db_has_sim_keys = True
-            if val is not None and str(val).strip() != "":
-                os.environ[env_key] = str(val)
-                applied = True
-        if applied:
-            os.environ.setdefault("STOCK_SIMULATOR_MODE", "replay")
-            os.environ.setdefault("HUB_NO_LEARN", "1")
-        if applied or not db_has_sim_keys:
-            _hydrated = True
-    except Exception:
-        pass
+    applied = False
+    db_has_sim_keys = False
+    for db_key, env_key in _SIM_DB_ENV:
+        val = get_config(db_key)
+        if val is not None:
+            db_has_sim_keys = True
+        if val is not None and str(val).strip() != "":
+            os.environ[env_key] = str(val)
+            applied = True
+    if applied:
+        os.environ.setdefault("STOCK_SIMULATOR_MODE", "replay")
+        os.environ.setdefault("HUB_NO_LEARN", "1")
+    if applied or not db_has_sim_keys:
+        _hydrated = True
 
 
 def ensure_trade_integrations_path() -> None:
