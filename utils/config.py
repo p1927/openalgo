@@ -1,9 +1,12 @@
 # utils/config.py
 
+import logging
 import os
 from pathlib import Path
 
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
 
 # Stock-simulator replay knobs are canonically owned by the root repo's .env /
 # trade_integrations.stock_simulator.config.load_sim_config(), not by this file's own
@@ -51,7 +54,7 @@ def _load_env_layers(repo_root_env: Path, env_file_override: str) -> None:
     # Same exemption pattern for the stock_simulator keys above: snapshot what the root
     # .env (loaded with override=False just above) already resolved, then restore it after
     # openalgo/.env's override=True load so a stale local copy of these keys can never win.
-    preset_sim_env = {key: os.environ[key] for key in _SIM_OWNED_ENV_KEYS if key in os.environ}
+    preset_sim_env = {key: os.environ.get(key) for key in _SIM_OWNED_ENV_KEYS}
     # OPENALGO_ENV_FILE overrides the implicit find_dotenv() search below (which
     # walks up from this file's own directory, so it always lands on whichever
     # checkout this module happens to be imported from) — see
@@ -64,7 +67,17 @@ def _load_env_layers(repo_root_env: Path, env_file_override: str) -> None:
     if preset_flask_debug is not None:
         os.environ["FLASK_DEBUG"] = preset_flask_debug
     for key, value in preset_sim_env.items():
-        os.environ[key] = value
+        # A key the root .env / process env never set stays unset: openalgo/.env is not a place
+        # for these keys at all, or a stale local copy (NSE_REPLAY_SPEED=60) wins whenever the
+        # root .env is absent (a worktree) and every load_sim_config() caller then raises.
+        if value is None:
+            if key in os.environ:
+                logger.warning(
+                    "ignoring %s=%r from the openalgo .env: stock_simulator replay knobs are "
+                    "owned by the root .env / the simulator service", key, os.environ.pop(key),
+                )
+        else:
+            os.environ[key] = value
 
 
 _repo_root_env = Path(__file__).resolve().parents[2] / ".env"
