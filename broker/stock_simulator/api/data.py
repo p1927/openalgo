@@ -101,7 +101,7 @@ class BrokerData:
         return list(self.timeframe_map.keys())
 
     def _mode(self) -> dict[str, Any]:
-        return self._client.data_status()["mode"]
+        return self._client.mode()
 
     def get_history(
         self,

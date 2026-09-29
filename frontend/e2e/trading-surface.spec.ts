@@ -76,9 +76,13 @@ test.describe('Trading surface (live sandbox backend)', () => {
     'needs a live scratch OpenAlgo backend: set OPENALGO_E2E_LIVE_BACKEND=1 (see file header)'
   )
 
+  // Log in once per worker and reuse the state: `storageState` as a fixture runs per TEST, and six
+  // logins inside a minute trip the backend's LOGIN_RATE_LIMIT_MIN ("5 per minute").
+  let loggedIn: ReturnType<typeof loginStorageState> | undefined
   test.use({
     storageState: async ({ browser, baseURL }, use) => {
-      await use(await loginStorageState(browser, baseURL))
+      loggedIn ??= loginStorageState(browser, baseURL)
+      await use(await loggedIn)
     },
   })
 
@@ -207,6 +211,55 @@ test.describe('Trading surface (live sandbox backend)', () => {
     await page.goto('/positions')
     await page.waitForLoadState('domcontentloaded')
     await expect(page.locator('table')).toBeVisible({ timeout: 15000 })
+  })
+
+  test('trading: places a real sandbox BUY order via the chart canvas BUY button', async ({
+    page,
+  }) => {
+    // The replay bundle records intraday bars only for the indices (quote-only, no orders), so
+    // chart a tradable equity on the daily interval, where its recorded day exists.
+    // CNC, not the default MIS: the sandbox refuses MIS after its 15:15 square-off, and the
+    // replay clock loops through the session, so MIS would pass or fail by time of day.
+    await page.addInitScript(() => {
+      localStorage.setItem('oa-trading-p0-interval', 'D')
+      localStorage.setItem('oa-trading-p0-product', 'CNC')
+    })
+    await page.goto('/trading')
+    await page.waitForLoadState('domcontentloaded')
+
+    // Load a symbol the scratch master contract has (the SELL/qty/BUY panel only exists for a
+    // tradable symbol): Search symbol -> type -> Enter loads the highlighted row.
+    await page.getByRole('button', { name: 'Search symbol' }).click()
+    await page.getByPlaceholder('Search symbol…').fill('RELIANCE')
+    await page.locator('button[data-idx="0"]').click()
+
+    // The panel is drawn on the chart's canvas, not the DOM, so click by coordinates relative to
+    // the canvas box. The geometry mirrors terminal.ts (BuySellButtons scale 0.72, margin 14/44,
+    // top-left) and openalgo-charts' layout: button 74, qty chip 40, height 42 (all x scale),
+    // 1px gaps, origin at the plot's top-left.
+    const canvas = page.locator('canvas').last()
+    await expect(canvas).toBeVisible({ timeout: 20000 })
+    const scale = 0.72
+    const buyX = 14 + 74 * scale + 40 * scale + 2 + (74 * scale) / 2
+    const buyY = 44 + (42 * scale) / 2
+    await page.waitForTimeout(3000) // let the first bars + mark price paint the panel
+    await canvas.click({ position: { x: buyX, y: buyY } })
+
+    // One-Click is off by default, so the canvas BUY opens the same ticket the option chain uses.
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toBeVisible({ timeout: 10000 })
+    const submitButton = dialog.getByRole('button', { name: /Place BUY Order/i })
+    await expect(submitButton).toBeEnabled({ timeout: 10000 })
+    await submitButton.click()
+    await expect(dialog).toBeHidden({ timeout: 15000 })
+
+    // Confirm the fill through fresh backend reads, as the option-chain order test does.
+    await page.goto('/orderbook')
+    await page.waitForLoadState('domcontentloaded')
+    await expect(page.getByText('RELIANCE').first()).toBeVisible({ timeout: 15000 })
+    await page.goto('/positions')
+    await page.waitForLoadState('domcontentloaded')
+    await expect(page.getByText('RELIANCE').first()).toBeVisible({ timeout: 15000 })
   })
 
   test('strategy builder: resolves a real chain and adds a leg at the live ATM strike', async ({

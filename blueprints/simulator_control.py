@@ -46,7 +46,7 @@ def api_simulator_status():
     try:
         client = _client()
         payload = client.status()
-        payload.update(client.data_status()["mode"])
+        payload.update(client.mode())
         return jsonify({"status": "success", "simulator": payload})
     except Exception as e:
         logger.exception("simulator status failed: %s", e)
