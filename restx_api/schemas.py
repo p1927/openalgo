@@ -1,5 +1,6 @@
 from marshmallow import EXCLUDE, Schema, ValidationError, fields, post_load, pre_load, validate
 
+from restx_api.idempotency_key import IdempotencyKeyMixin
 from utils.constants import CRYPTO_EXCHANGES, VALID_EXCHANGES
 
 
@@ -19,7 +20,7 @@ def _coerce_quantity_to_int(data):
     return data
 
 
-class OrderSchema(Schema):
+class OrderSchema(IdempotencyKeyMixin, Schema):
     apikey = fields.Str(required=True, validate=validate.Length(min=1, max=256))
     strategy = fields.Str(required=True)
     exchange = fields.Str(required=True, validate=validate.OneOf(VALID_EXCHANGES))
@@ -159,7 +160,7 @@ class BasketOrderItemSchema(Schema):
         return _coerce_quantity_to_int(data)
 
 
-class BasketOrderSchema(Schema):
+class BasketOrderSchema(IdempotencyKeyMixin, Schema):
     apikey = fields.Str(required=True, validate=validate.Length(min=1, max=256))
     strategy = fields.Str(required=True)
     orders = fields.List(
