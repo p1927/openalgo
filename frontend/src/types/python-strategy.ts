@@ -44,11 +44,6 @@ export interface LogContent {
   last_updated: string
 }
 
-export interface EnvironmentVariables {
-  regular: Record<string, string>
-  secure: Record<string, string>
-}
-
 export interface ScheduleConfig {
   start_time: string
   stop_time: string

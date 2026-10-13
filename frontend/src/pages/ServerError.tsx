@@ -24,13 +24,13 @@ export default function ServerError() {
       })
 
       if (response.ok) {
-        window.location.href = '/login'
+        window.location.href = `${API_BASE_URL}/login`
       } else {
         showToast.error('Failed to logout. Please try again.')
       }
     } catch {
       // If logout fails, redirect to login anyway
-      window.location.href = '/login'
+      window.location.href = `${API_BASE_URL}/login`
     } finally {
       setIsLoggingOut(false)
     }

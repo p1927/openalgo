@@ -24,6 +24,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { API_BASE_URL } from '@/api/client'
 
 interface ApiRequest {
   timestamp: string
@@ -122,7 +123,7 @@ export default function Analyzer() {
     if (startDate) params.append('start_date', startDate)
     if (endDate) params.append('end_date', endDate)
 
-    const url = params.toString() ? `/analyzer/export?${params}` : '/analyzer/export'
+    const url = `${API_BASE_URL}/analyzer/export${params.toString() ? `?${params}` : ''}`
     window.location.href = url
   }
 

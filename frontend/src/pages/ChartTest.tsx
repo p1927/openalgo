@@ -35,6 +35,7 @@ import {
 import { useMarketData } from '@/hooks/useMarketData'
 import { useThemeStore } from '@/stores/themeStore'
 import { showToast } from '@/utils/toast'
+import { API_BASE_URL } from '@/api/client'
 
 // Matches the IST shift baked into the backend candle times so live bars line
 // up with history bars on the time axis. 5h30m = 19800s.
@@ -90,7 +91,7 @@ export default function ChartTest() {
         return
       }
       fetch(
-        `/search/api/search?q=${encodeURIComponent(q)}&exchange=${encodeURIComponent(exchange)}`,
+        `${API_BASE_URL}/search/api/search?q=${encodeURIComponent(q)}&exchange=${encodeURIComponent(exchange)}`,
         { credentials: 'include', headers: { Accept: 'application/json' } }
       )
         .then((r) => r.json())
@@ -374,7 +375,7 @@ function LiveChart({
       try {
         const date = tradingDateRef.current
         const url =
-          `/chart/test/api/history?symbol=${encodeURIComponent(symbol)}` +
+          `${API_BASE_URL}/chart/test/api/history?symbol=${encodeURIComponent(symbol)}` +
           `&exchange=${encodeURIComponent(exchange)}&interval=${encodeURIComponent(interval)}` +
           `${date ? `&date=${encodeURIComponent(date)}` : ''}`
         const res = await fetch(url, { credentials: 'include', headers: { Accept: 'application/json' } })
@@ -418,7 +419,7 @@ function LiveChart({
     }
 
     fetch(
-      `/chart/test/api/history?symbol=${encodeURIComponent(symbol)}&exchange=${encodeURIComponent(exchange)}&interval=${encodeURIComponent(interval)}`,
+      `${API_BASE_URL}/chart/test/api/history?symbol=${encodeURIComponent(symbol)}&exchange=${encodeURIComponent(exchange)}&interval=${encodeURIComponent(interval)}`,
       { credentials: 'include', headers: { Accept: 'application/json' } }
     )
       .then((r) => r.json())

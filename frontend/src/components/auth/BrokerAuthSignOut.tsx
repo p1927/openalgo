@@ -5,6 +5,7 @@ import { authApi } from '@/api/auth'
 import { LogoutConfirmDialog } from '@/components/auth/LogoutConfirmDialog'
 import { useAuthStore } from '@/stores/authStore'
 import { showToast } from '@/utils/toast'
+import { API_BASE_URL } from '@/api/client'
 
 /**
  * Sign-out control for the broker-authentication step.
@@ -53,7 +54,7 @@ export function BrokerAuthSignOut() {
       // is accepted by _is_foreign_initiated() because a click from our own
       // page is same-origin.
       logout()
-      window.location.href = '/auth/logout'
+      window.location.href = `${API_BASE_URL}/auth/logout`
     }
   }
 

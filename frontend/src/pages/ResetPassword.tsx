@@ -251,7 +251,7 @@ export default function ResetPassword() {
         setSuccess('Password reset successfully! Redirecting to login...')
         showToast.success('Password reset successfully!')
         setTimeout(() => {
-          window.location.href = '/login'
+          window.location.href = `${API_BASE_URL}/login`
         }, 2000)
       } else {
         setError(data.message || 'Failed to reset password')

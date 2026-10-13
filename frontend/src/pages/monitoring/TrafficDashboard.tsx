@@ -1,7 +1,7 @@
 import { Activity, ArrowLeft, Download, Filter, RefreshCw } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
-import { webClient } from '@/api/client'
+import { API_BASE_URL, webClient } from '@/api/client'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -97,7 +97,7 @@ export default function TrafficDashboard() {
 
   const handleExport = () => {
     // Open export URL in new tab
-    window.open('/traffic/export', '_blank')
+    window.open(`${API_BASE_URL}/traffic/export`, '_blank')
   }
 
   const filteredLogs = logs.filter((log) => {

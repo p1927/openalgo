@@ -1,5 +1,4 @@
 import type {
-  EnvironmentVariables,
   LogContent,
   LogFile,
   MasterContractStatus,
@@ -185,25 +184,6 @@ export const pythonStrategyApi = {
    */
   clearLogs: async (strategyId: string): Promise<ApiResponse<void>> => {
     const response = await webClient.post<ApiResponse<void>>(`/python/logs/${strategyId}/clear`)
-    return response.data
-  },
-
-  /**
-   * Get environment variables
-   */
-  getEnvVariables: async (strategyId: string): Promise<EnvironmentVariables> => {
-    const response = await webClient.get<EnvironmentVariables>(`/python/env/${strategyId}`)
-    return response.data
-  },
-
-  /**
-   * Save environment variables
-   */
-  saveEnvVariables: async (
-    strategyId: string,
-    variables: EnvironmentVariables
-  ): Promise<ApiResponse<void>> => {
-    const response = await webClient.post<ApiResponse<void>>(`/python/env/${strategyId}`, variables)
     return response.data
   },
 

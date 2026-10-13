@@ -773,8 +773,8 @@ export default function Historify() {
       }
 
       const url = editingSchedule
-        ? `/historify/api/schedules/${editingSchedule.id}`
-        : '/historify/api/schedules'
+        ? `${API_BASE_URL}/historify/api/schedules/${editingSchedule.id}`
+        : `${API_BASE_URL}/historify/api/schedules`
       const method = editingSchedule ? 'PUT' : 'POST'
 
       const response = await fetch(url, {
@@ -1411,7 +1411,7 @@ export default function Historify() {
       const data = await response.json()
       if (data.status === 'success') {
         showToast.success(`${data.message}`, 'historify')
-        window.location.href = '/historify/api/export/bulk/download'
+        window.location.href = `${API_BASE_URL}/historify/api/export/bulk/download`
         setExportDialogOpen(false)
       } else {
         showToast.error(data.message || 'Failed to export data', 'historify')
@@ -1944,7 +1944,7 @@ export default function Historify() {
                                       title={`${int.record_count.toLocaleString()} records (${int.first_date} - ${int.last_date})`}
                                       onClick={() => {
                                         // Navigate to charts with this interval
-                                        window.location.href = `/historify/charts/${item.symbol}?exchange=${item.exchange}&interval=${int.interval}`
+                                        window.location.href = `${API_BASE_URL}/historify/charts/${item.symbol}?exchange=${item.exchange}&interval=${int.interval}`
                                       }}
                                     >
                                       {int.interval}
@@ -3072,11 +3072,11 @@ NIFTY24DEC25000CE,NFO"
               )}
               <p className="text-xs text-muted-foreground mt-2">
                 Download sample:{' '}
-                <a href="/historify/api/sample/csv" className="text-primary hover:underline">
+                <a href={`${API_BASE_URL}/historify/api/sample/csv`} className="text-primary hover:underline">
                   CSV
                 </a>
                 {' | '}
-                <a href="/historify/api/sample/parquet" className="text-primary hover:underline">
+                <a href={`${API_BASE_URL}/historify/api/sample/parquet`} className="text-primary hover:underline">
                   Parquet
                 </a>
               </p>
