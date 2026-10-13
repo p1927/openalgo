@@ -12,6 +12,15 @@ from __future__ import annotations
 from threading import Thread
 
 
+def replay_date_of(status: dict) -> str:
+    """``YYYY-MM-DD`` the simulator clock is parked on, from a ``/control/replay/status`` payload.
+
+    The clock always carries one (live or replay), so a missing key is a bad payload and raises
+    ``KeyError`` instead of being papered over with an invented date.
+    """
+    return status["clock"]["replay_date"][:10]
+
+
 def trigger_mc_rebuild_if_date_changed(
     prior_replay_date: str, new_replay_date: str, *, force: bool = False
 ) -> str | None:

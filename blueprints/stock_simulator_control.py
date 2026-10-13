@@ -19,6 +19,7 @@ import os
 
 from flask import Blueprint, jsonify, request
 
+from broker.stock_simulator.api._mc_rebuild import replay_date_of, trigger_mc_rebuild_if_date_changed
 from limiter import limiter
 from utils.logging import get_logger
 
@@ -92,7 +93,7 @@ def start_replay():
 
     client = _client()
     prior_status = client.status()
-    prior_replay_date = (prior_status.get("clock") or {}).get("replay_date", "2021-03-25")[:10]
+    prior_replay_date = replay_date_of(prior_status)
 
     result = _forward(
         lambda c: c.start_replay(
@@ -104,8 +105,6 @@ def start_replay():
     )
     if isinstance(result, tuple):
         return result  # error already mapped
-
-    from broker.stock_simulator.api._mc_rebuild import trigger_mc_rebuild_if_date_changed
 
     new_replay_date = replay_date[:10]
     mc_refresh = trigger_mc_rebuild_if_date_changed(prior_replay_date, new_replay_date)

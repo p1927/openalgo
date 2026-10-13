@@ -35,7 +35,7 @@ How to REMOVE this feature
 2. Delete the bracketed lazy-extension block in
    ``openalgo/services/option_chain_service.get_option_chain``
    (just before the "No strikes found" 404 return).
-3. Delete ``openalgo/test/test_simulator_lazy_mc_extend.py``.
+3. Delete ``tests/test_simulator_lazy_mc_extend.py``.
 
 Nothing else in the codebase imports from this module.
 """
@@ -215,17 +215,13 @@ def extend_master_contract_for_expiry(
     if not legs:
         return 0
 
-    # Build the symtoken rows. Mirror ``_option_rows_for_underlying``
-    # in trade_integrations so the inserted rows are bit-for-bit
-    # compatible with what the bulk MC build produces.
+    # Build the symtoken rows with the bulk build's own row builder and underlying metadata
+    # (exchange-mandated lot size / tick size), so a lazily inserted row is identical to a bulk one.
     try:
-        from trade_integrations.stock_simulator.config import load_sim_config
         from trade_integrations.stock_simulator.master_contract import (
-            openalgo_option_symbol,
-            synthetic_token,
-        )
-        from trade_integrations.stock_simulator.master_contract import (
+            UNDERLYING_META,
             format_expiry_column,
+            option_row,
         )
     except Exception:
         logger.exception(
@@ -233,34 +229,24 @@ def extend_master_contract_for_expiry(
         )
         return 0
 
-    cfg = load_sim_config()
-    lotsize_raw = cfg.SIM_MC_LOTSIZE if hasattr(cfg, "SIM_MC_LOTSIZE") else 25
-    lotsize = int(lotsize_raw) if str(lotsize_raw).isdigit() else 25
-    tick_size = 0.05  # NIFTY/BANKNIFTY/SENSEX all use 0.05.
-
+    meta = UNDERLYING_META[slug]
     from datetime import date as _date
     expiry_d = _date.fromisoformat(expiry_iso)
     expiry_col = format_expiry_column(expiry_d)
-    brexchange = "NSE" if options_exchange.upper() == "NFO" else "BSE"
 
-    rows: list[dict[str, Any]] = []
-    for strike, opt_type in legs:
-        sym = openalgo_option_symbol(slug, expiry_d, strike, opt_type)
-        rows.append(
-            {
-                "symbol": sym,
-                "brsymbol": sym,
-                "name": slug,
-                "exchange": options_exchange,
-                "brexchange": brexchange,
-                "token": synthetic_token(sym, options_exchange),
-                "expiry": expiry_col,
-                "strike": float(strike),
-                "lotsize": lotsize,
-                "instrumenttype": opt_type,
-                "tick_size": tick_size,
-            }
+    rows: list[dict[str, Any]] = [
+        option_row(
+            base_symbol=slug,
+            exchange=options_exchange,
+            brexchange=meta["brexchange_options"],
+            expiry=expiry_d,
+            strike=strike,
+            opt_type=opt_type,
+            lotsize=meta["lotsize"],
+            tick_size=meta["tick_size"],
         )
+        for strike, opt_type in legs
+    ]
 
     # Database write: delete existing rows for this (name, exchange,
     # expiry), then insert the fresh set in a single transaction.

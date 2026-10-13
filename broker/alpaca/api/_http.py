@@ -11,6 +11,8 @@ from utils.logging import get_logger
 
 logger = get_logger(__name__)
 
+TRANSPORT_ERROR_STATUS = 599
+
 
 def resolve_api_secret(explicit: str | None = None) -> str:
     if explicit:
@@ -58,7 +60,10 @@ def alpaca_request(
         )
     except Exception as exc:
         logger.exception("Alpaca request failed: %s", url)
-        return 0, {"message": str(exc)}
+        # A transport failure (timeout, DNS, TLS) has no HTTP status; report it as 599 so every
+        # caller's `status >= 400` error branch fires. It used to be 0, which slipped past them all
+        # and was read as a successful empty response.
+        return TRANSPORT_ERROR_STATUS, {"message": str(exc)}
 
     try:
         payload = response.json() if response.content else {}
