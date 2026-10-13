@@ -46,9 +46,9 @@ def reload_env_from_file() -> None:
 
 
 def get_configured_broker() -> str:
-    redirect_url = os.getenv("REDIRECT_URL", "")
-    match = re.search(r"/([^/]+)/callback$", redirect_url)
-    return match.group(1).lower() if match else ""
+    from utils.broker_registry import get_default_broker
+
+    return get_default_broker()
 
 
 def read_env_key_from_file(key: str) -> str:

@@ -134,6 +134,43 @@ def test_get_margin_data(monkeypatch) -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("account", [(401, {"message": "forbidden"}), (599, {"message": "timeout"})])
+def test_get_margin_data_raises_instead_of_reporting_zero_funds(monkeypatch, account) -> None:
+    monkeypatch.setenv("BROKER_API_SECRET", "secret")
+    from broker.alpaca.api.funds import get_margin_data
+
+    with patch("broker.alpaca.api.funds.alpaca_request", return_value=account):
+        with pytest.raises(RuntimeError, match="account fetch failed"):
+            get_margin_data("test-key")
+
+
+@pytest.mark.unit
+def test_transport_failure_surfaces_as_an_error_status_not_a_success(monkeypatch) -> None:
+    from broker.alpaca.api import _http
+
+    class _Boom:
+        def request(self, *a, **k):
+            raise TimeoutError("read timed out")
+
+    monkeypatch.setattr(_http, "get_httpx_client", lambda: _Boom())
+    status, payload = _http.alpaca_request("GET", "https://x.invalid/v2/account", "key", api_secret="s")
+    assert status >= 400 and "timed out" in payload["message"]
+
+
+@pytest.mark.unit
+def test_get_margin_data_raises_when_positions_fetch_failed(monkeypatch) -> None:
+    monkeypatch.setenv("BROKER_API_SECRET", "secret")
+    from broker.alpaca.api.funds import get_margin_data
+
+    with patch("broker.alpaca.api.funds.alpaca_request", return_value=(200, {"cash": "1"})):
+        with patch(
+            "broker.alpaca.api.funds.get_positions", return_value={"status": "error", "message": "x"}
+        ):
+            with pytest.raises(RuntimeError, match="positions fetch failed"):
+                get_margin_data("test-key")
+
+
+@pytest.mark.unit
 def test_place_order_service_alpaca_skips_sandbox_in_analyze_mode() -> None:
     from pathlib import Path
 

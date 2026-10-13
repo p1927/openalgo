@@ -18,6 +18,7 @@ import os
 
 from flask import Blueprint, jsonify, request
 
+from broker.stock_simulator.api._mc_rebuild import replay_date_of, trigger_mc_rebuild_if_date_changed
 from database.sandbox_db import set_config
 from limiter import limiter
 from utils.logging import get_logger
@@ -61,7 +62,7 @@ def api_simulator_config():
         data = request.get_json(silent=True) or {}
         client = _client()
         prior_status = client.status()
-        prior_replay_date = (prior_status.get("clock") or {}).get("replay_date", "2021-03-25")[:10]
+        prior_replay_date = replay_date_of(prior_status)
         prior_week_mode = bool(prior_status.get("week_mode"))
 
         for key in (
@@ -79,14 +80,12 @@ def api_simulator_config():
         status = client.configure(**data)
 
         mc_refresh = None
-        new_replay_date = (status.get("clock") or {}).get("replay_date", prior_replay_date)[:10]
+        new_replay_date = replay_date_of(status)
         week_mode_changed = False
         if "week_mode" in data:
             new_week = str(data["week_mode"]).lower() in {"1", "true", "yes", "on"}
             week_mode_changed = new_week != prior_week_mode
         if "replay_date" in data or week_mode_changed:
-            from broker.stock_simulator.api._mc_rebuild import trigger_mc_rebuild_if_date_changed
-
             mc_refresh = trigger_mc_rebuild_if_date_changed(
                 prior_replay_date, new_replay_date, force=week_mode_changed
             )

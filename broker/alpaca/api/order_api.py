@@ -38,6 +38,7 @@ def get_order_book(auth):  # noqa: ANN001
 def get_trade_book(auth):  # noqa: ANN001
     status, payload = alpaca_request("GET", _trade_url("/v2/account/activities"), auth)
     if status >= 400:
+        logger.error("Alpaca trade book error: %s", payload)
         return []
     if isinstance(payload, list):
         return [row for row in payload if row.get("activity_type") == "FILL"]

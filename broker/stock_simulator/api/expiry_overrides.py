@@ -196,8 +196,8 @@ def get_expiries_override(underlying: str, exchange: str) -> dict[str, Any] | No
           These are the cases where the default symtoken path is a
           *reasonable* answer (possibly empty, but not wrong).
         A dict with ``status: "error"`` and ``source:
-        "simulator_live_unavailable"`` when no replay date is armed
-        (live mode) and the live INDmoney expiry fetch fails or
+        "simulator_live_unavailable"`` when the simulator is in live mode
+        (``status["mode"] == "live"``) and the live INDmoney expiry fetch fails or
         returns nothing — deliberately NOT ``None``, because falling
         through to the symtoken table here would show stale dates,
         not just missing ones. See ``_live_expiries_override``.
@@ -231,8 +231,9 @@ def get_expiries_override(underlying: str, exchange: str) -> dict[str, Any] | No
         logger.exception("simulator expiry override: stock_simulator service unavailable; opting out")
         return None
 
-    replay_date = (status.get("clock") or {}).get("replay_date")
-    if not replay_date:
+    # The one "live or replay?" answer is the service's effective mode (D248). The clock always
+    # carries a replay_date (the day it is parked on), so its presence says nothing about live.
+    if status.get("mode") == "live":
         # No replay armed: the simulator is in live mode. The symtoken
         # table is only ever refreshed by the replay-anchored
         # master-contract build, so it has no reliable answer for
