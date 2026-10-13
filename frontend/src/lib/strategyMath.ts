@@ -847,14 +847,16 @@ function analyzeNonTerminalPayoff(
 /**
  * Optional per-leg charge input for `computePayoff`.
  *
- * `perLegCharges` maps a leg id -> total round-trip charges (brokerage + STT + GST
- * + stamp + exchange + SEBI) for that leg. When supplied, every sample in the
+ * `perLegCharges` maps a leg id -> ENTRY charges (brokerage + STT + GST + stamp +
+ * exchange + SEBI) for that leg: the server's per_leg rows are entry-only, exit
+ * charges are a separate total (broker_charges.calculate_charges_with_exit_for_legs),
+ * so a net payoff built from this map does not include exit charges. When supplied, every sample in the
  * returned payoff is netted by the sum of charges for ACTIVE legs (closed /
  * inactive legs do not contribute the offset but their realized P&L is already
  * captured in the leg-level math).
  */
 export interface PayoffChargesOptions {
-  /** Map of leg.id -> total round-trip charge for that leg. */
+  /** Map of leg.id -> entry charge for that leg (exit charges are not included). */
   perLegCharges?: Record<string, number>
 }
 

@@ -150,14 +150,18 @@ export default function MasterContract() {
       const response = await fetch(`${API_BASE_URL}/api/broker/indmoney-token`, {
         credentials: 'include',
       })
-      if (response.ok) {
-        const payload = await response.json()
-        const data = payload.data as IndMoneyTokenStatus
-        setIndMoneyToken(data)
-        setIndMoneyApiKey(data.api_key || '')
-        setIndMoneyApiSecret(data.api_secret || '')
-      }
-    } catch (_error) {
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      const payload = await response.json()
+      const data = payload.data as IndMoneyTokenStatus
+      setIndMoneyToken(data)
+      setIndMoneyApiKey(data.api_key || '')
+      setIndMoneyApiSecret(data.api_secret || '')
+    } catch (error) {
+      // Without this the card renders "Out of sync" (null status) for a fetch that never succeeded.
+      setIndMoneyToken(null)
+      showToast.error(
+        `Could not load IndMoney credential status: ${error instanceof Error ? error.message : 'request failed'}`
+      )
     } finally {
       setIsLoadingIndMoney(false)
     }
@@ -425,8 +429,16 @@ export default function MasterContract() {
               <>
                 <div className="flex items-center justify-between gap-4">
                   <span className="text-sm text-muted-foreground">DB sync status</span>
-                  <Badge variant={indMoneyToken?.env_matches_db ? 'default' : 'destructive'}>
-                    {indMoneyToken?.env_matches_db ? 'In sync' : 'Out of sync'}
+                  <Badge
+                    variant={
+                      indMoneyToken?.env_matches_db
+                        ? 'default'
+                        : indMoneyToken
+                          ? 'destructive'
+                          : 'secondary'
+                    }
+                  >
+                    {indMoneyToken ? (indMoneyToken.env_matches_db ? 'In sync' : 'Out of sync') : 'Unknown'}
                   </Badge>
                 </div>
 

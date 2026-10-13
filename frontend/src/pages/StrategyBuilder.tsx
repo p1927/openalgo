@@ -1362,7 +1362,10 @@ export default function StrategyBuilder() {
     }
     const chargeLegs = legsToChargeInput(active)
     const market = chargeMarketForExchange(selectedExchange)
-    setPlanCharges(estimateCharges(chargeLegs, market, connectedBroker))
+    // Marked so the panel says "estimate" for as long as the server figure has not replaced it
+    // (server down, session lapsed): an unmarked client number reads as the real charges.
+    const estimate = estimateCharges(chargeLegs, market, connectedBroker)
+    setPlanCharges(estimate ? { ...estimate, charge_source: 'client_estimate' } : null)
 
     const handle = setTimeout(async () => {
       setIsChargesLoading(true)
@@ -1876,8 +1879,17 @@ export default function StrategyBuilder() {
             { validateStatus: () => true }
           )
         )
-        if (cancelled || res.status !== 200 || res.data.status !== 'success' || !res.data.plan)
+        if (cancelled) return
+        if (res.status !== 200 || res.data.status !== 'success' || !res.data.plan) {
+          // A plan link that loads nothing must say so: ?execute=1 links come from the hub.
+          showToast.error(`Trade plan for ${planSymbol} could not be loaded (HTTP ${res.status})`)
+          searchParams.delete('plan')
+          searchParams.delete('asset')
+          searchParams.delete('tab')
+          searchParams.delete('execute')
+          setSearchParams(searchParams, { replace: true })
           return
+        }
         const plan = res.data.plan
         const underlying = String(plan.underlying || plan.ticker || planSymbol).toUpperCase()
         const meta = (plan.meta || {}) as Record<string, string>

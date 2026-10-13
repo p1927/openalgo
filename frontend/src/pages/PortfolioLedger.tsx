@@ -33,6 +33,9 @@ export default function PortfolioLedger() {
 
   const rollup = rollupQuery.data
   const performance = performanceQuery.data
+  // An absent figure is "unavailable", never zero: a missing safe-to-withdraw must not read as Rs 0.
+  const money = (value: number | null | undefined) =>
+    value === null || value === undefined ? '—' : formatCurrency(value)
 
   return (
     <div className="container mx-auto max-w-5xl space-y-6 p-4">
@@ -71,20 +74,26 @@ export default function PortfolioLedger() {
               icon={<ShieldAlert className="h-4 w-4 text-amber-600" />}
               title="Capital at Risk"
               description="Max-risk across every currently-open, risk-profiled strategy"
-              value={formatCurrency(rollup.capital_at_risk ?? 0)}
+              value={money(rollup.capital_at_risk)}
             />
             <SummaryCard
               icon={<PiggyBank className="h-4 w-4 text-emerald-600" />}
               title="Banked P&L"
               description="Realized P&L, all-time"
-              value={formatCurrency(rollup.banked_pnl ?? 0)}
+              value={money(rollup.banked_pnl)}
             />
             <SummaryCard
               icon={<Wallet className="h-4 w-4 text-blue-600" />}
               title="Safe to Withdraw"
               description="Banked profit minus capital currently at risk"
-              value={formatCurrency(rollup.safe_to_withdraw ?? 0)}
-              emphasis={(rollup.safe_to_withdraw ?? 0) < 0 ? 'negative' : 'positive'}
+              value={money(rollup.safe_to_withdraw)}
+              emphasis={
+                rollup.safe_to_withdraw === undefined || rollup.safe_to_withdraw === null
+                  ? undefined
+                  : rollup.safe_to_withdraw < 0
+                    ? 'negative'
+                    : 'positive'
+              }
             />
           </div>
 
@@ -179,7 +188,7 @@ export default function PortfolioLedger() {
           {performanceQuery.isLoading && <Skeleton className="h-24 w-full" />}
           {performanceQuery.isSuccess && performance?.status === 'success' && (
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-              <Field label="Trades" value={String(performance.trade_count ?? 0)} />
+              <Field label="Trades" value={performance.trade_count === undefined ? '—' : String(performance.trade_count)} />
               <Field
                 label="Win / Loss / Breakeven"
                 value={`${performance.win_count ?? 0} / ${performance.loss_count ?? 0} / ${performance.breakeven_count ?? 0}`}
@@ -218,10 +227,21 @@ export default function PortfolioLedger() {
               />
               <Field
                 label="Gross Profit / Loss"
-                value={`${formatCurrency(performance.gross_profit ?? 0)} / ${formatCurrency(performance.gross_loss ?? 0)}`}
+                value={`${money(performance.gross_profit)} / ${money(performance.gross_loss)}`}
               />
-              <Field label="Net P&L" value={formatCurrency(performance.net_pnl ?? 0)} />
+              <Field label="Net P&L" value={money(performance.net_pnl)} />
             </div>
+          )}
+          {performanceQuery.isError && (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertTitle>Failed to load performance</AlertTitle>
+              <AlertDescription>
+                {performanceQuery.error instanceof Error
+                  ? performanceQuery.error.message
+                  : 'Unknown error'}
+              </AlertDescription>
+            </Alert>
           )}
           {performanceQuery.isSuccess && performance?.status === 'error' && (
             <p className="text-muted-foreground text-sm">{performance.message}</p>

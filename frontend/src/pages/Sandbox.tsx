@@ -21,8 +21,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { showToast } from '@/utils/toast'
 import { API_BASE_URL, fetchCSRFToken } from '@/api/client'
+import { useSimulatorStatus } from '@/hooks/useSimulatorStatus'
+import { showToast } from '@/utils/toast'
 
 interface ConfigItem {
   value: string
@@ -77,7 +78,9 @@ export default function Sandbox() {
   const [isLoading, setIsLoading] = useState(true)
   const [isResetting, setIsResetting] = useState(false)
   const [showResetDialog, setShowResetDialog] = useState(false)
-  const [simStatus, setSimStatus] = useState<Record<string, unknown> | null>(null)
+  // One poll path for /sandbox/api/simulator/status (D306): the same hook the trade
+  // views use. A failed poll is shown, never swallowed.
+  const { status: simStatus, setStatus: setSimStatus, error: simError } = useSimulatorStatus()
   const [simDate, setSimDate] = useState('')
   const [simSpeed, setSimSpeed] = useState('2')
   const [simEvalMode, setSimEvalMode] = useState('continuous')
@@ -90,35 +93,17 @@ export default function Sandbox() {
   // biome-ignore lint/correctness/useExhaustiveDependencies: one-time config load on mount; fetchConfigs has no reactive inputs
   useEffect(() => {
     fetchConfigs()
-    fetchSimStatus()
-    const id = setInterval(fetchSimStatus, 1000)
-    return () => clearInterval(id)
   }, [])
 
-  const fetchSimStatus = async () => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/sandbox/api/simulator/status`, { credentials: 'include' })
-      if (response.ok) {
-        const data = await response.json()
-        if (data.status === 'success') {
-          setSimStatus(data.simulator)
-          const clock = (data.simulator?.clock || {}) as Record<string, string | number | boolean>
-          if (!simFormDirty.current) {
-            if (clock.replay_date) setSimDate(String(clock.replay_date))
-            if (clock.speed != null) setSimSpeed(String(clock.speed))
-            if (typeof clock.stepped === 'boolean') {
-              setSimEvalMode(clock.stepped ? 'stepped' : 'continuous')
-            }
-            if (typeof data.simulator?.week_mode === 'boolean') {
-              setSimWeekMode(data.simulator.week_mode)
-            }
-          }
-        }
-      }
-    } catch {
-      // Simulator optional when Trade stack path unavailable
-    }
-  }
+  // Keep the form in step with the simulator until the user starts editing it.
+  useEffect(() => {
+    if (!simStatus || simFormDirty.current) return
+    const clock = simStatus.clock || {}
+    if (clock.replay_date) setSimDate(String(clock.replay_date))
+    if (clock.speed != null) setSimSpeed(String(clock.speed))
+    if (typeof clock.stepped === 'boolean') setSimEvalMode(clock.stepped ? 'stepped' : 'continuous')
+    if (typeof simStatus.week_mode === 'boolean') setSimWeekMode(simStatus.week_mode)
+  }, [simStatus])
 
   const saveSimulator = async () => {
     setSimSaving(true)
@@ -218,11 +203,11 @@ export default function Sandbox() {
       const response = await fetch(`${API_BASE_URL}/sandbox/api/configs`, {
         credentials: 'include',
       })
-      if (response.ok) {
-        const data = await response.json()
-        if (data.status === 'success') {
-          setConfigs(data.configs)
-        }
+      const data = response.ok ? await response.json() : null
+      if (data?.status === 'success') {
+        setConfigs(data.configs)
+      } else {
+        showToast.error(data?.message || `Failed to load configuration (HTTP ${response.status})`, 'analyzer')
       }
     } catch (_error) {
       showToast.error('Failed to load configuration', 'analyzer')
@@ -624,7 +609,7 @@ export default function Sandbox() {
               Last week (rotate)
             </Button>
             <Button variant="secondary" onClick={applyDemoPreset}>
-              Demo mode (60x)
+              Latest day (2x)
             </Button>
             <Button onClick={saveSimulator} disabled={simSaving}>
               {simSaving ? 'Saving…' : 'Apply replay'}
@@ -635,6 +620,11 @@ export default function Sandbox() {
               </Button>
             ) : null}
           </div>
+          {simError ? (
+            <Alert variant="destructive" className="md:col-span-4">
+              <AlertDescription>Simulator status unavailable: {simError}</AlertDescription>
+            </Alert>
+          ) : null}
           {simStatus?.clock ? (
             <Alert className="md:col-span-4">
               <AlertDescription>

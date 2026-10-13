@@ -16,6 +16,10 @@ export interface SimulatorStatus {
   replay_date?: string | null
   clock?: SimulatorClock
   hf_replay?: boolean
+  week_mode?: boolean
+  week_dates?: string[]
+  data_watermark?: string | null
+  active_expiry?: string | null
 }
 
 interface UseSimulatorStatusOptions {
@@ -28,6 +32,9 @@ export function useSimulatorStatus(options: UseSimulatorStatusOptions = {}) {
   const { pollMs = 1000, enabled = true } = options
   const [status, setStatus] = useState<SimulatorStatus | null>(null)
   const [available, setAvailable] = useState(false)
+  // Set while the last poll failed, so a caller shows the status as unknown
+  // instead of the last good value (a stale LIVE/REPLAY label is a wrong one).
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!enabled) return
@@ -37,13 +44,16 @@ export function useSimulatorStatus(options: UseSimulatorStatusOptions = {}) {
     const fetchStatus = async () => {
       try {
         const response = await fetch(`${API_BASE_URL}/sandbox/api/simulator/status`, { credentials: 'include' })
-        if (!response.ok) return
+        if (!response.ok) throw new Error(`simulator status HTTP ${response.status}`)
         const data = await response.json()
-        if (cancelled || data.status !== 'success') return
+        if (cancelled) return
+        if (data.status !== 'success') throw new Error(data.message || 'simulator status not ok')
         setAvailable(true)
+        setError(null)
         setStatus(data.simulator as SimulatorStatus)
-      } catch {
-        // Simulator API optional when Trade stack path unavailable
+      } catch (err) {
+        if (cancelled) return
+        setError(err instanceof Error ? err.message : 'simulator status unavailable')
       }
     }
 
@@ -57,7 +67,7 @@ export function useSimulatorStatus(options: UseSimulatorStatusOptions = {}) {
     }
   }, [enabled, pollMs])
 
-  return { status, available, clock: status?.clock ?? null }
+  return { status, setStatus, available, error, clock: status?.clock ?? null }
 }
 
 /** `clock.sim_now` (ISO, IST) as epoch seconds, for feeding TradingTerminal's

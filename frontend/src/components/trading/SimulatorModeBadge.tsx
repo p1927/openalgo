@@ -7,9 +7,21 @@ import { useBrokerStore } from '@/stores/brokerStore'
 export function SimulatorModeBadge() {
   const { capabilities } = useBrokerStore()
   const isSimulator = capabilities?.broker_name === 'stock_simulator'
-  const { status, available } = useSimulatorStatus({ pollMs: 5000, enabled: isSimulator })
+  const { status, available, error } = useSimulatorStatus({ pollMs: 5000, enabled: isSimulator })
 
-  if (!isSimulator || !available || !status) return null
+  if (!isSimulator) return null
+  if (error) {
+    return (
+      <span
+        title={error}
+        className="flex items-center gap-1.5 rounded border border-rose-600/40 bg-rose-600/10 px-2 py-0.5 text-xs font-medium text-rose-500"
+      >
+        <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
+        SIM STATUS UNKNOWN
+      </span>
+    )
+  }
+  if (!available || !status) return null
 
   if (status.mode === 'live') {
     return (

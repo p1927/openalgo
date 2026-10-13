@@ -11,7 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import type { StrategyLeg } from '@/lib/strategyMath'
+import { isLegClosed, isLegExecutable, type StrategyLeg } from '@/lib/strategyMath'
 import { cn } from '@/lib/utils'
 import { showToast } from '@/utils/toast'
 
@@ -108,7 +108,13 @@ export function ExecutePlanWizard({
     return (step?.payload || null) as Record<string, unknown> | null
   }, [implementationSteps])
 
-  const activeLegs = useMemo(() => legs.filter((l) => l.active && l.symbol), [legs])
+  // Same gate as ExecuteBasketDialog: only a leg whose exact contract was resolved
+  // (symbol, lots, lot size, tick size) may reach the broker. A plan leg the hub
+  // sent without a resolvable contract must BLOCK the order, never be dropped:
+  // sending the remaining legs of a spread would leave a naked leg.
+  const openLegs = useMemo(() => legs.filter((l) => l.active && !isLegClosed(l)), [legs])
+  const activeLegs = useMemo(() => openLegs.filter(isLegExecutable), [openLegs])
+  const unresolvedLegs = planKind === 'stock' ? 0 : openLegs.length - activeLegs.length
 
   const orderNotional = useMemo(() => {
     if (planKind !== 'stock' || !stockOrder) return null
@@ -188,7 +194,7 @@ export function ExecutePlanWizard({
   }, [open, current, fetchFunds])
 
   const executeBasket = async () => {
-    if (!apiKey) return
+    if (!apiKey || unresolvedLegs > 0 || activeLegs.length === 0) return
     setSubmitting(true)
     try {
       const orders: BasketOrderItem[] = activeLegs.map((l) => ({
@@ -204,8 +210,21 @@ export function ExecutePlanWizard({
         showToast.error(res.message || 'Basket order failed')
         return
       }
-      setResults(res.results ?? [])
-      showToast.success('Basket order submitted')
+      // Top-level status is "success" even when individual legs were rejected:
+      // the per-leg results are the truth, so a rejected leg must be loud.
+      const legResults = res.results ?? []
+      const failed = legResults.filter((r) => r.status !== 'success').length
+      const modeNote = res.mode === 'analyze' ? ' (analyzer, no real orders)' : ''
+      setResults(legResults)
+      if (legResults.length === 0) {
+        showToast.error('Basket response carried no per-leg results; check the order book')
+      } else if (failed > 0) {
+        showToast.error(
+          `Basket partial: ${legResults.length - failed} ok, ${failed} rejected${modeNote}. Review the legs and close any filled leg.`
+        )
+      } else {
+        showToast.success(`Basket order submitted${modeNote}`)
+      }
       setIdx(stepOrder.length - 1)
     } catch (err) {
       showToast.error(err instanceof Error ? err.message : 'Basket order failed')
@@ -265,7 +284,7 @@ export function ExecutePlanWizard({
     (current === 'preview') ||
     (current === 'margin' && marginChecked && !marginLoading) ||
     (current === 'funds' && fundsChecked && !fundsLoading) ||
-    (current === 'confirm' && confirmed) ||
+    (current === 'confirm' && confirmed && unresolvedLegs === 0 && (planKind === 'stock' || activeLegs.length > 0)) ||
     current === 'execute'
 
   const goNext = () => {
@@ -340,6 +359,12 @@ export function ExecutePlanWizard({
                   ))}
                 </ul>
               </div>
+              {unresolvedLegs > 0 && (
+                <div className="rounded-lg border border-rose-500/40 bg-rose-500/5 p-3 text-xs text-rose-600">
+                  {unresolvedLegs} leg(s) have no resolved contract yet, so this plan cannot be
+                  executed. Wait for contract resolution or fix the legs in the builder.
+                </div>
+              )}
               {charges && (
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   <span>Entry charges: ₹{charges.total?.total_charges ?? '—'}</span>

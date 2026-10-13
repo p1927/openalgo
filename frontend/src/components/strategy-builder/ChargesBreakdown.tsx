@@ -97,6 +97,9 @@ export function ChargesBreakdown({
             Transaction charges
             {label ? ` (${label})` : ''}
             {isChargesLoading ? ' · refreshing…' : ''}
+            {!isChargesLoading && planCharges?.charge_source === 'client_estimate'
+              ? ' · estimate (server figure unavailable)'
+              : ''}
           </span>
           {entryTotal !== undefined && (
             <span className="shrink-0 font-semibold tabular-nums text-foreground">

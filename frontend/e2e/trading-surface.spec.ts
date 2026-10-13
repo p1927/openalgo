@@ -17,8 +17,8 @@ import { ensureAuthenticated } from './fixtures/live-backend-auth'
  *   - backend on the port this project's baseURL proxies to (5001 by
  *     default per `frontend/vite.config.ts` — override both the backend
  *     port (`OPENALGO_BACKEND_URL` for the Vite dev-server proxy) and this
- *     suite's target (`PLAYWRIGHT_BASE_URL` / `PLAYWRIGHT_WEBSERVER_PORT`
- *     for `playwright.config.ts`) to run against an independently-launched
+ *     suite's target (`PLAYWRIGHT_BASE_URL` in
+ *     `playwright.config.ts`; there is no separate web-server port variable) to run against an independently-launched
  *     scratch instance without colliding with a real `trade dev` on 5001)
  *
  * Master-contract + tick-data plumbing: run this suite through

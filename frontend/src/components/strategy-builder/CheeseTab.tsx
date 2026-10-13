@@ -104,6 +104,8 @@ export function CheeseTab({
    *  render behind `activeChain`, or stay unset on thin ATM quotes) — fall back to the live
    *  underlying LTP so a chain that's visibly loaded doesn't get stuck on the empty state. */
   const effectiveForward = forwardPrice && forwardPrice > 0 ? forwardPrice : underlyingLtp
+  // Spot stands in for the forward: edges are biased by the carry, so say so on screen.
+  const forwardIsSpotFallback = !(forwardPrice && forwardPrice > 0) && underlyingLtp !== null
 
   const rows = useMemo<MispricingRow[] | null>(() => {
     if (!chain) return null
@@ -165,6 +167,11 @@ export function CheeseTab({
         greeks: resolved.greeks,
       })
       showToast.success(`Added ${side} ${strike}${optionType}`)
+    } catch (err) {
+      // resolveContract rejecting (network, auth) used to escape as an unhandled rejection.
+      showToast.error(
+        `Could not add ${strike} ${optionType}: ${err instanceof Error ? err.message : 'contract lookup failed'}`
+      )
     } finally {
       setAddingKey(null)
     }
@@ -597,6 +604,14 @@ export function CheeseTab({
           </span>
         </div>
         <div className="flex items-center gap-1.5 rounded-full border bg-background px-1.5 py-0.5">
+          {forwardIsSpotFallback && (
+            <span
+              className="pl-1 text-[9px] text-amber-600"
+              title="No live forward price: fair values use spot, so edges ignore cost of carry"
+            >
+              fwd = spot
+            </span>
+          )}
           <span className="pl-1 text-[9px] text-muted-foreground">Edge threshold</span>
           <button
             type="button"

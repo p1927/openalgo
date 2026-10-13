@@ -15,6 +15,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn, makeFormatCurrency } from '@/lib/utils'
 import { useAuthStore } from '@/stores/authStore'
+import { showToast } from '@/utils/toast'
 import { useOrderEventRefresh } from '@/hooks/useOrderEventRefresh'
 import { API_BASE_URL } from '@/api/client'
 
@@ -97,13 +98,14 @@ export default function SandboxPnL() {
       const response = await fetch(`${API_BASE_URL}/sandbox/mypnl/api/data`, {
         credentials: 'include',
       })
-      if (response.ok) {
-        const result = await response.json()
-        if (result.status === 'success') {
-          setData(result.data)
-        }
+      const result = response.ok ? await response.json() : null
+      if (result?.status === 'success') {
+        setData(result.data)
+      } else {
+        showToast.error(result?.message || `Failed to load sandbox P&L (HTTP ${response.status})`, 'analyzer')
       }
     } catch (_error) {
+      showToast.error('Failed to load sandbox P&L', 'analyzer')
     } finally {
       setIsLoading(false)
     }
@@ -123,7 +125,7 @@ export default function SandboxPnL() {
 
   const handleExport = (type: 'daily' | 'positions' | 'holdings' | 'trades') => {
     // Trigger download by navigating to the export endpoint
-    window.location.href = `/sandbox/mypnl/export/${type}`
+    window.location.href = `${API_BASE_URL}/sandbox/mypnl/export/${type}`
   }
 
   if (isLoading) {

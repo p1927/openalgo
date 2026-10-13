@@ -87,4 +87,15 @@ export async function ensureAuthenticated(page: Page): Promise<void> {
   }
 
   await page.waitForURL('**/dashboard', { timeout: 15000 })
+
+  // Enforce the safety contract above at run time, not only in prose: every spec using this fixture
+  // places orders, so refuse to continue unless the connected broker is the order-less simulator.
+  const capabilities = await (await page.request.get('/api/broker/capabilities')).json()
+  const brokerName = capabilities?.data?.broker_name
+  if (brokerName !== 'stock_simulator') {
+    throw new Error(
+      `live e2e refused: connected broker is "${brokerName}", not stock_simulator. ` +
+        'Point PLAYWRIGHT_BASE_URL at the scratch instance (scripts/openalgo_e2e_scratch_stack.py).'
+    )
+  }
 }
