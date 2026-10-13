@@ -2265,29 +2265,9 @@ def api_mcp_kill_switch():
 
 import re
 
-from utils.env_check import _atomic_replace_text
+from utils.env_check import _atomic_replace_text, env_file_path
 
 _ENV_KEY_PATTERN = re.compile(r"^([A-Z][A-Z0-9_]*)$")
-
-
-def _resolve_env_path() -> Path:
-    """Return the absolute Path to .env in the running app's working dir.
-
-    systemd's WorkingDirectory points at OPENALGO_PATH for the production
-    install, so cwd is the right anchor. Local dev runs uv from repo root,
-    same answer. We resolve once and validate the file exists rather
-    than trying multiple candidates — a missing .env is a deployment bug
-    the operator needs to fix, not something we paper over.
-
-    ``OPENALGO_ENV_FILE`` overrides when set, for the same reason
-    utils/broker_env_sync.py::_env_path() honors it — an isolated/scratch
-    instance may be launched from the main checkout's cwd (e.g. via `uv run`
-    against that project) while still needing its own .env.
-    """
-    override = os.getenv("OPENALGO_ENV_FILE", "").strip()
-    if override:
-        return Path(override).resolve()
-    return Path(os.getcwd()).resolve() / ".env"
 
 
 def _read_env_bool(key: str, default: bool) -> bool:
@@ -2421,7 +2401,7 @@ def api_mcp_settings_put():
                 }
             ), 400
 
-    env_path = _resolve_env_path()
+    env_path = Path(env_file_path())
     if not env_path.exists():
         logger.error(f"[MCP admin] .env not found at {env_path}")
         return jsonify(

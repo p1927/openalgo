@@ -17,9 +17,8 @@ def authenticate_broker(code):  # noqa: ANN001
     Deliberately does NOT default ``STOCK_SIMULATOR_MODE`` to "replay" here —
     logging into this broker must not by itself arm a replay. Replay mode is
     only armed by an explicit user/operator action: the Sandbox UI's replay
-    form (``/sandbox/api/simulator/config``) or the control API
-    (``/stock_simulator/control/replay/start``), both of which set the env
-    var themselves. Without an explicit replay, ``mode.effective_mode()``
+    form (``/sandbox/api/simulator/config``) or the stock_simulator
+    service's own ``/control/replay/start``. Without an explicit replay, ``mode.effective_mode()``
     resolves to live-during-market-hours instead.
     """
     if not code or code == "stock_simulator":

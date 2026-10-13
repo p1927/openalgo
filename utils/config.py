@@ -6,6 +6,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from utils.env_check import env_file_path
+
 logger = logging.getLogger(__name__)
 
 # Stock-simulator replay knobs are canonically owned by the root repo's .env /
@@ -27,7 +29,7 @@ _SIM_OWNED_ENV_KEYS = (
 )
 
 
-def _load_env_layers(repo_root_env: Path, env_file_override: str) -> None:
+def _load_env_layers(repo_root_env: Path, env_file_override: str | os.PathLike) -> None:
     """Load the root-repo `.env` as a fallback, then openalgo's own `.env` on top.
 
     Factored out of module scope so a test can exercise the layering (and the
@@ -58,12 +60,9 @@ def _load_env_layers(repo_root_env: Path, env_file_override: str) -> None:
     # OPENALGO_ENV_FILE overrides the implicit find_dotenv() search below (which
     # walks up from this file's own directory, so it always lands on whichever
     # checkout this module happens to be imported from) — see
-    # utils/broker_env_sync.py::_env_path() for the sibling override this
+    # utils/env_check.py::env_file_path() for the sibling override this
     # mirrors, needed so an isolated/scratch instance's own .env actually wins.
-    if env_file_override:
-        load_dotenv(dotenv_path=env_file_override, override=True)
-    else:
-        load_dotenv(override=True)
+    load_dotenv(dotenv_path=env_file_override, override=True)
     if preset_flask_debug is not None:
         os.environ["FLASK_DEBUG"] = preset_flask_debug
     for key, value in preset_sim_env.items():
@@ -81,7 +80,7 @@ def _load_env_layers(repo_root_env: Path, env_file_override: str) -> None:
 
 
 _repo_root_env = Path(__file__).resolve().parents[2] / ".env"
-_load_env_layers(_repo_root_env, os.environ.get("OPENALGO_ENV_FILE", "").strip())
+_load_env_layers(_repo_root_env, env_file_path())
 
 
 def _active_broker() -> str:

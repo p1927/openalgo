@@ -116,7 +116,6 @@ from blueprints.scalping import scalping_bp  # Import the Scalping terminal blue
 from blueprints.search import search_bp
 from blueprints.security import security_bp  # Import the security blueprint
 from blueprints.settings import settings_bp  # Import the settings blueprint
-from blueprints.stock_simulator_control import stock_simulator_control_bp  # Import the stock simulator control blueprint
 from blueprints.straddle_chart import straddle_bp  # Import the straddle chart blueprint
 from blueprints.strategy_chart import strategy_chart_bp  # Import the strategy chart blueprint
 from blueprints.strategy_module import strategy_module_bp  # Multi-leg options strategies with RMS
@@ -124,6 +123,7 @@ from blueprints.strategy_synthesis import strategy_synthesis_bp  # Strategy synt
 from blueprints.strategy_portfolio import strategy_portfolio_bp  # Strategy Builder portfolio
 from blueprints.trade_plan import trade_plan_bp  # Trade-stack hub plans for Strategy Builder
 from blueprints.trade_charges import trade_charges_bp  # Per-leg F&O charges for Strategy Builder
+from blueprints.trade_cheese import trade_cheese_bp  # Cheese tab ranking (trend fit, P(ITM), combos)
 from blueprints.system_permissions import (
     system_permissions_bp,  # Import the system permissions blueprint
 )
@@ -317,8 +317,6 @@ def create_app():
 
     # Exempt API endpoints from CSRF protection (they use API key authentication)
     csrf.exempt(api_v1_bp)
-    # Server-to-server control endpoint (shared-secret token, no browser session)
-    csrf.exempt(stock_simulator_control_bp)
 
     # Initialize security middleware before traffic logging
     init_security_middleware(app)
@@ -358,7 +356,6 @@ def create_app():
     app.register_blueprint(security_bp)  # Register Security blueprint
     app.register_blueprint(sandbox_bp)  # Register Sandbox blueprint
     app.register_blueprint(simulator_control_bp)  # Register simulator control blueprint
-    app.register_blueprint(stock_simulator_control_bp)  # Register stock simulator replay control blueprint
     app.register_blueprint(playground_bp)  # Register API playground blueprint
     app.register_blueprint(logging_bp)  # Register Logging blueprint
     app.register_blueprint(admin_bp)  # Register Admin blueprint
@@ -386,6 +383,7 @@ def create_app():
     app.register_blueprint(strategy_portfolio_bp)  # Register Strategy Portfolio blueprint
     app.register_blueprint(trade_plan_bp)  # Register trade-stack hub plan loader
     app.register_blueprint(trade_charges_bp)  # Register trade-stack charge calculator
+    app.register_blueprint(trade_cheese_bp)  # Register cheese-tab ranking
     app.register_blueprint(postback_bp)  # Register broker postback (order-update webhook) blueprint
 
     # Remote MCP (HTTP + OAuth) — opt-in via MCP_HTTP_ENABLED. Off by default.

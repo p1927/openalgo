@@ -10,7 +10,8 @@ duplicating them.
 
 from flask import Blueprint, jsonify, request, session
 
-from blueprints.broker_credentials import get_env_path, read_env_file, update_env_value
+from blueprints.broker_credentials import read_env_file, update_env_value
+from utils.env_check import env_file_path
 from utils.logging import get_logger
 from utils.session import check_session_validity
 
@@ -162,7 +163,7 @@ def update_indmoney_token():
         content = update_env_value(content, "BROKER_API_SECRET", api_secret)
         updated_fields.append("BROKER_API_SECRET")
 
-    env_path = get_env_path()
+    env_path = env_file_path()
     try:
         with open(env_path, "w", encoding="utf-8") as f:
             f.write(content)
