@@ -89,6 +89,39 @@ def test_failed_last_download_and_empty_table_force_a_download(wired, monkeypatc
 
 
 @pytest.mark.unit
+def test_list_order_in_the_cached_fingerprint_does_not_force_a_download(wired) -> None:
+    wired["stats"] = _stats(underlyings=["SENSEX", "NIFTY", "BANKNIFTY"], equities=["TCS", "INFY"])
+    assert mc_freshness.should_download_stock_simulator_contract()[0] is False
+
+
+@pytest.mark.unit
+def test_unreadable_symbol_count_is_not_swallowed(wired, monkeypatch) -> None:
+    def boom():
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr("database.token_db.get_symbol_count", boom)
+    with pytest.raises(RuntimeError):
+        mc_freshness.should_download_stock_simulator_contract()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "url, want",
+    [
+        ("http://127.0.0.1:5001/stock_simulator/callback", "stock_simulator"),
+        ("  http://127.0.0.1:5001/Alpaca/callback  ", "alpaca"),
+        ("", ""),
+        ("http://127.0.0.1:5001/callback/extra", ""),
+    ],
+)
+def test_one_redirect_url_parser_for_configured_and_default_broker(monkeypatch, url, want) -> None:
+    from utils import broker_env_sync, broker_registry
+
+    monkeypatch.setenv("REDIRECT_URL", url)
+    assert broker_env_sync.get_configured_broker() == broker_registry.get_default_broker() == want
+
+
+@pytest.mark.unit
 def test_config_failure_is_loud_not_swallowed(wired, monkeypatch) -> None:
     def boom():
         raise ValueError("NSE_REPLAY_WEEK_COUNT must be an integer")
