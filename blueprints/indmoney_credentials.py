@@ -6,7 +6,7 @@ the same ``/api/broker`` prefix as ``broker_credentials_bp``.
 
 The one INDmoney token surface is the recorder-token pair below (D358: one file, one paste UI).
 The legacy ``/indmoney-token`` GET/POST/sync routes wrote a second copy of the token into
-OpenAlgo's ``.env`` and returned the live token to the browser; they are gone (D424).
+OpenAlgo's ``.env`` and returned the live token to the browser; they are gone (D425).
 """
 
 from flask import Blueprint, jsonify, request, session
