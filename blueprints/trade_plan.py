@@ -19,22 +19,18 @@ trade_plan_bp = Blueprint("trade_plan_bp", __name__, url_prefix="/")
 READ_LIMIT = os.getenv("TRADE_PLAN_READ_LIMIT", "60 per minute")
 
 
-def _trade_stack_root() -> Path:
-    raw = os.getenv("TRADE_STACK_ROOT", "").strip()
-    if raw:
-        return Path(raw).expanduser().resolve()
-    # openalgo/blueprints -> parents[2] = trade repo root
-    return Path(__file__).resolve().parents[2]
-
-
 def _hub_root() -> Path:
-    raw = os.getenv("TRADE_STACK_HUB_DIR", "").strip()
-    if raw:
-        path = Path(raw).expanduser()
-        if not path.is_absolute():
-            path = _trade_stack_root() / path
-        return path.resolve()
-    return _trade_stack_root() / "reports" / "hub"
+    """The hub this process declared, through the one resolver (Trade context.hub.get_hub_dir).
+
+    A second copy of that rule here fell back to ``<root>/reports/hub`` when TRADE_STACK_HUB_DIR was
+    unset, i.e. guessed the production hub, which get_hub_dir refuses to do (D306: one resolver).
+    """
+    from broker.stock_simulator.api._trade_path import ensure_trade_integrations_path
+
+    ensure_trade_integrations_path()
+    from trade_integrations.context.hub import get_hub_dir
+
+    return get_hub_dir()
 
 
 def _safe_plan_path(symbol: str, asset: str = "options") -> Path | None:
@@ -53,7 +49,11 @@ def get_trade_plan():
     symbol = request.args.get("symbol") or request.args.get("underlying") or ""
     asset = (request.args.get("asset") or "options").strip().lower()
     view = (request.args.get("view") or "full").strip().lower()
-    path = _safe_plan_path(symbol, asset=asset)
+    try:
+        path = _safe_plan_path(symbol, asset=asset)
+    except RuntimeError as exc:  # HubDirNotDeclaredError: this process has no hub; say so, do not look elsewhere
+        logger.error("trade plan hub unavailable: %s", exc)
+        return jsonify({"status": "error", "message": "hub not configured for this process"}), 503
     if path is None:
         return jsonify({"status": "error", "message": "invalid symbol"}), 400
     if not path.is_file():

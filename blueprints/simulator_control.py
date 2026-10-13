@@ -19,7 +19,6 @@ import os
 from flask import Blueprint, jsonify, request
 
 from broker.stock_simulator.api._mc_rebuild import replay_date_of, trigger_mc_rebuild_if_date_changed
-from database.sandbox_db import set_config
 from limiter import limiter
 from utils.logging import get_logger
 from utils.session import check_session_validity
@@ -65,18 +64,9 @@ def api_simulator_config():
         prior_replay_date = replay_date_of(prior_status)
         prior_week_mode = bool(prior_status.get("week_mode"))
 
-        for key in (
-            "replay_date",
-            "replay_time",
-            "replay_speed",
-            "replay_loop",
-            "eval_mode",
-            "week_mode",
-            "week_days_count",
-        ):
-            if key in data:
-                set_config(f"sim_{key}", str(data[key]), description=f"Simulator {key}")
-
+        # The service owns the replay state (Trade D375): no copy is written into sandbox_db here. The
+        # `sim_*` config rows this route used to write were never read, were stored before the service
+        # accepted the change (a refused date stayed on record) and showed up as stale settings.
         status = client.configure(**data)
 
         mc_refresh = None

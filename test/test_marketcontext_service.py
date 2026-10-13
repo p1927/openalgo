@@ -20,7 +20,9 @@ def test_build_marketcontext_alpaca_paper() -> None:
 
 
 @pytest.mark.unit
-def test_build_marketcontext_alpaca_live() -> None:
+def test_build_marketcontext_alpaca_live(monkeypatch) -> None:
+    monkeypatch.setenv("ALPACA_PROFILE", "live")  # live needs the explicit profile; analyze mode off alone is paper
+    monkeypatch.delenv("ALPACA_API_BASE", raising=False)
     data = svc.build_marketcontext_data(broker="alpaca", analyze_mode=False)
     assert data["execution_venue"] == "api.alpaca.markets"
     assert data["positions_authority"] == "alpaca"

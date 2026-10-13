@@ -176,4 +176,8 @@ def test_place_order_service_alpaca_skips_sandbox_in_analyze_mode() -> None:
 
     source = Path(__file__).resolve().parents[1] / "services" / "place_order_service.py"
     text = source.read_text(encoding="utf-8")
-    assert 'get_analyze_mode() and broker != "alpaca"' in text
+    # The one routing rule (utils/sandbox_routing.has_own_paper_venue) replaced the inline broker != "alpaca".
+    assert "get_analyze_mode() and not has_own_paper_venue(broker)" in text
+    from utils.sandbox_routing import has_own_paper_venue
+
+    assert has_own_paper_venue("alpaca")

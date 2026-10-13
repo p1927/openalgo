@@ -292,16 +292,3 @@ def validate_registry_at_startup() -> list[str]:
         )
 
     return warnings
-
-
-def default_valid_brokers_sample() -> str:
-    """Read VALID_BROKERS default from .sample.env for install scripts."""
-    sample_path = _openalgo_root() / ".sample.env"
-    if not sample_path.is_file():
-        return ""
-    for line in sample_path.read_text(encoding="utf-8").splitlines():
-        stripped = line.strip()
-        if stripped.startswith("VALID_BROKERS"):
-            _, _, value = stripped.partition("=")
-            return value.strip().strip("'\"")
-    return ""

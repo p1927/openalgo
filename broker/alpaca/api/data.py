@@ -27,6 +27,9 @@ _TIMEFRAME_MAP = {
 }
 
 
+_MAX_BAR_PAGES = 50  # 500k bars: a bound on the page loop, not a limit callers should reach
+
+
 def _f(value, default=0.0) -> float:
     try:
         return float(value) if value is not None else default
@@ -66,6 +69,9 @@ class BrokerData:
             ltp = (_f(bid) + _f(ask)) / 2.0
         elif ltp is None:
             ltp = bid if bid is not None else ask
+        if ltp is None:
+            # No trade and no quote: a 0.0 "price" would read as a real quote downstream.
+            raise Exception(f"Alpaca snapshot for {clean} carries no trade or quote price")
 
         return {
             "ltp": _f(ltp),
@@ -102,7 +108,10 @@ class BrokerData:
         end_date: str,
     ) -> pd.DataFrame:
         clean = normalize_us_symbol(symbol)
-        timeframe = _TIMEFRAME_MAP.get(interval, "1Day")
+        if interval not in _TIMEFRAME_MAP:
+            # An unknown interval used to be served as daily bars: the caller got a wrong series, not an error.
+            raise ValueError(f"unsupported Alpaca interval {interval!r}; use one of {list(_TIMEFRAME_MAP)}")
+        timeframe = _TIMEFRAME_MAP[interval]
         feed = data_feed()
         url = f"{data_base()}/v2/stocks/{clean}/bars"
         params = {
@@ -113,13 +122,23 @@ class BrokerData:
             "feed": feed,
             "adjustment": "split",
         }
-        status, payload = alpaca_request("GET", url, self.auth_token, params=params)
-        if status >= 400:
-            raise Exception(f"Alpaca history failed ({status}): {payload}")
-
-        bars = payload.get("bars") if isinstance(payload, dict) else []
+        # Follow next_page_token: one page is 10000 bars (~25 trading days of 1Min), and a longer range
+        # was silently cut off at the page boundary.
+        bars: list = []
+        for _page in range(_MAX_BAR_PAGES):
+            status, payload = alpaca_request("GET", url, self.auth_token, params=params)
+            if status >= 400:
+                raise Exception(f"Alpaca history failed ({status}): {payload}")
+            if isinstance(payload, dict):
+                bars.extend(payload.get("bars") or [])
+            token = payload.get("next_page_token") if isinstance(payload, dict) else None
+            if not token:
+                break
+            params = {**params, "page_token": token}
+        else:
+            raise Exception(f"Alpaca history for {clean} exceeds {_MAX_BAR_PAGES} pages; narrow the date range")
         rows = []
-        for bar in bars or []:
+        for bar in bars:
             ts = bar.get("t")
             rows.append(
                 {

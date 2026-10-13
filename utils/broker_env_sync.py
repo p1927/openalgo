@@ -51,12 +51,16 @@ def read_env_key_from_file(key: str) -> str:
     if not match:
         return ""
 
-    val = match.group(1).strip()
-    if len(val) >= 2 and val[0] == val[-1] and val[0] in ("'", '"'):
-        val = val[1:-1]
-        if match.group(1).strip()[0] == '"':
+    raw = match.group(1).strip()
+    # A trailing `# comment` is not part of the value (dotenv reads it the same way): the whole line used to
+    # come back as the secret, so a commented token compared unequal to its auth-DB copy and was re-synced.
+    quoted = re.match(r"""^(["'])(.*?)\1\s*(?:#.*)?$""", raw)
+    if quoted:
+        val = quoted.group(2)
+        if quoted.group(1) == '"':
             val = val.replace('\\"', '"').replace("\\\\", "\\")
-    return val
+        return val
+    return re.split(r"\s+#", raw, maxsplit=1)[0].strip()
 
 
 def is_env_token_broker(broker: str | None = None) -> bool:

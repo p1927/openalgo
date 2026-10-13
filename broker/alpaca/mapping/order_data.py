@@ -27,8 +27,20 @@ def normalize_us_symbol(symbol: str) -> str:
     return clean.replace(".", "-") if "." in clean else clean
 
 
+def _price(data: dict, field: str, pricetype: str) -> str:
+    """A positive price for a priced order type. Alpaca rejects a 0.0 limit/stop; fail here with the cause."""
+    value = float(data.get(field) or 0)
+    if value <= 0:
+        raise ValueError(f"{pricetype} order needs a positive {field}, got {data.get(field)!r}")
+    return str(value)
+
+
 def transform_openalgo_order(data: dict) -> dict:
-    """Map OpenAlgo place-order payload to Alpaca POST /v2/orders body."""
+    """Map OpenAlgo place-order payload to Alpaca POST /v2/orders body.
+
+    An unknown ``pricetype`` raises: it used to fall through to a MARKET order, an order that fills
+    at any price because the caller mistyped a price type.
+    """
     pricetype = (data.get("pricetype") or "MARKET").upper()
     body: dict = {
         "symbol": normalize_us_symbol(data["symbol"]),
@@ -41,16 +53,16 @@ def transform_openalgo_order(data: dict) -> dict:
         body["type"] = "market"
     elif pricetype == "LIMIT":
         body["type"] = "limit"
-        body["limit_price"] = str(float(data.get("price") or 0))
+        body["limit_price"] = _price(data, "price", pricetype)
     elif pricetype == "SL":
         body["type"] = "stop_limit"
-        body["limit_price"] = str(float(data.get("price") or 0))
-        body["stop_price"] = str(float(data.get("trigger_price") or 0))
+        body["limit_price"] = _price(data, "price", pricetype)
+        body["stop_price"] = _price(data, "trigger_price", pricetype)
     elif pricetype == "SL-M":
         body["type"] = "stop"
-        body["stop_price"] = str(float(data.get("trigger_price") or 0))
+        body["stop_price"] = _price(data, "trigger_price", pricetype)
     else:
-        body["type"] = "market"
+        raise ValueError(f"unsupported pricetype {pricetype!r} for Alpaca (MARKET, LIMIT, SL, SL-M)")
 
     return body
 
@@ -105,7 +117,9 @@ def transform_positions_data(positions_data):  # noqa: ANN001
     for pos in positions_data:
         if not isinstance(pos, dict):
             continue
-        qty_raw = float(pos.get("qty") or 0)
+        # Alpaca reports a short position's qty already negative, so negating it again read every
+        # short as a long: take the magnitude and let `side` decide the sign.
+        qty_raw = abs(float(pos.get("qty") or 0))
         side = (pos.get("side") or "").lower()
         signed_qty = int(qty_raw) if side != "short" else -int(qty_raw)
         exchange = (pos.get("exchange") or "NASDAQ").upper()

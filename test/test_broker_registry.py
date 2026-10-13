@@ -78,7 +78,10 @@ def test_build_connect_url_dhan_oauth_init(monkeypatch) -> None:
 
 @pytest.mark.unit
 def test_sample_env_valid_brokers_has_trade_brokers() -> None:
-    sample = reg.default_valid_brokers_sample()
+    sample = next(
+        line for line in (reg._openalgo_root() / ".sample.env").read_text(encoding="utf-8").splitlines()
+        if line.strip().startswith("VALID_BROKERS")
+    )
     assert "stock_simulator" in sample
     assert "alpaca" in sample
 

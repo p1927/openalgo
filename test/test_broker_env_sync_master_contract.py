@@ -21,6 +21,8 @@ from utils import broker_env_sync
 @pytest.mark.unit
 def test_startup_sync_checks_master_contract_when_a_target_user_exists(monkeypatch) -> None:
     monkeypatch.setattr(broker_env_sync, "get_configured_broker", lambda: "stock_simulator")
+    # The D123 self-connect hook reads the users table; this test is about the master-contract check, not the session.
+    monkeypatch.setattr("utils.stock_simulator_session.reconnect_if_configured", lambda *a, **k: False)
     monkeypatch.setattr(
         "utils.broker_credentials.apply_broker_credentials", lambda _broker: None
     )

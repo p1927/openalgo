@@ -28,21 +28,23 @@ def _trade_url(path: str) -> str:
 
 
 def get_order_book(auth):  # noqa: ANN001
-    status, payload = alpaca_request("GET", _trade_url("/v2/orders"), auth, params={"status": "all"})
-    if status >= 400:
-        logger.error("Alpaca order book error: %s", payload)
-        return []
-    return payload if isinstance(payload, list) else []
+    # Raise on failure, like funds: an empty list reads as "no orders", which an outage must not say.
+    # limit=500 is Alpaca's maximum; the default is 50, which silently truncated a busy day's book.
+    status, payload = alpaca_request(
+        "GET", _trade_url("/v2/orders"), auth, params={"status": "all", "limit": 500}
+    )
+    if status >= 400 or not isinstance(payload, list):
+        raise RuntimeError(f"Alpaca order book fetch failed ({status}): {payload}")
+    return payload
 
 
 def get_trade_book(auth):  # noqa: ANN001
-    status, payload = alpaca_request("GET", _trade_url("/v2/account/activities"), auth)
-    if status >= 400:
-        logger.error("Alpaca trade book error: %s", payload)
-        return []
-    if isinstance(payload, list):
-        return [row for row in payload if row.get("activity_type") == "FILL"]
-    return []
+    status, payload = alpaca_request(
+        "GET", _trade_url("/v2/account/activities"), auth, params={"activity_types": "FILL"}
+    )
+    if status >= 400 or not isinstance(payload, list):
+        raise RuntimeError(f"Alpaca trade book fetch failed ({status}): {payload}")
+    return [row for row in payload if row.get("activity_type") == "FILL"]
 
 
 def get_positions(auth):  # noqa: ANN001

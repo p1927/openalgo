@@ -53,6 +53,9 @@ class Stock_simulatorWebSocketAdapter(BaseBrokerWebSocketAdapter):
         self.user_id: str | None = None
         self.running = False
         self._stream_thread: threading.Thread | None = None
+        # Bumped by every connect()/disconnect(): a loop thread that outlives a quick disconnect+connect
+        # sees a newer generation and exits, instead of running beside the new thread (duplicate ticks).
+        self._generation = 0
         self.lock = threading.Lock()
         self._last_ltp: dict[str, float] = {}
         self._last_sim_ts: dict[str, str | None] = {}
@@ -69,8 +72,10 @@ class Stock_simulatorWebSocketAdapter(BaseBrokerWebSocketAdapter):
                 return {"success": True, "message": "Already connected"}
             self.running = True
             self.connected = True
+            self._generation += 1
             self._stream_thread = threading.Thread(
                 target=self._stream_loop,
+                args=(self._generation,),
                 daemon=True,
                 name="StockSimulatorReplayWS",
             )
@@ -82,6 +87,7 @@ class Stock_simulatorWebSocketAdapter(BaseBrokerWebSocketAdapter):
         with self.lock:
             self.running = False
             self.connected = False
+            self._generation += 1
             self._stream_thread = None
             logger.info("stock_simulator replay WebSocket disconnected")
 
@@ -127,7 +133,7 @@ class Stock_simulatorWebSocketAdapter(BaseBrokerWebSocketAdapter):
             sub = self.subscriptions.get(f"{exchange}_{symbol}")
             return int(sub.get("mode") or 2) if sub else 2
 
-    def _stream_loop(self) -> None:
+    def _stream_loop(self, generation: int | None = None) -> None:
         ensure_trade_integrations_path()
         import websockets.sync.client as ws_client
         from websockets.exceptions import WebSocketException
@@ -136,8 +142,12 @@ class Stock_simulatorWebSocketAdapter(BaseBrokerWebSocketAdapter):
 
         client = StockSimulatorClient()
         backoff = 1.0
+        gen = self._generation if generation is None else generation
 
-        while self.running:
+        def live() -> bool:
+            return self.running and gen == self._generation
+
+        while live():
             if not client.is_configured:
                 # No control token configured — same fail-closed posture as
                 # StockSimulatorClient.is_configured. Wait rather than spin.
@@ -148,7 +158,7 @@ class Stock_simulatorWebSocketAdapter(BaseBrokerWebSocketAdapter):
                     logger.info("stock_simulator stream connected")
                     backoff = 1.0
                     sent_subs: set[tuple[str, str]] = set()
-                    while self.running:
+                    while live():
                         desired = self._desired_subscriptions()
                         for sym, exch in desired - sent_subs:
                             ws.send(json.dumps({"action": "subscribe", "symbol": sym, "exchange": exch}))
@@ -169,7 +179,7 @@ class Stock_simulatorWebSocketAdapter(BaseBrokerWebSocketAdapter):
                 logger.warning("stock_simulator stream disconnected: %s", exc)
             except Exception:
                 logger.exception("stock_simulator stream loop failed")
-            if not self.running:
+            if not live():
                 break
             time.sleep(backoff)
             backoff = min(backoff * 2, _MAX_BACKOFF_S)

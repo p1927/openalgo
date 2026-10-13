@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any
-from zoneinfo import ZoneInfo
 
 import pandas as pd
 
@@ -12,7 +11,6 @@ from broker.stock_simulator.api._trade_path import ensure_trade_integrations_pat
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
-IST = ZoneInfo("Asia/Kolkata")
 
 _INTRADAY_MINUTES: dict[str, int] = {
     "1m": 1,
@@ -233,25 +231,40 @@ class BrokerData:
         start: str,
         end: str,
     ) -> list[dict[str, Any]]:
-        rows: list[dict[str, Any]] = []
-        for day in catalog.available_dates(symbol, exchange):
-            if day < start or day > end:
-                continue
-            ts = datetime.strptime(f"{day} 15:25", "%Y-%m-%d %H:%M").replace(tzinfo=IST)
-            bar = catalog.bar_at(symbol, exchange, ts)
-            if bar:
-                rows.append(
-                    {
-                        "timestamp": day,
-                        "open": bar["open"],
-                        "high": bar["high"],
-                        "low": bar["low"],
-                        "close": bar["close"],
-                        "volume": bar["volume"],
-                        "oi": 0,
-                    }
-                )
-        return rows
+        # A day's candle is the aggregate of that day's minute bars, clipped to the sim clock like the
+        # intraday path. It used to be the single 15:25 minute bar (open ~ close, one minute of volume)
+        # and ignored the clock, so a replay at 10:00 drew the finished close of its own day.
+        frame = catalog.frame(symbol, exchange)
+        if frame.empty:
+            return []
+        sim_now = datetime.fromisoformat(self._client.status()["clock"]["sim_now"])
+        day_frame = frame[(frame["day"] >= start) & (frame["day"] <= end) & (frame["ts_ist"] <= sim_now)]
+        if day_frame.empty:
+            return []
+        daily = (
+            day_frame.sort_values("ts_ist")
+            .assign(volume=lambda f: pd.to_numeric(f["volume"], errors="coerce").fillna(0))
+            .groupby("day", sort=True)
+            .agg(
+                open=("open", "first"),
+                high=("high", "max"),
+                low=("low", "min"),
+                close=("close", "last"),
+                volume=("volume", "sum"),
+            )
+        )
+        return [
+            {
+                "timestamp": day,
+                "open": float(row["open"]),
+                "high": float(row["high"]),
+                "low": float(row["low"]),
+                "close": float(row["close"]),
+                "volume": int(row["volume"]),
+                "oi": 0,
+            }
+            for day, row in daily.iterrows()
+        ]
 
     def _history_intraday(
         self,
