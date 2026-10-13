@@ -652,7 +652,7 @@ export default function Trading() {
             {noApiKey ? (
               <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
                 <p className="text-sm text-muted-foreground">No API key found for charting.</p>
-                <a href="/apikey" className="text-sm font-medium text-primary underline">
+                <a href={`${API_BASE_URL}/apikey`} className="text-sm font-medium text-primary underline">
                   Generate an API key
                 </a>
               </div>

@@ -21,6 +21,7 @@ import type {
   UpdateTimingRequest,
 } from '@/types/admin'
 import { webClient } from './client'
+import { API_BASE_URL } from '@/api/client'
 
 interface ApiResponse<T = void> {
   status: string
@@ -212,7 +213,7 @@ export const adminApi = {
    */
   downloadReport: (format: 'md' | 'txt' = 'md'): void => {
     const fmt = format === 'txt' ? 'txt' : 'md'
-    window.location.href = `/admin/api/system/report?format=${fmt}`
+    window.location.href = `${API_BASE_URL}/admin/api/system/report?format=${fmt}`
   },
 
   // ============================================================================

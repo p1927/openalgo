@@ -41,6 +41,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import type { MasterContractStatus, PythonStrategy } from '@/types/python-strategy'
 import { SCHEDULE_DAYS, STATUS_COLORS, STATUS_LABELS } from '@/types/python-strategy'
 import { showToast } from '@/utils/toast'
+import { API_BASE_URL } from '@/api/client'
 
 export default function PythonStrategyIndex() {
   const navigate = useNavigate()
@@ -75,7 +76,7 @@ export default function PythonStrategyIndex() {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000)
 
     // Subscribe to SSE for real-time status updates
-    const eventSource = new EventSource('/python/api/events')
+    const eventSource = new EventSource(`${API_BASE_URL}/python/api/events`)
 
     eventSource.onmessage = (event) => {
       try {
