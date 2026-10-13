@@ -51,9 +51,17 @@ def _simulator_block(broker: str) -> dict[str, Any]:
 
 def _execution_fields(*, data_broker: str, analyze_mode: bool) -> tuple[str, str, tuple[str, ...]]:
     if data_broker in _US_BROKERS:
-        if analyze_mode:
-            return "paper-api.alpaca.markets", "alpaca.paper", _US_CAPABILITIES
-        return "api.alpaca.markets", "alpaca", _US_CAPABILITIES
+        # The venue the broker plugin will actually use (broker/alpaca/api/baseurl.py), not a re-derivation
+        # from analyze_mode alone: ALPACA_PROFILE=paper is paper with analyze mode off, and this context is
+        # what an agent reads to know whether its orders touch real money.
+        from urllib.parse import urlsplit
+
+        from broker.alpaca.api.baseurl import PAPER_HOST, trade_base_for
+
+        host = urlsplit(trade_base_for(analyze_mode)).hostname or ""
+        if host == urlsplit(PAPER_HOST).hostname:
+            return host, "alpaca.paper", _US_CAPABILITIES
+        return host, "alpaca", _US_CAPABILITIES
     if analyze_mode:
         return "sandbox", "sandbox.db", _IN_CAPABILITIES
     return "broker", "broker", _IN_CAPABILITIES

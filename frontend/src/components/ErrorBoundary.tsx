@@ -1,6 +1,7 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
 import { tryAutoReloadOnChunkError } from '@/utils/chunkReload'
 import { reportClientError } from '@/utils/errorReporter'
+import { API_BASE_URL } from '@/api/client'
 
 interface Props {
   children: ReactNode
@@ -80,7 +81,7 @@ export class ErrorBoundary extends Component<Props, State> {
           <p className="text-sm text-muted-foreground break-words">{this.state.message}</p>
           <p className="text-xs text-muted-foreground">
             The error has been logged. You can reload the page or visit{' '}
-            <a className="underline" href="/admin/diagnostics">
+            <a className="underline" href={`${API_BASE_URL}/admin/diagnostics`}>
               Diagnostics
             </a>{' '}
             to view recent errors.

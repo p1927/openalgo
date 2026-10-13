@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { API_BASE_URL } from '@/api/client'
 
 export default function RateLimited() {
   const [countdown, setCountdown] = useState(60)
@@ -23,7 +24,7 @@ export default function RateLimited() {
     if (referrer?.includes(window.location.origin)) {
       window.location.href = referrer
     } else {
-      window.location.href = '/dashboard'
+      window.location.href = `${API_BASE_URL}/dashboard`
     }
   }
 

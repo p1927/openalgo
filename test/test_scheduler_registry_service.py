@@ -8,6 +8,7 @@ the frontend relies on, and pause/resume dispatch.
 from datetime import datetime
 from types import SimpleNamespace
 from unittest import mock
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -21,6 +22,7 @@ def _job(job_id, name=None, next_run_time=None, trigger="interval[0:01:00]"):
 def _fake_scheduler(jobs):
     scheduler = mock.Mock()
     scheduler.get_jobs.return_value = jobs
+    scheduler.timezone = ZoneInfo("Asia/Kolkata")  # every real APScheduler has one; trigger-now reads it
     return scheduler
 
 

@@ -242,7 +242,9 @@ def trigger_scheduler_job_now(
             409,
         )
     try:
-        scheduler.modify_job(job_id, next_run_time=datetime.now())
+        # In the scheduler's own timezone: a naive local `now` is read as scheduler-local time, so a
+        # scheduler on IST under a UTC process clock fired hours late (or the run was dropped as missed).
+        scheduler.modify_job(job_id, next_run_time=datetime.now(scheduler.timezone))
         return True, {"status": "success", "message": "Job triggered"}, 200
     except Exception as exc:
         logger.exception("Failed to trigger job %s on %s scheduler", job_id, source)

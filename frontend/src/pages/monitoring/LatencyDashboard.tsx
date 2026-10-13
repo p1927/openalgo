@@ -1,7 +1,7 @@
 import { ArrowLeft, CheckCircle, Download, Gauge, RefreshCw, XCircle, Zap } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
-import { webClient } from '@/api/client'
+import { API_BASE_URL, webClient } from '@/api/client'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -106,7 +106,7 @@ export default function LatencyDashboard() {
   }
 
   const handleExport = () => {
-    window.open('/latency/export', '_blank')
+    window.open(`${API_BASE_URL}/latency/export`, '_blank')
   }
 
   const getSpeedRating = (

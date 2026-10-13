@@ -27,6 +27,7 @@ import { agentErrorMessage, agentQueryKeys, getSettings, updateSettings } from '
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import { API_BASE_URL } from '@/api/client'
 
 interface AnalyzerStatus {
   analyze_mode?: boolean
@@ -48,7 +49,7 @@ export function TradingPanel() {
   const analyzer = useQuery({
     queryKey: ['analyzer', 'status'],
     queryFn: async (): Promise<AnalyzerStatus> => {
-      const response = await fetch('/settings/analyze-mode', {
+      const response = await fetch(`${API_BASE_URL}/settings/analyze-mode`, {
         headers: { 'X-Requested-With': 'XMLHttpRequest' },
       })
       if (!response.ok) return {}

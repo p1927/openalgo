@@ -14,7 +14,7 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router'
-import { webClient } from '@/api/client'
+import { API_BASE_URL, webClient } from '@/api/client'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -110,7 +110,7 @@ export default function LogsPage() {
     if (endDate) params.append('end_date', endDate)
     if (searchQuery) params.append('search', searchQuery)
 
-    window.open(`/logs/export?${params.toString()}`, '_blank')
+    window.open(`${API_BASE_URL}/logs/export?${params.toString()}`, '_blank')
   }
 
   const handleDateChange = () => {

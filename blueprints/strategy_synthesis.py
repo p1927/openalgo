@@ -6,6 +6,7 @@ same ``/`` prefix so the route (``/strategybuilder/api/synthesize``) is
 unchanged.
 """
 
+import math
 import os
 
 from flask import Blueprint, jsonify, request, session
@@ -78,6 +79,9 @@ def strategy_synthesize():
             return jsonify(
                 {"status": "error", "message": "target_points must be a list of [price, pnl] pairs"}
             ), 400
+        # float("nan")/float("inf") parse fine and poison the grid, the shape fit and every score.
+        if not all(math.isfinite(v) for point in target_points for v in point):
+            return jsonify({"status": "error", "message": "target_points must be finite numbers"}), 400
         try:
             max_legs = int(max_legs)
         except (TypeError, ValueError):
@@ -107,6 +111,10 @@ def strategy_synthesize():
                         "status": "error",
                         "message": "target_max_profit and target_max_loss must be numbers",
                     }
+                ), 400
+            if not all(math.isfinite(v) for v in synthesize_kwargs.values()):
+                return jsonify(
+                    {"status": "error", "message": "target_max_profit and target_max_loss must be finite"}
                 ), 400
             # A rupee target only affects ranking if it's given real weight;
             # the shape axis stays primary but yields room for it. Both

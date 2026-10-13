@@ -12,21 +12,31 @@ DATA_HOST = "https://data.alpaca.markets"
 
 
 def _profile() -> str:
-    return (os.getenv("ALPACA_PROFILE") or "paper").strip().lower()
+    profile = (os.getenv("ALPACA_PROFILE") or "paper").strip().lower()
+    if profile not in ("paper", "live"):
+        # Anything but "paper" used to mean the LIVE host, so a typo ("papper") sent orders to real money.
+        raise ValueError(f"ALPACA_PROFILE must be 'paper' or 'live', got {profile!r}")
+    return profile
+
+
+def is_paper(analyze_mode: bool) -> bool:
+    """The one paper-vs-live rule: paper when analyze mode is on or ALPACA_PROFILE=paper (the default)."""
+    return bool(analyze_mode) or _profile() == "paper"
 
 
 def is_paper_mode() -> bool:
-    """Paper trading API when analyze_mode is on or ALPACA_PROFILE=paper."""
-    if get_analyze_mode():
-        return True
-    return _profile() == "paper"
+    return is_paper(get_analyze_mode())
 
 
-def trade_base() -> str:
+def trade_base_for(analyze_mode: bool) -> str:
     override = (os.getenv("ALPACA_API_BASE") or "").strip()
     if override:
         return override.rstrip("/")
-    return PAPER_HOST if is_paper_mode() else LIVE_HOST
+    return PAPER_HOST if is_paper(analyze_mode) else LIVE_HOST
+
+
+def trade_base() -> str:
+    return trade_base_for(get_analyze_mode())
 
 
 def data_base() -> str:

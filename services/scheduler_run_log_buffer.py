@@ -21,9 +21,12 @@ import time
 from collections import deque
 
 _MAX_LOGS_PER_JOB = 500
+# Job ids embed strategy ids that churn over a long-lived process; without a cap the two dicts grew
+# forever (each deque was bounded, their number was not). The least recently written job goes first.
+_MAX_JOBS = 1000
 
 _LOCK = threading.Lock()
-_BUFFERS: dict[str, deque[dict]] = {}
+_BUFFERS: dict[str, deque[dict]] = {}  # insertion order = least -> most recently written
 _SEQ_COUNTERS: dict[str, int] = {}
 
 
@@ -32,7 +35,14 @@ def append_log(job_id: str, message: str) -> None:
     with _LOCK:
         seq = _SEQ_COUNTERS.get(job_id, 0) + 1
         _SEQ_COUNTERS[job_id] = seq
-        buf = _BUFFERS.setdefault(job_id, deque(maxlen=_MAX_LOGS_PER_JOB))
+        buf = _BUFFERS.pop(job_id, None)
+        if buf is None:
+            buf = deque(maxlen=_MAX_LOGS_PER_JOB)
+        _BUFFERS[job_id] = buf  # re-insert at the recent end
+        while len(_BUFFERS) > _MAX_JOBS:
+            oldest = next(iter(_BUFFERS))
+            del _BUFFERS[oldest]
+            _SEQ_COUNTERS.pop(oldest, None)
         buf.append({"seq": seq, "at": int(time.time() * 1000), "message": message})
 
 

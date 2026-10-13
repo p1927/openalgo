@@ -1517,6 +1517,11 @@ def register(mcpserver):
 
         return run_agent_debate, load_agent_debate_json, is_agent_debate_cache_fresh
 
+    import threading as _threading
+
+    _debates_lock = _threading.Lock()
+    _debates_inflight: set[str] = set()  # tickers with a background debate running in this process
+
 
     @tool('research', title='Run TradingAgents Analysis', risk=RISK_EXTERNAL_TEXT)
     def run_tradingagents_analysis(
@@ -1577,11 +1582,26 @@ def register(mcpserver):
                     f"Call again with `refresh=false` when the Research panel shows ready."
                 )
 
+            # One run per ticker at a time: the reply above tells the model to call this again with
+            # refresh=false until the cache is fresh, and every such poll used to start ANOTHER
+            # multi-minute LLM debate while the first was still running.
+            with _debates_lock:
+                already_running = key in _debates_inflight
+                _debates_inflight.add(key)
+            if already_running:
+                return (
+                    f"A TradingAgents debate for **{key}** is already running in the background "
+                    f"(typically 2–5 minutes). Call this tool again later; no new run was started."
+                )
+
             def _worker() -> None:
                 try:
                     run_agent_debate(key, asset_type=resolved_asset)
                 except Exception:
                     logger.exception("background agent debate failed for %s", key)
+                finally:
+                    with _debates_lock:
+                        _debates_inflight.discard(key)
 
             threading.Thread(target=_worker, daemon=True, name=f"mcp-debate-{key}").start()
             return body

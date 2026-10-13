@@ -46,7 +46,7 @@ apiClient.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       // Handle unauthorized - redirect to login
-      window.location.href = '/login'
+      window.location.href = `${API_BASE_URL}/login`
     }
     return Promise.reject(error)
   }
@@ -143,7 +143,7 @@ webClient.interceptors.response.use(
     const status = error.response?.status
     if (status === 401) {
       // Unauthorized - redirect to login
-      window.location.href = '/login'
+      window.location.href = `${API_BASE_URL}/login`
     } else if (status === 403) {
       // Forbidden - user doesn't have permission for this resource
       // Create a more descriptive error for the caller to handle
