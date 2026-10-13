@@ -155,6 +155,8 @@ def test_one_broken_source_does_not_break_the_listing():
     assert ok is True
     assert status == 200
     assert [e["id"] for e in body["data"]["entries"]] == ["C:flow:wf_1"]
+    # ... but the broken source is named, not silently dropped
+    assert body["data"]["errors"] == [{"source": "strategy", "error": "RuntimeError: boom"}]
 
 
 def test_pause_dispatches_to_the_right_scheduler():

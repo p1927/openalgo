@@ -25,7 +25,6 @@ from __future__ import annotations
 import functools
 import inspect
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -39,10 +38,13 @@ RAW_ORDER_TOOLS = frozenset({
 
 
 def _owning_agent_id(vibe_session_id: str) -> str | None:
-    integrations = Path(__file__).resolve().parents[2] / "integrations"
-    if integrations.is_dir() and str(integrations) not in sys.path:
-        sys.path.insert(0, str(integrations))
-    os.environ.setdefault("TRADE_INTEGRATIONS_SKIP_APPLY", "1")
+    # The one sys.path helper (D306); mcp/ is not a package, so put the openalgo root on the path first.
+    openalgo_root = str(Path(__file__).resolve().parent.parent)
+    if openalgo_root not in sys.path:
+        sys.path.insert(0, openalgo_root)
+    from broker.stock_simulator.api._trade_path import ensure_trade_integrations_path
+
+    ensure_trade_integrations_path()
     from trade_integrations.autonomous_agents.store import list_agents
 
     for agent in list_agents():

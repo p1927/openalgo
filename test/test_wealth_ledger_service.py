@@ -84,6 +84,9 @@ def _add_shadow_entry(agent_id: str, *, strategy="s", shadow_pnl: float, actual_
             shadow_return_pct=0.4,
             shadow_pnl_inr=shadow_pnl,
             agent_actual_pnl_inr=actual_pnl,
+            # explicit: the default stamps current_utc(), which asks the live stock simulator
+            # for its replay clock -- a unit test must not need that service up
+            recorded_at="2026-08-21T00:00:01+00:00",
         )
     )
 

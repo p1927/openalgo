@@ -88,7 +88,9 @@ def strategy_synthesize():
         try:
             lot_size = int(data.get("lot_size", 1))
         except (TypeError, ValueError):
-            lot_size = 1
+            lot_size = 0
+        if lot_size < 1:
+            return jsonify({"status": "error", "message": "lot_size must be a positive integer"}), 400
 
         synthesize_kwargs = {}
         target_max_profit = data.get("target_max_profit")

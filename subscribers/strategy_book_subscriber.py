@@ -50,7 +50,17 @@ def _user_id(event) -> str:
             logger.exception("Strategy book: could not resolve user_id from api_key")
         if resolved:
             return str(resolved)
-    return _request_field(event, "user_id")
+    user_id = _request_field(event, "user_id")
+    if not user_id:
+        # A row keyed to "" is invisible to every per-user ledger read (capital-at-risk, win-rate):
+        # the fill is booked but never attributed. Say so, once per event.
+        logger.error(
+            "Strategy book: no user_id for %s order %s (apikey did not resolve, none in request): "
+            "its fills will not show in the portfolio ledger",
+            getattr(event, "strategy", ""),
+            getattr(event, "orderid", ""),
+        )
+    return user_id
 
 
 def _request_field(event, key: str) -> str:

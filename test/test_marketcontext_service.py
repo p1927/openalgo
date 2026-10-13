@@ -91,3 +91,19 @@ def test_get_marketcontext_success(monkeypatch) -> None:
     assert payload["status"] == "success"
     assert payload["data"]["data_broker"] == "zerodha"
     assert payload["data"]["execution_venue"] == "sandbox"
+
+
+@pytest.mark.unit
+def test_simulator_block_reports_unreachable_simulator_instead_of_bare_active(monkeypatch) -> None:
+    """stock_simulator selected but its status call fails: the context must say so, not just {"active": True}."""
+    import trade_integrations.stock_simulator.client as client_mod
+
+    class _Down:
+        def status(self):
+            raise ConnectionError("simulator down")
+
+    monkeypatch.setattr(client_mod, "StockSimulatorClient", _Down)
+    block = svc._simulator_block("stock_simulator")
+    assert block["active"] is True
+    assert block["status"] == "unavailable"
+    assert "simulator down" in block["error"]

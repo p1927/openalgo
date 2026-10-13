@@ -102,6 +102,9 @@ def synthesize_from_option_chain(
             "status": "success",
             "data": {
                 "underlying_ltp": chain_response.get("underlying_ltp"),
+                # False => spot/IV/expiry was missing, so every win_probability below is the
+                # neutral 0.5 placeholder, not an estimate.
+                "win_probability_estimated": all(v is not None for v in (spot, iv, years)),
                 "results": [_serialize(r, symbol_lookup) for r in results],
             },
         },

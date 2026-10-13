@@ -6,6 +6,7 @@ from database.auth_db import get_auth_token_broker
 from database.settings_db import get_analyze_mode
 from events import AnalyzerErrorEvent, OrderCancelledEvent, OrderCancelFailedEvent
 from utils.event_bus import bus
+from utils.sandbox_routing import has_own_paper_venue
 from utils.logging import get_logger
 
 # Initialize logger
@@ -84,7 +85,7 @@ def cancel_order_with_auth(
         order_request_data.pop("apikey", None)
 
     # Alpaca US: analyze_mode cancels on Alpaca paper, not sandbox
-    if get_analyze_mode() and broker != "alpaca":
+    if get_analyze_mode() and not has_own_paper_venue(broker):
         from services.sandbox_service import sandbox_cancel_order
 
         # Get API key from original data

@@ -148,16 +148,13 @@ def register(mcpserver):
             return f"Error getting Alpaca account: {str(e)}"
 
     def _ensure_trade_stack_import() -> None:
-        """Prepare sys.path and skip TradingAgents graph patches for MCP tools."""
-        from pathlib import Path
+        """Prepare sys.path and skip TradingAgents graph patches for MCP tools.
 
-        os.environ.setdefault("TRADE_INTEGRATIONS_SKIP_APPLY", "1")
-        trade_root = Path(__file__).resolve().parents[2]
-        integrations = trade_root / "integrations"
-        tradingagents = trade_root / "tradingagents"
-        for path in (integrations, tradingagents):
-            if path.is_dir() and str(path) not in sys.path:
-                sys.path.insert(0, str(path))
+        The one implementation lives in broker/stock_simulator/api/_trade_path.py (D306); the
+        openalgo root is on sys.path already (_get_logger put it there at import)."""
+        from broker.stock_simulator.api._trade_path import ensure_trade_integrations_path
+
+        ensure_trade_integrations_path()
 
     # Once, at register time, before any tool can run: every tool below that
     # imports `trade_integrations` is covered, including ones added later.
@@ -363,7 +360,7 @@ def register(mcpserver):
             from trade_integrations.research.broker_context import resolve_broker_preset
 
             _, calculate_charges, _ = _import_payoff_charges()
-            broker = broker_preset or resolve_broker_preset()
+            broker = resolve_broker_preset(openalgo_session_broker=broker_preset)
             result = calculate_charges(legs, broker_preset=broker)
             return json.dumps(result, indent=2, default=str)
         except Exception as e:
@@ -1194,7 +1191,12 @@ def register(mcpserver):
                 "options": ResearchKind.OPTIONS,
                 "index": ResearchKind.INDEX,
             }
-            kind = kind_map.get(asset_type.strip().lower(), ResearchKind.STOCK)
+            kind = kind_map.get(asset_type.strip().lower())
+            if kind is None:
+                return json.dumps(
+                    {"status": "error", "error": f"asset_type must be one of {sorted(kind_map)}, got {asset_type!r}"},
+                    indent=2,
+                )
             return json.dumps(_status(ticker, kind=kind), indent=2, default=str)
         except Exception as e:
             logger.exception("get_research_status failed: %s", e)
@@ -1579,13 +1581,12 @@ def register(mcpserver):
                 try:
                     run_agent_debate(key, asset_type=resolved_asset)
                 except Exception:
-                    logger.exception("_worker failed")
-                    pass
+                    logger.exception("background agent debate failed for %s", key)
 
             threading.Thread(target=_worker, daemon=True, name=f"mcp-debate-{key}").start()
             return body
         except Exception as e:
-            logger.exception("_worker failed: %s", e)
+            logger.exception("run_tradingagents_analysis failed: %s", e)
             return f"Error running TradingAgents analysis: {str(e)}"
 
 

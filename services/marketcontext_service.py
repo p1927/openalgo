@@ -43,9 +43,10 @@ def _simulator_block(broker: str) -> dict[str, Any]:
             "sim_now": clock.get("sim_now"),
             "speed": clock.get("speed"),
         }
-    except Exception:
-        logger.debug("simulator status unavailable for marketcontext", exc_info=True)
-        return {"active": True}
+    except Exception as exc:
+        # Authoritative context must not look like "simulator up, no replay info": say it is unreachable.
+        logger.warning("simulator status unavailable for marketcontext", exc_info=True)
+        return {"active": True, "status": "unavailable", "error": f"{type(exc).__name__}: {exc}"}
 
 
 def _execution_fields(*, data_broker: str, analyze_mode: bool) -> tuple[str, str, tuple[str, ...]]:

@@ -15,6 +15,7 @@ from utils.constants import (
 )
 from utils.event_bus import bus
 from utils.logging import get_logger
+from utils.sandbox_routing import has_own_paper_venue
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -165,7 +166,7 @@ def place_order_with_auth(
     # (see orderbook_service). This is the same idea made explicit, because a
     # write path should not infer intent from whether a logging argument
     # happens to be None.
-    if get_analyze_mode() and broker != "alpaca" and not force_live:
+    if get_analyze_mode() and not has_own_paper_venue(broker) and not force_live:
         from services.sandbox_service import sandbox_place_order
 
         if not api_key:

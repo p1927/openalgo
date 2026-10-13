@@ -47,8 +47,9 @@ def get_funds_with_auth(
     # If in analyze mode AND we have original_data (API call), route to sandbox
     # If original_data is None (internal call from dashboard), use live broker
     from database.settings_db import get_analyze_mode
+    from utils.sandbox_routing import has_own_paper_venue
 
-    if get_analyze_mode() and original_data and broker != "alpaca":
+    if get_analyze_mode() and original_data and not has_own_paper_venue(broker):
         from services.sandbox_service import sandbox_get_funds
 
         api_key = original_data.get("apikey")

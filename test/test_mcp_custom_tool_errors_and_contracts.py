@@ -138,6 +138,13 @@ def test_record_autonomous_decision_actions_taken_is_a_string_array() -> None:
     assert {"type": "array", "items": {"type": "string"}} in props["actions_taken"]["anyOf"]
 
 
+def test_get_research_status_rejects_unknown_asset_type_instead_of_defaulting_to_stock() -> None:
+    server = FastMCP("t")
+    _register_on(server)
+    bad = _call(server, "get_research_status", {"ticker": "NIFTY", "asset_type": "crypto"})
+    assert bad.isError and "asset_type must be one of" in bad.content[0].text
+
+
 def test_in_app_http_transport_does_not_serve_the_trade_tools(monkeypatch) -> None:
     """Trade backlog 2026-09-23-openalgo-http-mcp-lacks-trade-deps: inside
     the broker app (OPENALGO_MCP_IN_APP=1, openalgo/.venv) the Trade tools are defined but

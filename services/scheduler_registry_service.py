@@ -146,22 +146,22 @@ def list_scheduler_registry(api_key: str | None) -> tuple[bool, dict[str, Any], 
         return False, {"status": "error", "message": "Invalid openalgo apikey"}, 403
 
     entries: list[dict[str, Any]] = []
+    # A scheduler that is broken is not "empty": name it, so the registry caller can show it
+    # instead of a silently shorter list.
+    errors: list[dict[str, str]] = []
     for source in VALID_SOURCES:
         try:
             scheduler = _get_scheduler(source)
-        except Exception:
-            logger.exception("Failed to resolve %s scheduler for registry listing", source)
-            continue
-        if scheduler is None:
-            continue
-        try:
+            if scheduler is None:
+                continue
             jobs = scheduler.get_jobs()
-        except Exception:
+        except Exception as exc:
             logger.exception("Failed to list jobs from %s scheduler", source)
+            errors.append({"source": source, "error": f"{type(exc).__name__}: {exc}"})
             continue
         entries.extend(_job_to_entry(source, job) for job in jobs)
 
-    return True, {"status": "success", "data": {"entries": entries}}, 200
+    return True, {"status": "success", "data": {"entries": entries, "errors": errors}}, 200
 
 
 def _set_job_paused(source: str, job_id: str, *, paused: bool) -> tuple[bool, str]:
