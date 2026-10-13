@@ -19,8 +19,9 @@ def test_resolve_alpaca_from_dedicated_env(monkeypatch) -> None:
 
 
 @pytest.mark.unit
-def test_resolve_indmoney_token(monkeypatch) -> None:
-    monkeypatch.setenv("INDMONEY_ACCESS_TOKEN", "jwt-token-xyz")
+def test_resolve_indmoney_secret_ignores_retired_access_token_key(monkeypatch) -> None:
+    monkeypatch.setenv("INDMONEY_ACCESS_TOKEN", "retired-token")
+    monkeypatch.setenv("INDMONEY_API_SECRET", "jwt-token-xyz")
     monkeypatch.delenv("BROKER_API_SECRET", raising=False)
     _key, secret = bc.resolve_broker_credentials("indmoney")
     assert secret == "jwt-token-xyz"

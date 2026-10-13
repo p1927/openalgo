@@ -22,7 +22,7 @@ BROKER_CREDENTIAL_ALIASES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = 
     ),
     "indmoney": (
         ("INDMONEY_API_KEY",),
-        ("INDMONEY_ACCESS_TOKEN", "INDMONEY_API_SECRET"),
+        ("INDMONEY_API_SECRET",),  # INDMONEY_ACCESS_TOKEN is retired (D358): the token lives in one file
     ),
     "zerodha": (
         ("ZERODHA_API_KEY",),
