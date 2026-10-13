@@ -1,10 +1,8 @@
 """Shared master-contract rebuild-on-date-change trigger.
 
-Used by both ``blueprints/simulator_control.py`` (Sandbox UI) and
-``blueprints/stock_simulator_control.py`` (server-to-server proxy) so the
-symtoken-table rebuild logic isn't duplicated between them — both call this
-after learning a new replay date/window from the standalone stock_simulator
-service.
+Used by ``blueprints/simulator_control.py`` (Sandbox UI) after it learns a new replay
+date/window from the standalone stock_simulator service. A replay armed on the service
+directly is caught by ``mc_freshness`` at the next login/master-contract check instead.
 """
 
 from __future__ import annotations

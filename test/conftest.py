@@ -55,7 +55,7 @@ os.environ["LATENCY_DATABASE_URL"] = f"sqlite:///{_TEST_DB_DIR}/latency-test.db"
 # Same isolation reasoning applies to logging: utils/logging.setup_logging()
 # always writes ERROR+ entries to `{LOG_DIR}/errors.jsonl`, defaulting to the
 # real `log/` directory. Without this, tests that deliberately exercise error
-# paths (e.g. test_stock_simulator_control.test_stop_survives_sandbox_db_write_failure,
+# paths (e.g. a control-route test (e.g. a stop that survives a sandbox DB write failure),
 # which raises a synthetic "db unavailable" RuntimeError) log straight into
 # the production error file that operators tail for real incidents, making a
 # passing test look like a live outage. Scoped into the same per-process tmp

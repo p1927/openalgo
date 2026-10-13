@@ -7,10 +7,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { buildCheeseRequest, type CheeseCombo } from '@/lib/cheeseRanking'
 import { computeMispricing, type MispricingRow } from '@/lib/optionMispricing'
 import { cn } from '@/lib/utils'
 import type { OptionStrike } from '@/types/option-chain'
 import { showToast } from '@/utils/toast'
+import { CheesePicks, useCheeseRanking } from './CheesePicks'
 import type { LegDraft, LegDraftType, ResolveLegContract } from './ManualLegBuilder'
 
 export interface CheeseTabProps {
@@ -113,6 +115,12 @@ export function CheeseTab({
     return scored ? [...scored].sort((a, b) => a.strike - b.strike) : null
   }, [chain, effectiveForward, years, thresholdPct])
 
+  const rankingRequest = useMemo(
+    () => buildCheeseRequest(selectedUnderlying, selectedExpiry, underlyingLtp, years, chain, rows),
+    [selectedUnderlying, selectedExpiry, underlyingLtp, years, chain, rows]
+  )
+  const ranking = useCheeseRanking(rankingRequest)
+
   const spotRowIndex = useMemo(
     () => (rows ? spotLineRowIndex(rows, underlyingLtp) : null),
     [rows, underlyingLtp]
@@ -177,6 +185,12 @@ export function CheeseTab({
     }
   }
 
+  const handleAddCombo = async (combo: CheeseCombo) => {
+    for (const leg of combo.legs) {
+      await handleAddLeg(leg.strike, leg.option_type, leg.side)
+    }
+  }
+
   const handleCellClick = (strike: number, optionType: LegDraftType, side: 'BUY' | 'SELL') => {
     void handleAddLeg(strike, optionType, side)
   }
@@ -228,6 +242,13 @@ export function CheeseTab({
         <div className="text-right">Put Edge</div>
         <div />
       </div>
+
+      <CheesePicks
+        state={ranking}
+        onPick={handleCellClick}
+        onAddCombo={(combo) => void handleAddCombo(combo)}
+        formatCurrency={formatCurrency}
+      />
 
       {!chain ? (
         <div className="flex h-[300px] items-center justify-center text-sm text-muted-foreground">
