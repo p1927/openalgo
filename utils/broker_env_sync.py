@@ -15,6 +15,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 
+from utils.env_check import env_file_path
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -23,26 +24,9 @@ logger = get_logger(__name__)
 ENV_TOKEN_BROKERS = frozenset({"indmoney", "groww", "deltaexchange", "dhan_sandbox", "stock_simulator"})
 
 
-def _env_path() -> str:
-    """Resolve the .env file this process should read/write.
-
-    ``OPENALGO_ENV_FILE`` (a real process env var, set before launch — never
-    read from inside the .env file it's meant to override) takes precedence
-    when set, so an isolated/scratch OpenAlgo instance can point this sync
-    module at its own .env instead of always resolving to the checkout this
-    module happens to be imported from. Falls back to the historical
-    __file__-relative path (unchanged) for the normal single-instance case.
-    """
-    override = os.getenv("OPENALGO_ENV_FILE", "").strip()
-    if override:
-        return os.path.normpath(os.path.abspath(override))
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    return os.path.normpath(os.path.join(base_dir, "..", ".env"))
-
-
 def reload_env_from_file() -> None:
     """Hot-reload process env after .env was written to disk."""
-    load_dotenv(dotenv_path=_env_path(), override=True)
+    load_dotenv(dotenv_path=env_file_path(), override=True)
 
 
 def get_configured_broker() -> str:
@@ -53,7 +37,7 @@ def get_configured_broker() -> str:
 
 def read_env_key_from_file(key: str) -> str:
     """Read a single key from .env, stripping quotes."""
-    env_path = _env_path()
+    env_path = env_file_path()
     if not os.path.exists(env_path):
         return ""
     try:

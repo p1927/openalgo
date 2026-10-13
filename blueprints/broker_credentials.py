@@ -9,6 +9,7 @@ import re
 
 from flask import Blueprint, jsonify, request
 
+from utils.env_check import env_file_path
 from utils.logging import get_logger
 from utils.session import check_session_validity
 
@@ -17,24 +18,9 @@ logger = get_logger(__name__)
 broker_credentials_bp = Blueprint("broker_credentials_bp", __name__, url_prefix="/api/broker")
 
 
-def get_env_path():
-    """Get the absolute path to the .env file.
-
-    ``OPENALGO_ENV_FILE`` overrides when set (see
-    utils/broker_env_sync.py::_env_path() for why — an isolated/scratch
-    instance needs this to point at its own .env rather than always
-    resolving to whichever checkout this module happens to be imported from).
-    """
-    override = os.getenv("OPENALGO_ENV_FILE", "").strip()
-    if override:
-        return os.path.normpath(os.path.abspath(override))
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    return os.path.normpath(os.path.join(base_dir, "..", ".env"))
-
-
 def read_env_file():
     """Read and parse the .env file into a dictionary of lines."""
-    env_path = get_env_path()
+    env_path = env_file_path()
     if not os.path.exists(env_path):
         return None, "Environment file not found"
 
@@ -340,7 +326,7 @@ def update_credentials():
             return jsonify({"status": "error", "message": "No credentials provided to update"}), 400
 
         # Write updated content back to .env
-        env_path = get_env_path()
+        env_path = env_file_path()
         try:
             # Use UTF-8 encoding for cross-platform compatibility
             with open(env_path, "w", encoding="utf-8") as f:

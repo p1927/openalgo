@@ -102,10 +102,15 @@ def check_tmp_noexec() -> None:
         pass  # Can't read /proc/mounts, skip the check
 
 
-def _env_file_path() -> str:
-    """The .env this process reads: ``OPENALGO_ENV_FILE`` (a real process env var set before
-    launch, so an isolated/scratch instance can use its own file), else the checkout's own."""
-    return os.getenv("OPENALGO_ENV_FILE", "").strip() or os.path.join(os.path.dirname(__file__), "..", ".env")
+def env_file_path() -> str:
+    """The one place that decides which .env this process reads and writes: ``OPENALGO_ENV_FILE``
+    (a real process env var set before launch, so an isolated/scratch instance can use its own
+    file), else the checkout's own. Absolute and normalised. Every caller goes through here (D306);
+    this module imports no OpenAlgo code so config, sync and blueprints can all use it."""
+    override = os.getenv("OPENALGO_ENV_FILE", "").strip()
+    if override:
+        return os.path.normpath(os.path.abspath(override))
+    return os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env"))
 
 
 def check_env_version_compatibility() -> bool:
@@ -116,7 +121,7 @@ def check_env_version_compatibility() -> bool:
         bool: True if compatible, False if an update is needed.
     """
     base_dir = os.path.dirname(__file__) + "/.."
-    env_path = _env_file_path()
+    env_path = env_file_path()
     sample_env_path = os.path.join(base_dir, ".sample.env")
 
     # Check if both files exist
@@ -1162,9 +1167,9 @@ def load_and_check_env_variables() -> None:
     # this when present, so an isolated/scratch instance can point the whole
     # process at its own .env instead of always resolving to whichever
     # checkout this module happens to be imported from — see
-    # utils/broker_env_sync.py::_env_path() for the sibling override this
+    # utils/env_check.py::env_file_path() for the sibling override this
     # mirrors (that module re-reads/re-syncs the same file later at runtime).
-    env_path = _env_file_path()
+    env_path = env_file_path()
 
     # Check if the .env file exists
     if not os.path.exists(env_path):
