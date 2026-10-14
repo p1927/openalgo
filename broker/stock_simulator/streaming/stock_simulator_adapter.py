@@ -147,12 +147,20 @@ class Stock_simulatorWebSocketAdapter(BaseBrokerWebSocketAdapter):
         def live() -> bool:
             return self.running and gen == self._generation
 
+        warned_unconfigured = False
         while live():
             if not client.is_configured:
                 # No control token configured — same fail-closed posture as
-                # StockSimulatorClient.is_configured. Wait rather than spin.
+                # StockSimulatorClient.is_configured. Wait rather than spin, and say once why
+                # subscribers see no ticks.
+                if not warned_unconfigured:
+                    warned_unconfigured = True
+                    logger.warning(
+                        "stock_simulator stream idle: no control token configured, so no ticks reach subscribers"
+                    )
                 time.sleep(1.0)
                 continue
+            warned_unconfigured = False
             try:
                 with ws_client.connect(client.stream_url, open_timeout=10) as ws:
                     logger.info("stock_simulator stream connected")

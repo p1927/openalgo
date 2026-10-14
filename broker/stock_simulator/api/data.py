@@ -117,6 +117,7 @@ class BrokerData:
         # endpoint, so options always fall through to the replay catalog
         # even when the broker is otherwise in live mode.
         is_option = exchange.upper() in {"NFO", "BFO"} or parse_openalgo_option_symbol(symbol)
+        live_fetch_failed = False
         if not is_option and self._mode()["mode"] == "live":
             try:
                 result = self._client.get_history(symbol, exchange, interval, start_date, end_date)
@@ -127,12 +128,17 @@ class BrokerData:
                         df["oi"] = 0
                     return df
             except Exception:
+                live_fetch_failed = True
                 logger.warning(
                     "live history fetch failed for %s/%s; falling back to replay",
                     symbol, exchange, exc_info=True,
                 )
 
-        return self._replay_history(symbol, exchange, interval, start_date, end_date, is_option=is_option)
+        frame = self._replay_history(symbol, exchange, interval, start_date, end_date, is_option=is_option)
+        # The caller can tell recorded/replay bars served in place of a failed live fetch from a normal
+        # replay answer: `frame.attrs["history_source"]`.
+        frame.attrs["history_source"] = "replay_after_live_failure" if live_fetch_failed else "replay"
+        return frame
 
     def _replay_history(
         self,
