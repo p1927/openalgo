@@ -40,6 +40,8 @@ def _get_logger():
 
 logger = _get_logger()
 
+from utils.atomic_write import atomic_write_text  # noqa: E402  (importable once _get_logger put the openalgo root on sys.path)
+
 
 def register(mcpserver):
     """Register our custom MCP tools onto the shared FastMCP instance.
@@ -500,7 +502,7 @@ def register(mcpserver):
             widget_id = widget.get("widget_id")
             if widget_id:
                 store = _trade_widget_store_dir() / f"{widget_id}.json"
-                store.write_text(json.dumps(widget, indent=2, default=str), encoding="utf-8")
+                atomic_write_text(store, json.dumps(widget, indent=2, default=str))
             return json.dumps(widget, indent=2, default=str)
         except Exception as e:
             logger.exception("get_options_trade_widget failed: %s", e)
@@ -1496,7 +1498,7 @@ def register(mcpserver):
             widget_id = widget.get("widget_id")
             if widget_id:
                 store = _trade_widget_store_dir() / f"{widget_id}.json"
-                store.write_text(json.dumps(widget, indent=2, default=str), encoding="utf-8")
+                atomic_write_text(store, json.dumps(widget, indent=2, default=str))
             return json.dumps(widget, indent=2, default=str)
         except Exception as e:
             logger.exception("get_stock_trade_widget failed: %s", e)
@@ -1828,7 +1830,7 @@ def register(mcpserver):
             widget_id = widget.get("widget_id")
             if widget_id:
                 store = _trade_widget_store_dir() / f"{widget_id}.json"
-                store.write_text(json.dumps(widget, indent=2, default=str), encoding="utf-8")
+                atomic_write_text(store, json.dumps(widget, indent=2, default=str))
             return json.dumps(widget, indent=2, default=str)
         except Exception as e:
             logger.exception("get_index_trade_widget failed: %s", e)
