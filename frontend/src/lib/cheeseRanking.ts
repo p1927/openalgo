@@ -82,6 +82,7 @@ interface CheeseLegQuote {
   bid: number
   ask: number
   oi: number
+  lotsize: number
 }
 
 function quote(leg: OptionData | null): CheeseLegQuote | null {
@@ -93,6 +94,7 @@ function quote(leg: OptionData | null): CheeseLegQuote | null {
     bid: leg.bid,
     ask: leg.ask,
     oi: leg.oi,
+    lotsize: leg.lotsize,
   }
 }
 
