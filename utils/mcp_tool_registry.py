@@ -249,19 +249,21 @@ def active_tool_names() -> set[str] | None:
     accept the same set — an operator who boots read-only must not find
     order placement still reachable over HTTP.
 
-    Returns None when the set cannot be determined, which callers treat
-    as "no filtering" so a metadata failure never takes the transport
-    down. ``tools/list`` did not previously load the tool module at all,
-    so the load is guarded here rather than allowed to surface as a
-    JSON-RPC error.
+    An empty set is a real answer (a read-only boot narrowed to toolsets
+    that hold only write tools registers nothing) and means "nothing is
+    callable". Returns None only when the module never defined the set,
+    which callers treat as "no filtering". A module that cannot be
+    loaded fails closed (an empty set): an operator who booted read-only
+    must not find order placement reachable because the metadata read
+    failed.
     """
     try:
         module = _load_mcpserver_module()
     except Exception:
-        logger.exception("Could not load mcp/mcpserver.py to read active tools")
-        return None
+        logger.exception("Could not load mcp/mcpserver.py to read active tools: exposing no tools")
+        return set()
     names = getattr(module, "ACTIVE_TOOL_NAMES", None) if module else None
-    if not names:
+    if names is None:
         return None
     return set(names)
 

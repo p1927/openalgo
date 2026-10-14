@@ -39,12 +39,6 @@ def ratelimit_handler(e):
 @limiter.limit(LOGIN_RATE_LIMIT_HOUR)
 def broker_callback(broker, para=None):
     logger.info(f"Broker callback initiated for: {broker}")
-    try:
-        from utils.broker_credentials import apply_broker_credentials
-
-        apply_broker_credentials(broker)
-    except Exception as exc:
-        logger.debug("broker credential apply skipped: %s", exc)
     logger.debug("Session keys: %s", sorted(session.keys()))
     logger.info(f"Session has user key: {'user' in session}")
 
@@ -61,6 +55,16 @@ def broker_callback(broker, para=None):
         if "user" not in session:
             logger.warning(f"User not in session for {broker} callback, redirecting to login")
             return redirect(url_for("auth.login"))
+
+    # After the session gate, and only for a broker this instance loaded: `broker` is URL text, and this call rewrites
+    # the process-wide BROKER_API_KEY/SECRET, which an unauthenticated GET /<anything>/callback used to reach.
+    if f"{broker}_auth" in app.broker_auth_functions:
+        try:
+            from utils.broker_credentials import apply_broker_credentials
+
+            apply_broker_credentials(broker)
+        except Exception as exc:
+            logger.warning("broker credential apply failed for %s: %s", broker, exc)
 
     if session.get("logged_in") and session.get("broker") == broker:
         # Re-entrant callback for the SAME broker the session already holds

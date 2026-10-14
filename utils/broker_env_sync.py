@@ -46,12 +46,16 @@ def read_env_key_from_file(key: str) -> str:
     except OSError:
         return ""
 
-    pattern = rf"^{re.escape(key)}\s*=\s*(.+)$"
+    # `[ \t]*` not `\s*`: after `KEY=` the whitespace class swallowed the newline of an empty `KEY=` line and the
+    # next .env line came back as the secret.
+    pattern = rf"^{re.escape(key)}[ \t]*=[ \t]*([^\r\n]*)$"
     match = re.search(pattern, content, flags=re.MULTILINE)
     if not match:
         return ""
 
     raw = match.group(1).strip()
+    if not raw:
+        return ""
     # A trailing `# comment` is not part of the value (dotenv reads it the same way): the whole line used to
     # come back as the secret, so a commented token compared unequal to its auth-DB copy and was re-synced.
     quoted = re.match(r"""^(["'])(.*?)\1\s*(?:#.*)?$""", raw)

@@ -401,7 +401,9 @@ class JSONLineFormatter(logging.Formatter):
         }
 
         if record.exc_info and record.exc_info[0] is not None:
-            entry["exception"] = traceback.format_exception(*record.exc_info)
+            # Redacted as JSONErrorFormatter does: this renders exc_info itself, never reading the exc_text the
+            # SensitiveDataFilter prepared, so an api_key in an exception message went out in clear.
+            entry["exception"] = [redact_text(line) for line in traceback.format_exception(*record.exc_info)]
 
         return json.dumps(entry, default=str)
 

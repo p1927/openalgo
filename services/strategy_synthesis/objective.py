@@ -250,7 +250,15 @@ def score_combo(
 
     profit_s = _profit_score(risk, profit_normalization)
     loss_s = _loss_score(risk, profit_normalization)
-    win_p = win_probability(prices, payoff, spot, iv, years)
+    win_prices, win_payoff = risk_prices, risk_payoff
+    if spot and spot > 0 and iv and iv > 0 and years and years > 0:
+        # The payoff's sign is constant only beyond the LAST BREAKEVEN, not beyond the drawn grid: a curve narrower
+        # than the breakevens gave the whole tail probability 0 (a long call 24500 at 24250 read 0.00 vs 0.41).
+        # Evaluate over the lognormal's own +/-6 sigma range as well.
+        span = 6.0 * iv * math.sqrt(years)
+        win_prices = np.unique(np.concatenate([risk_prices, np.linspace(spot * math.exp(-span), spot * math.exp(span), 241)]))
+        win_payoff = combo_payoff(win_prices, legs, lot_size)
+    win_p = win_probability(win_prices, win_payoff, spot, iv, years)
     rupee_s = _rupee_score(risk, target_max_profit, target_max_loss)
     base = (
         shape_weight * shape

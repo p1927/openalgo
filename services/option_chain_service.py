@@ -856,6 +856,12 @@ def get_option_chain(
             _attach_chain_greeks(chain, expiry_dt, forward_price, interest_rate)
 
         warnings = [fastpath_partial_warning] if fastpath_partial_warning else []
+        # Quotes were asked for and none came back (the multiquote call failed, or every row errored): the zero prices
+        # above are placeholders, not prices. Said in the response, never `quotes_included` with no warning.
+        quotes_missing = bool(with_quotes and symbols_to_fetch and not quotes_map)
+        if quotes_missing:
+            warnings.append("quotes unavailable: ltp/bid/ask/oi on this chain are 0 placeholders, not market prices")
+            logger.error("option chain for %s: quotes requested for %d symbols, none returned", base_symbol, len(symbols_to_fetch))
 
         # A quote source that labels its data `simulated` (the stock_simulator broker, for its
         # replay answers) keeps that label on the chain as a whole, so a replayed chain can never
@@ -877,7 +883,7 @@ def get_option_chain(
                 # time to expiry, which otherwise silently biases every Greek.
                 "server_ts": int(datetime.now(UTC).timestamp()),
                 "atm_strike": atm_strike,
-                "quotes_included": with_quotes,
+                "quotes_included": bool(with_quotes and not quotes_missing),
                 "greeks_included": bool(with_quotes and with_greeks),
                 "forward_price": forward_price,
                 "chain": chain,

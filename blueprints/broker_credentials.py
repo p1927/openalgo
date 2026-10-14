@@ -54,10 +54,9 @@ def update_env_value(content: str, key: str, value: str) -> str:
         # Use single quotes (no escaping needed)
         new_value = f"'{value}'"
 
-    replacement = rf"\g<1>{new_value}"
-
-    # Try to replace existing key
-    new_content, count = re.subn(pattern, replacement, content, flags=re.MULTILINE)
+    # A function, not a template string: the secret goes in verbatim (a backslash in it was read as an escape, and
+    # `\d` raised "bad escape").
+    new_content, count = re.subn(pattern, lambda m: m.group(1) + new_value, content, flags=re.MULTILINE)
 
     if count == 0:
         # Key doesn't exist, append it
@@ -328,9 +327,9 @@ def update_credentials():
         # Write updated content back to .env
         env_path = env_file_path()
         try:
-            # Use UTF-8 encoding for cross-platform compatibility
-            with open(env_path, "w", encoding="utf-8") as f:
-                f.write(content)
+            from utils.env_check import _atomic_replace_text  # the one .env writer (admin.py uses it too)
+
+            _atomic_replace_text(env_path, content)
             logger.info(f"Updated broker credentials: {', '.join(updated_fields)}")
         except Exception as e:
             logger.exception(f"Error writing .env file: {e}")
