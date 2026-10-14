@@ -222,8 +222,15 @@ class KeyWatcher:
         old_key = self.mcpserver.api_key
         # Build first, swap after. If the constructor raises, this propagates
         # with the old client still bound — never a keyless server.
-        new_client = self.mcpserver.api(api_key=new_key, host=new_host)
-        self.mcpserver.init_for_http(new_key, new_host, client_value=new_client)
+        try:
+            new_client = self.mcpserver.api(api_key=new_key, host=new_host)
+            self.mcpserver.init_for_http(new_key, new_host, client_value=new_client)
+        except Exception:
+            # The file parsed, so a bad rewrite is not the cause: do not mark this mtime as handled, or one
+            # transient failure leaves the stale key bound until the file is rewritten again (R4). The next
+            # poll retries; a parse failure above still reports once per rewrite.
+            self._seen_mtime = None
+            raise
         logger.info(
             "OpenAlgo MCP: rebound SDK client from %s to %s (host %s) after %s changed",
             mask(old_key or ""),
