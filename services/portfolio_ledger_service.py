@@ -112,14 +112,16 @@ def get_portfolio_rollup(user_id: str) -> dict[str, Any]:
         open_strategies.append(profile)
 
     banked_pnl = capital["realized_pnl"]
-    safe_to_withdraw = banked_pnl - capital_at_risk
+    # An open strategy with no risk profile has UNKNOWN risk, not zero: a number computed without it overstates
+    # what is safe to take out, so the headline is None (unknown) until every open strategy is profiled (R4).
+    safe_to_withdraw = None if unprofiled_open_strategies else banked_pnl - capital_at_risk
 
     return {
         "status": "success",
         "capital": capital,
         "capital_at_risk": round(capital_at_risk, 2),
         "banked_pnl": round(banked_pnl, 2),
-        "safe_to_withdraw": round(safe_to_withdraw, 2),
+        "safe_to_withdraw": None if safe_to_withdraw is None else round(safe_to_withdraw, 2),
         "open_strategies": open_strategies,
         "unprofiled_open_strategies": unprofiled_open_strategies,
     }

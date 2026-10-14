@@ -139,6 +139,8 @@ class TestGetPortfolioRollup:
         assert result["capital_at_risk"] == 0.0
         assert result["open_strategies"] == []
         assert result["unprofiled_open_strategies"] == ["unprofiled_strategy"]
+        # unknown risk is not zero risk: no withdrawable figure while any open strategy is unprofiled
+        assert result["safe_to_withdraw"] is None
 
     def test_multiple_open_strategies_sum_into_capital_at_risk(self, user_id):
         from database.strategy_book_db import set_strategy_risk_profile

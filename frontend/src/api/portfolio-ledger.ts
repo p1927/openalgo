@@ -25,7 +25,7 @@ export interface PortfolioRollup {
   capital: CapitalAccount
   capital_at_risk: number
   banked_pnl: number
-  safe_to_withdraw: number
+  safe_to_withdraw: number | null // null while an open strategy has no risk profile (unknown, not zero)
   open_strategies: OpenStrategyRiskProfile[]
   unprofiled_open_strategies: string[]
 }
