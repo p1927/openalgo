@@ -28,6 +28,10 @@ logger = get_logger(__name__)
 
 _STREAM_POLL_SECONDS = 0.5
 _STREAM_HEARTBEAT_SECONDS = 15.0
+# A stream that has never had a single log line to send (an unknown job id, or a job that has not logged yet)
+# ends after this long: an open stream holds a greenlet until the client goes away, and the stream route only
+# checks the key. EventSource reconnects on its own, and nothing was emitted, so a reconnect replays nothing twice.
+_STREAM_NEVER_EMITTED_MAX_SECONDS = 300.0
 
 VALID_SOURCES = ("flow", "historify", "strategy", "chartink", "python_strategy")
 
@@ -272,7 +276,8 @@ def _sse_frame(event: str, data: dict[str, Any]) -> str:
 
 
 def stream_scheduler_run_log(job_id: str) -> Iterator[str]:
-    """Replay ``job_id``'s buffered log lines, then poll for new ones forever.
+    """Replay ``job_id``'s buffered log lines, then poll for new ones until the client leaves (or, for a job
+    that never logs anything, until ``_STREAM_NEVER_EMITTED_MAX_SECONDS``).
 
     Same replay-then-poll shape and ``event: log`` / ``{"seq","at","message"}``
     frame format as vibetrading-agent's and stock_simulator's live-log-tail
@@ -286,12 +291,14 @@ def stream_scheduler_run_log(job_id: str) -> Iterator[str]:
     from services.scheduler_run_log_buffer import get_logs_since
 
     last_seq = 0
-    last_emit = time.monotonic()
+    started = last_emit = time.monotonic()
     while True:
         for entry in get_logs_since(job_id, last_seq):
             yield _sse_frame("log", entry)
             last_seq = entry["seq"]
             last_emit = time.monotonic()
+        if last_seq == 0 and time.monotonic() - started >= _STREAM_NEVER_EMITTED_MAX_SECONDS:
+            return
         if time.monotonic() - last_emit >= _STREAM_HEARTBEAT_SECONDS:
             yield ": keepalive\n\n"
             last_emit = time.monotonic()

@@ -333,3 +333,47 @@ def test_stream_scheduler_run_log_replays_buffered_entries_then_polls():
 
     assert _json.loads(frames[0].split("data: ", 1)[1].strip())["message"] == "hello"
     assert _json.loads(frames[1].split("data: ", 1)[1].strip())["message"] == "world"
+
+
+def test_stream_for_a_job_that_never_logs_ends_instead_of_holding_a_greenlet_forever():
+    clock = {"now": 1000.0}
+
+    def _monotonic():
+        return clock["now"]
+
+    def _sleep(seconds):
+        clock["now"] += seconds
+
+    with mock.patch.object(svc.time, "monotonic", _monotonic), mock.patch.object(svc.time, "sleep", _sleep):
+        frames = list(svc.stream_scheduler_run_log("never_logged_job"))
+    # only heartbeats, then the generator returned on its own once the cap elapsed
+    assert frames and all(f.startswith(": keepalive") for f in frames)
+    assert clock["now"] - 1000.0 < svc._STREAM_NEVER_EMITTED_MAX_SECONDS + 1.0
+
+
+def test_stream_that_has_emitted_keeps_running_past_the_never_emitted_cap():
+    from services import scheduler_run_log_buffer
+
+    scheduler_run_log_buffer._BUFFERS.clear()
+    scheduler_run_log_buffer._SEQ_COUNTERS.clear()
+    scheduler_run_log_buffer.append_log("live_job", "first line")
+    clock = {"now": 5000.0}
+
+    class _Stop(Exception):
+        pass
+
+    def _sleep(seconds):
+        clock["now"] += seconds
+        if clock["now"] - 5000.0 > svc._STREAM_NEVER_EMITTED_MAX_SECONDS * 3:
+            raise _Stop
+
+    gen = svc.stream_scheduler_run_log("live_job")
+    with mock.patch.object(svc.time, "monotonic", lambda: clock["now"]), mock.patch.object(svc.time, "sleep", _sleep):
+        assert "first line" in next(gen)
+        try:
+            for _ in range(10_000):
+                next(gen)
+        except _Stop:
+            pass
+        else:
+            raise AssertionError("a stream that has emitted must not end on the never-emitted cap")

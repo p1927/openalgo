@@ -21,9 +21,9 @@ Run: uv run pytest test/test_mcp_integrity.py -v
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
-import subprocess
 import sys
 from pathlib import Path
 
@@ -126,30 +126,43 @@ def fastmcp_tools(server):
     return tools
 
 
-def _run_isolated(env_extra: dict[str, str], snippet: str) -> dict:
-    """Import the MCP server in a fresh process under given env vars.
+@contextlib.contextmanager
+def _fresh_server(env_extra: dict[str, str]):
+    """Load a second copy of ``mcp/mcpserver.py`` under the given env vars, in this process.
 
-    Toolset filtering is evaluated at import time, so it cannot be
-    exercised by mutating os.environ in this process — the module is
-    already loaded and cached.
+    Toolset filtering is evaluated at import time, so it cannot be exercised by mutating os.environ
+    against the module that is already loaded and cached. These cases used to spawn a fresh interpreter
+    each (8-39 s apiece: every one re-imported the whole third-party ``mcp`` package, 1000+ files); the
+    third-party modules are already in ``sys.modules`` here, so only ``mcpserver.py`` itself runs again.
+    The variant is also what ``utils.mcp_tool_registry`` resolves while the block runs; everything
+    (env, ``sys.modules`` entry, the registry's cached module) is restored on exit.
     """
-    env = {**os.environ, "OPENALGO_MCP_HTTP_BOOT": "1", **env_extra}
-    code = (
-        "import sys, json;"
-        f"sys.path.insert(0, {str(PROJECT_ROOT)!r});"
-        "from utils.mcp_tool_registry import _load_mcpserver_module;"
-        "m = _load_mcpserver_module();"
-        f"{snippet}"
-    )
-    proc = subprocess.run(
-        [sys.executable, "-c", code],
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=180,
-    )
-    assert proc.returncode == 0, f"subprocess failed: {proc.stderr[-2000:]}"
-    return json.loads(proc.stdout.strip().splitlines()[-1])
+    import importlib.util
+
+    from utils import mcp_tool_registry as registry
+
+    saved_env = {key: os.environ.get(key) for key in env_extra}
+    saved_module = sys.modules.get("openalgo_mcp_server")
+    saved_cache = getattr(registry._load_mcpserver_module, "_module", None)
+    os.environ.update({"OPENALGO_MCP_HTTP_BOOT": "1", **env_extra})
+    try:
+        spec = importlib.util.spec_from_file_location("openalgo_mcp_server", PROJECT_ROOT / "mcp" / "mcpserver.py")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules["openalgo_mcp_server"] = module  # so its decorators bind
+        spec.loader.exec_module(module)
+        registry._load_mcpserver_module._module = module
+        yield module
+    finally:
+        for key, value in saved_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        if saved_module is not None:
+            sys.modules["openalgo_mcp_server"] = saved_module
+        else:
+            sys.modules.pop("openalgo_mcp_server", None)
+        registry._load_mcpserver_module._module = saved_cache
 
 
 # ---------------------------------------------------------------- drift
@@ -491,12 +504,10 @@ def test_live_tool_output_is_enveloped(server):
 
 
 def test_envelope_can_be_disabled():
-    out = _run_isolated(
-        {"OPENALGO_MCP_TRUST_ENVELOPE": "0"},
-        "print(json.dumps({'keys': list(json.loads(m.validate_order_constants()))}))",
-    )
-    assert "product_types" in out["keys"]
-    assert "_openalgo_mcp_security" not in out["keys"]
+    with _fresh_server({"OPENALGO_MCP_TRUST_ENVELOPE": "0"}) as m:
+        keys = list(json.loads(m.validate_order_constants()))
+    assert "product_types" in keys
+    assert "_openalgo_mcp_security" not in keys
 
 
 # --------------------------------------------------------- toolset filtering
@@ -507,56 +518,61 @@ def test_all_tools_registered_by_default(server, fastmcp_tools):
     assert server.ACTIVE_TOOL_NAMES == frozenset(server.TOOL_META)
 
 
+def test_all_tools_registered_by_default_in_a_fresh_load(server):
+    """The variants below differ from this baseline only by the env they set."""
+    with _fresh_server({}) as m:
+        assert len(m.mcp._tool_manager._tools) == len(m.TOOL_META) == len(server.TOOL_META)
+
+
 def test_read_only_mode_drops_every_write_tool():
-    out = _run_isolated(
-        {"OPENALGO_MCP_READ_ONLY": "1"},
-        "print(json.dumps({"
-        "'registered': sorted(m.mcp._tool_manager._tools),"
-        "'writes': [n for n, x in m.TOOL_META.items() if x.registered and not x.read_only]}))",
-    )
-    assert out["writes"] == []
+    with _fresh_server({"OPENALGO_MCP_READ_ONLY": "1"}) as m:
+        registered = sorted(m.mcp._tool_manager._tools)
+        writes = [n for n, x in m.TOOL_META.items() if x.registered and not x.read_only]
+    assert writes == []
     for name in ("place_order", "cancel_all_orders", "analyzer_toggle", "send_telegram_alert"):
-        assert name not in out["registered"], f"{name} survived read-only mode"
-    assert "get_quote" in out["registered"]
-    assert "get_order_book" in out["registered"]
+        assert name not in registered, f"{name} survived read-only mode"
+    assert "get_quote" in registered
+    assert "get_order_book" in registered
 
 
 def test_toolset_filter_narrows_registration():
-    out = _run_isolated(
-        {"OPENALGO_MCP_TOOLSETS": "marketdata,research"},
-        "print(json.dumps({'registered': sorted(m.mcp._tool_manager._tools),"
-        "'toolsets': sorted(m.ACTIVE_TOOLSETS)}))",
-    )
-    assert out["toolsets"] == ["marketdata", "research"]
-    assert "get_quote" in out["registered"]
-    assert "calculate_indicator" in out["registered"]
-    assert "place_order" not in out["registered"]
-    assert "get_funds" not in out["registered"]
+    with _fresh_server({"OPENALGO_MCP_TOOLSETS": "marketdata,research"}) as m:
+        registered = sorted(m.mcp._tool_manager._tools)
+        toolsets = sorted(m.ACTIVE_TOOLSETS)
+    assert toolsets == ["marketdata", "research"]
+    assert "get_quote" in registered
+    assert "calculate_indicator" in registered
+    assert "place_order" not in registered
+    assert "get_funds" not in registered
 
 
 def test_unknown_toolset_is_recorded_not_silently_dropped():
-    out = _run_isolated(
-        {"OPENALGO_MCP_TOOLSETS": "bogus,orders"},
-        "print(json.dumps({'unknown': m.UNKNOWN_TOOLSETS, 'toolsets': sorted(m.ACTIVE_TOOLSETS)}))",
-    )
-    assert out["unknown"] == ["bogus"]
-    assert out["toolsets"] == ["orders"]
+    with _fresh_server({"OPENALGO_MCP_TOOLSETS": "bogus,orders"}) as m:
+        unknown, toolsets = list(m.UNKNOWN_TOOLSETS), sorted(m.ACTIVE_TOOLSETS)
+    assert unknown == ["bogus"]
+    assert toolsets == ["orders"]
 
 
 def test_filtered_tool_is_unreachable_over_http():
     """Read-only mode must apply to the HTTP transport too, not just
     stdio — get_tool_callable is the dispatcher's entry point."""
-    out = _run_isolated(
-        {"OPENALGO_MCP_READ_ONLY": "1"},
-        "from utils.mcp_tool_registry import get_tool_callable, list_tools_for_scopes;"
-        "print(json.dumps({"
-        "'place_order': get_tool_callable('place_order') is not None,"
-        "'get_quote': get_tool_callable('get_quote') is not None,"
-        "'write_listed': list_tools_for_scopes(['write:orders'])}))",
-    )
-    assert out["place_order"] is False
-    assert out["get_quote"] is True
-    assert out["write_listed"] == []
+    with _fresh_server({"OPENALGO_MCP_READ_ONLY": "1"}):
+        place_order = get_tool_callable("place_order") is not None
+        get_quote = get_tool_callable("get_quote") is not None
+        write_listed = list_tools_for_scopes(["write:orders"])
+    assert place_order is False
+    assert get_quote is True
+    assert write_listed == []
+
+
+def test_fresh_server_restores_the_shared_module_and_env_afterwards(server):
+    from utils import mcp_tool_registry as registry
+
+    before = (sys.modules["openalgo_mcp_server"], registry._load_mcpserver_module._module, os.environ.get("OPENALGO_MCP_READ_ONLY"))
+    with _fresh_server({"OPENALGO_MCP_READ_ONLY": "1"}) as variant:
+        assert variant is not server and sys.modules["openalgo_mcp_server"] is variant
+    assert (sys.modules["openalgo_mcp_server"], registry._load_mcpserver_module._module, os.environ.get("OPENALGO_MCP_READ_ONLY")) == before
+    assert registry._load_mcpserver_module() is server  # later tests keep resolving the default module
 
 
 def test_scope_listing_unfiltered_by_default():

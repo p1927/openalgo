@@ -92,3 +92,42 @@ def test_empty_keys_deletes_nothing():
     delete_matching_symtoken_rows([])
 
     assert SymToken.query.count() == 1
+
+
+def test_lazy_extend_replaces_only_the_keys_it_reinserts():
+    from broker.stock_simulator.api.mc_extend import replace_symtoken_rows
+
+    other_broker = _row(symbol="NIFTY28AUG2624500CE", exchange="NFO", name="NIFTY")  # same name/exchange/expiry
+    other_broker.expiry = "28-AUG-26"
+    stale = _row(symbol="NIFTY28AUG2624000CE", exchange="NFO", name="NIFTY")
+    stale.expiry = "28-AUG-26"
+    other_exchange = _row(symbol="NIFTY28AUG2624000CE", exchange="BFO", name="NIFTY")
+    db_session.add_all([other_broker, stale, other_exchange])
+    db_session.commit()
+
+    fresh = {
+        "symbol": "NIFTY28AUG2624000CE", "brsymbol": "NIFTY28AUG2624000CE", "name": "NIFTY", "exchange": "NFO",
+        "brexchange": "NSE_FNO", "token": "9", "expiry": "28-AUG-26", "strike": 24000.0, "lotsize": 75,
+        "instrumenttype": "CE", "tick_size": 0.05, "contract_value": 0,
+    }
+    replace_symtoken_rows([fresh], exchange="NFO")
+    replace_symtoken_rows([fresh], exchange="NFO")  # idempotent: still one row for the key
+
+    by_key = {}
+    for r in SymToken.query.all():
+        by_key.setdefault((r.symbol, r.exchange), []).append(r)
+    assert len(by_key[("NIFTY28AUG2624000CE", "NFO")]) == 1 and by_key[("NIFTY28AUG2624000CE", "NFO")][0].token == "9"
+    assert ("NIFTY28AUG2624500CE", "NFO") in by_key  # the other broker's strike for the same expiry survives
+    assert ("NIFTY28AUG2624000CE", "BFO") in by_key  # a different exchange is not ours to touch
+
+
+def test_lazy_extend_write_failure_rolls_back_and_raises():
+    from broker.stock_simulator.api.mc_extend import replace_symtoken_rows
+
+    keep = _row(symbol="NIFTY28AUG2624000CE", exchange="NFO", name="NIFTY")
+    db_session.add(keep)
+    db_session.commit()
+    bad = {"symbol": "NIFTY28AUG2624000CE", "no_such_column": 1}
+    with pytest.raises(Exception):
+        replace_symtoken_rows([bad], exchange="NFO")
+    assert SymToken.query.filter_by(symbol="NIFTY28AUG2624000CE").count() == 1  # the delete did not stick

@@ -118,6 +118,28 @@ def _resolve_expiry_iso(expiry_date: str) -> str | None:
         return None
 
 
+def replace_symtoken_rows(rows: list[dict[str, Any]], *, exchange: str) -> None:
+    """Replace the ``symtoken`` rows for exactly these rows' ``(symbol, exchange)`` keys, in one transaction.
+
+    ``symtoken`` has no broker column and the real ``indmoney`` broker's instruments live in the same table
+    (see ``master_contract_db.delete_matching_symtoken_rows``, the bulk rebuild's scoped delete). A delete by
+    ``(name, exchange, expiry)`` also removed every row of that expiry the simulator is not reinserting,
+    so the lazy extend is scoped the same way: only the keys it writes are replaced.
+    """
+    from database.symbol import SymToken, db_session
+
+    keys = [row["symbol"] for row in rows]
+    try:
+        db_session.query(SymToken).filter(
+            SymToken.exchange == exchange, SymToken.symbol.in_(keys)
+        ).delete(synchronize_session=False)
+        db_session.bulk_insert_mappings(SymToken, rows)
+        db_session.commit()
+    except Exception:
+        db_session.rollback()
+        raise
+
+
 def extend_master_contract_for_expiry(
     *,
     base_symbol: str,
@@ -129,9 +151,9 @@ def extend_master_contract_for_expiry(
 
     Reads the per-expiry parquet from the on-disk HF replay bundle
     and inserts one symtoken row per (strike, CE|PE) leg. Idempotent:
-    existing rows for the same (name, exchange, expiry) are
-    deleted first, so the table ends up exactly mirroring the
-    parquet's content for that expiry.
+    existing rows for the same (symbol, exchange) keys are
+    replaced (`replace_symtoken_rows`), so a second call leaves one row
+    per leg and another broker's rows for the expiry are untouched.
 
     Args:
         base_symbol: The underlying as the user sees it (``NIFTY``,
@@ -248,11 +270,10 @@ def extend_master_contract_for_expiry(
         for strike, opt_type in legs
     ]
 
-    # Database write: delete existing rows for this (name, exchange,
-    # expiry), then insert the fresh set in a single transaction.
-    # Idempotent — a second call is a no-op once the rows match.
+    # Database write: delete the existing rows for exactly the (symbol, exchange) keys
+    # being reinserted, then insert the fresh set in a single transaction. Idempotent.
     try:
-        from database.symbol import SymToken, db_session
+        from database.symbol import SymToken, db_session  # noqa: F401  (import check; the writer imports them)
     except Exception:
         logger.exception(
             "lazy MC extend: import of database.symbol failed; opting out"
@@ -260,13 +281,7 @@ def extend_master_contract_for_expiry(
         return 0
 
     try:
-        db_session.query(SymToken).filter(
-            SymToken.name == slug,
-            SymToken.exchange == options_exchange,
-            SymToken.expiry == expiry_col,
-        ).delete(synchronize_session=False)
-        db_session.bulk_insert_mappings(SymToken, rows)
-        db_session.commit()
+        replace_symtoken_rows(rows, exchange=options_exchange)
     except Exception:
         logger.exception(
             "lazy MC extend: symtoken write failed for %s expiring %s",
