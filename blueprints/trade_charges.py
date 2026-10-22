@@ -46,6 +46,10 @@ def post_trade_charges():
     except (TypeError, ValueError):
         return jsonify({"status": "error", "message": "spot must be a number"}), 400
 
+    market = str(payload.get("market") or "IN").strip().upper()
+    if market not in ("IN", "US"):
+        return jsonify({"status": "error", "message": "market must be IN or US"}), 400
+
     try:
         calculate_charges, calculate_charges_with_exit = _import_charges()
         # The one preset resolution (same as the get_trade_charges MCP tool): explicit preset, else the
@@ -56,9 +60,9 @@ def post_trade_charges():
             openalgo_session_broker=payload.get("broker_preset") or session.get("broker")
         )
         if include_exit and spot_f > 0:
-            charges = calculate_charges_with_exit(legs, spot=spot_f, broker_preset=broker_preset)
+            charges = calculate_charges_with_exit(legs, spot=spot_f, broker_preset=broker_preset, market=market)
         else:
-            charges = calculate_charges(legs, broker_preset=broker_preset)
+            charges = calculate_charges(legs, broker_preset=broker_preset, market=market)
     except Exception as exc:
         logger.warning("trade charges failed: %s", exc)
         return jsonify({"status": "error", "message": str(exc)}), 500
