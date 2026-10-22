@@ -861,7 +861,7 @@ export interface PayoffChargesOptions {
 }
 
 /**
- * Sum the round-trip charges for all active legs.
+ * Sum the ENTRY charges for all active legs.
  *
  * Used by `computePayoff` to net the per-sample payoff by total brokerage and
  * taxes while leaving the underlying Black-76 / intrinsic math untouched. A

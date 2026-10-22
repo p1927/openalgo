@@ -33,9 +33,9 @@ export interface PayoffChartProps {
    */
   underlyingSymbol?: string
   /**
-   * Per-leg round-trip charge totals (leg.id → total charges). When supplied,
-   * the hover tooltip gains an "After charges" row and the y-axis title is
-   * updated to "Net P&L (after charges)". The math is already netted upstream
+   * Per-leg ENTRY charge totals (exit not included) (leg.id → total charges). When supplied,
+   * the hover tooltip gains an "After entry charges" row and the y-axis title is
+   * updated to "Net P&L (after entry charges)". The math is already netted upstream
    * into the `payoff` samples — this prop only changes how the chart presents
    * the "P&L after charges" number in the tooltip.
    */
@@ -393,10 +393,10 @@ export function PayoffChart({
 
     const currentLabel = formatHorizon(daysElapsed)
     // When `perLegCharges` is supplied, the tooltip gains an extra row at
-    // customdata[3] that surfaces the "After charges" P&L. The chart
+    // customdata[3] that surfaces the "After entry charges" P&L. The chart
     // contract is fixed even when no charges are present (customdata length
     // stays at 3 in that case so the hovertemplate keeps rendering).
-    const chargesRow = perLegCharges ? '<br>After charges: %{customdata[3]}' : ''
+    const chargesRow = perLegCharges ? '<br>After entry charges: %{customdata[3]}' : ''
     const hoverTemplate = (label: string) =>
       `<b>${label}</b>` +
       '<br>Underlying: %{customdata[0]}' +
@@ -744,7 +744,7 @@ export function PayoffChart({
       },
       yaxis: {
         title: {
-          text: perLegCharges ? 'Net P&L (after charges)' : 'Profit / Loss',
+          text: perLegCharges ? 'Net P&L (after entry charges)' : 'Profit / Loss',
           font: { color: colors.text, size: 12 },
         },
         tickfont: { color: colors.text, size: 10 },

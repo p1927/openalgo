@@ -68,7 +68,7 @@ export function PayoffOverTimeChart({
     traces.push({
       type: 'scatter',
       mode: 'lines+markers',
-      name: 'Net P&L (after charges)',
+      name: 'Net P&L (after entry charges)',
       x: xDays,
       y: net,
       line: { color: colors.net, width: 2, dash: 'dot' },

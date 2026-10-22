@@ -24,7 +24,7 @@ export interface PnLTabProps {
   /** Live brokerage/GST breakdown — shown below the P&L table. */
   planCharges?: PlanCharges
   /**
-   * Per-leg round-trip charge map (leg.id → total charges). When supplied, the
+   * Per-leg ENTRY charge map (leg.id → total charges). When supplied, the
    * table adds a "Net" column showing per-leg P&L after that leg's charges,
    * and the footer grows a matching `Total - per-leg charges` total above the
    * existing entry-charges row.
@@ -181,7 +181,7 @@ export function PnLTab({
         const effective = isClosed ? (leg.exitPrice ?? leg.price) : (current ?? leg.price)
         const pnl = sign * (effective - leg.price) * qty
         // Per-leg charges net only out the *fixed-cost* contribution of one
-        // leg's round-trip. Symmetric with `computeChargeOffset` in
+        // leg's entry charges. Symmetric with `computeChargeOffset` in
         // strategyMath.ts — we sum active, non-excluded legs here because
         // the table only renders `leg.active` rows.
         const legCharge = perLegChargesMap?.[leg.id] ?? 0

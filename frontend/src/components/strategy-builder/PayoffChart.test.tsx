@@ -516,9 +516,9 @@ describe('PayoffChart exact geometry', () => {
     const expiry = (plotCapture.props?.data ?? []).find((t) => t.name === 'At Expiry') as
       | (PlotlyTypes.Data & { hovertemplate?: string })
       | undefined
-    expect(expiry?.hovertemplate).toContain('After charges')
+    expect(expiry?.hovertemplate).toContain('After entry charges')
     expect(expiry?.hovertemplate).toContain('%{customdata[3]}')
-    expect(plotCapture.props?.layout.yaxis?.title?.text).toBe('Net P&L (after charges)')
+    expect(plotCapture.props?.layout.yaxis?.title?.text).toBe('Net P&L (after entry charges)')
 
     // Cleanup so a follow-up test renders clean
     plotCapture.props = null

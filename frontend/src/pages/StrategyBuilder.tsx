@@ -110,7 +110,7 @@ import {
 } from '@/lib/strategyMath'
 import type { Direction, StrategyTemplate } from '@/lib/strategyTemplates'
 import { normalizeExpiryCode } from '@/lib/templateResolution'
-import { chargeMarketForExchange, estimateCharges, legsToChargeInput } from '@/lib/tradeCharges'
+import { chargeMarketForExchange, legsToChargeInput } from '@/lib/tradeCharges'
 import { cn, makeFormatCurrency } from '@/lib/utils'
 import { useAuthStore } from '@/stores/authStore'
 import { showToast } from '@/utils/toast'
@@ -1351,7 +1351,7 @@ export default function StrategyBuilder() {
     }
   }, [apiKey, marginRequestKey])
 
-  // Live per-leg charges — client estimate immediately; server refresh when session OK.
+  // Live per-leg charges from the server only (no client calculator); a loading state shows until it answers.
   useEffect(() => {
     const active = legs.filter(
       (l) => l.active && l.price > 0 && !(l.exitPrice !== undefined && l.exitPrice > 0)
@@ -1362,10 +1362,6 @@ export default function StrategyBuilder() {
     }
     const chargeLegs = legsToChargeInput(active)
     const market = chargeMarketForExchange(selectedExchange)
-    // Marked so the panel says "estimate" for as long as the server figure has not replaced it
-    // (server down, session lapsed): an unmarked client number reads as the real charges.
-    const estimate = estimateCharges(chargeLegs, market, connectedBroker)
-    setPlanCharges(estimate ? { ...estimate, charge_source: 'client_estimate' } : null)
 
     const handle = setTimeout(async () => {
       setIsChargesLoading(true)
@@ -1389,9 +1385,11 @@ export default function StrategyBuilder() {
           res.data.charges?.total?.total_charges !== undefined
         ) {
           setPlanCharges(res.data.charges)
+        } else {
+          setPlanCharges(null)
         }
       } catch {
-        /* client estimate already shown */
+        setPlanCharges(null) // no figure beats a stale one for different legs
       } finally {
         setIsChargesLoading(false)
       }
