@@ -62,7 +62,10 @@ def combo_payoff(prices: np.ndarray, legs: list[SynthesizedLeg], lot_size: int =
     """At-expiry P&L of a full multi-leg combo across a price grid."""
     if not legs:
         return np.zeros_like(prices, dtype=float)
-    return np.sum([leg_payoff(prices, leg, lot_size) for leg in legs], axis=0)
+    total = leg_payoff(prices, legs[0], lot_size)
+    for leg in legs[1:]:
+        total = total + leg_payoff(prices, leg, lot_size)
+    return total
 
 
 def risk_grid(prices: np.ndarray, legs: list[SynthesizedLeg]) -> np.ndarray:
@@ -99,10 +102,6 @@ def risk_grid(prices: np.ndarray, legs: list[SynthesizedLeg]) -> np.ndarray:
     """
     if not legs:
         return prices
-    points = {float(p) for p in prices}
-    for leg in legs:
-        points.add(float(leg.strike))
-    points.add(0.0)
     max_strike = max(leg.strike for leg in legs)
     if len(prices) >= 2:
         step = float(prices[-1] - prices[-2])
@@ -110,9 +109,8 @@ def risk_grid(prices: np.ndarray, legs: list[SynthesizedLeg]) -> np.ndarray:
         step = 0.0
     if step <= 0:
         step = max(max_strike * 0.01, 1.0)
-    points.add(max_strike + step)
-    points.add(max_strike + 2 * step)
-    return np.array(sorted(points))
+    extra = [leg.strike for leg in legs] + [0.0, max_strike + step, max_strike + 2 * step]
+    return np.unique(np.concatenate([np.asarray(prices, dtype=float), np.asarray(extra, dtype=float)]))
 
 
 def _edge_slope(prices: np.ndarray, payoff: np.ndarray) -> float:
@@ -141,20 +139,12 @@ def _find_breakevens(prices: np.ndarray, payoff: np.ndarray) -> list[float]:
     and the pair starting from it would independently detect "a sign
     change" and the same breakeven would be emitted twice.
     """
-    breakevens: list[float] = []
-    for i in range(len(prices) - 1):
-        y0, y1 = payoff[i], payoff[i + 1]
-        crosses_up = y0 < 0 <= y1
-        crosses_down = y0 >= 0 > y1
-        if not (crosses_up or crosses_down):
-            continue
-        x0, x1 = prices[i], prices[i + 1]
-        if y1 == y0:
-            breakevens.append(float(x0))
-            continue
-        t = -y0 / (y1 - y0)
-        breakevens.append(float(x0 + t * (x1 - x0)))
-    return breakevens
+    y0, y1 = payoff[:-1], payoff[1:]
+    idx = np.nonzero(((y0 < 0) & (y1 >= 0)) | ((y0 >= 0) & (y1 < 0)))[0]
+    x0, x1, y0, y1 = prices[idx], prices[idx + 1], y0[idx], y1[idx]
+    flat = y1 == y0
+    t = np.where(flat, 0.0, -y0 / np.where(flat, 1.0, y1 - y0))
+    return [float(v) for v in x0 + t * (x1 - x0)]
 
 
 def risk_reward_ratio(max_profit: float, max_loss: float) -> float:

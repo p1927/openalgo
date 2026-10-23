@@ -42,6 +42,7 @@ def get_agent_vs_shadow_wealth(user_id: str, agent_id: str, *, strategy: str | N
 
     agent_actual = get_strategy_performance(user_id, strategy=strategy)
 
+    status = "success"
     try:
         from broker.stock_simulator.api._trade_path import ensure_trade_integrations_path
 
@@ -57,12 +58,13 @@ def get_agent_vs_shadow_wealth(user_id: str, agent_id: str, *, strategy: str | N
         curve = wealth_curve(agent_id)
     except Exception:
         logger.exception("shadow-track read failed for agent_id=%s", agent_id)
+        status = "partial"  # agent_actual is real; the shadow side failed (see shadow.status)
         shadow = {"status": "error", "message": "shadow track unavailable"}
         summary = None
         curve = []
 
     return {
-        "status": "success",
+        "status": status,
         "user_id": user_id,
         "agent_id": agent_id,
         "agent_actual": agent_actual,

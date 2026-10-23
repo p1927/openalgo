@@ -5,7 +5,7 @@ model the frontend uses for its σ-band overlays
 (`frontend/src/lib/strategyMath.ts`'s `lognormalPriceBand`), just integrated
 against a payoff curve here instead of used to draw bands.
 
-Kept dependency-free (stdlib `math` only, no scipy) and side-effect-free,
+Kept side-effect-free (numpy + scipy.special.ndtr, both already declared dependencies),
 matching the rest of this package.
 """
 
@@ -14,13 +14,17 @@ from __future__ import annotations
 import math
 
 import numpy as np
+from scipy.special import ndtr
 
 
-def _lognormal_cdf(price: float, mu: float, sigma: float) -> float:
-    if price <= 0:
-        return 0.0
-    z = (math.log(price) - mu) / sigma
-    return 0.5 * (1 + math.erf(z / math.sqrt(2)))
+# Profiled (segment O2): the per-segment Python loop that called a scalar erf ~600x per scored combo was ~75% of a
+# synthesis request (316 us/score, 43 s for C(100,3) combos). One vectorised ndtr over the grid gives the same CDF.
+def _lognormal_cdf(prices: np.ndarray, mu: float, sigma: float) -> np.ndarray:
+    """P(S_T <= price) for each price (0 for price <= 0), vectorised."""
+    out = np.zeros(len(prices), dtype=float)
+    pos = prices > 0
+    out[pos] = ndtr((np.log(prices[pos]) - mu) / sigma)
+    return out
 
 
 def win_probability(
@@ -56,18 +60,13 @@ def win_probability(
         return 1.0 if mid > 0 else 0.0
     mu = math.log(spot) - 0.5 * sigma_t**2
 
-    profit_mass = 0.0
-    for i in range(len(prices) - 1):
-        segment_is_profit = (payoff[i] + payoff[i + 1]) / 2 > 0
-        if not segment_is_profit:
-            continue
-        profit_mass += _lognormal_cdf(float(prices[i + 1]), mu, sigma_t) - _lognormal_cdf(
-            float(prices[i]), mu, sigma_t
-        )
+    cdf = _lognormal_cdf(np.asarray(prices, dtype=float), mu, sigma_t)
+    segment_is_profit = (payoff[:-1] + payoff[1:]) / 2 > 0
+    profit_mass = float(np.sum((cdf[1:] - cdf[:-1])[segment_is_profit]))
 
     if payoff[0] > 0:
-        profit_mass += _lognormal_cdf(float(prices[0]), mu, sigma_t)
+        profit_mass += float(cdf[0])
     if payoff[-1] > 0:
-        profit_mass += 1 - _lognormal_cdf(float(prices[-1]), mu, sigma_t)
+        profit_mass += 1 - float(cdf[-1])
 
     return max(0.0, min(1.0, profit_mass))

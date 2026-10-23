@@ -129,7 +129,9 @@ def test_get_margin_data(monkeypatch) -> None:
 
             margin = get_margin_data("test-key")
 
-    assert margin["availablecash"] == "20000.00"
+    assert margin["availablecash"] == "10000.00"  # cash, not the 2x buying_power
+    assert margin["buyingpower"] == "20000.00"
+    assert "m2mrealized" not in margin
     assert margin["m2munrealized"] == "12.50"
 
 

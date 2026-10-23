@@ -193,17 +193,13 @@ def load_configs():
 def save_configs():
     """Save strategy configurations to file atomically.
 
-    Writes to a temp file and then renames into place so a kill mid-write
-    cannot leave a half-written JSON blob behind.
+    Goes through the fork's one atomic writer (utils/atomic_write), so a kill mid-write
+    cannot leave a half-written JSON blob behind and a bind-mounted file still saves.
     """
     try:
-        CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = CONFIG_FILE.with_suffix(CONFIG_FILE.suffix + ".tmp")
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(STRATEGY_CONFIGS, f, indent=2, default=str, ensure_ascii=False)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp_path, CONFIG_FILE)
+        from utils.atomic_write import atomic_write_text
+
+        atomic_write_text(CONFIG_FILE, json.dumps(STRATEGY_CONFIGS, indent=2, default=str, ensure_ascii=False))
         logger.debug("Configurations saved")
     except Exception as e:
         logger.exception(f"Failed to save configs: {e}")

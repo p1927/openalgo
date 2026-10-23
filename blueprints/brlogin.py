@@ -1,7 +1,6 @@
 import base64
 import hashlib
 import http.client
-import json
 import os
 
 import jwt
@@ -11,7 +10,6 @@ from flask import current_app as app
 from limiter import limiter  # Import the limiter instance
 from utils.auth_utils import handle_auth_failure, handle_auth_success
 from utils.config import (
-    build_external_url,
     get_broker_api_key,
     get_broker_api_secret,
     get_login_rate_limit_hour,
@@ -28,6 +26,9 @@ LOGIN_RATE_LIMIT_HOUR = get_login_rate_limit_hour()
 
 brlogin_bp = Blueprint("brlogin", __name__, url_prefix="/")
 
+# Broker logins removed from this fork (session-less callbacks that minted the admin session).
+REMOVED_LOGIN_BROKERS = frozenset({"rmoney", "compositedge", "iiflcapital"})
+
 
 @brlogin_bp.errorhandler(429)
 def ratelimit_handler(e):
@@ -42,12 +43,12 @@ def broker_callback(broker, para=None):
     logger.debug("Session keys: %s", sorted(session.keys()))
     logger.info(f"Session has user key: {'user' in session}")
 
-    # Special handling for brokers that come from external auth and might lose session
-    if broker in ("compositedge", "rmoney", "iiflcapital") and "user" not in session:
-        # Session will be established after successful auth token validation
-        logger.info(f"{broker} callback without session - will establish session after auth")
+    # Fork: the rmoney/compositedge/iiflcapital callbacks used to accept a request with no session and then
+    # set the admin session themselves (rmoney trusting client-posted JSON). The owner uses none: removed.
+    if broker in REMOVED_LOGIN_BROKERS:
+        return jsonify(error="Broker login is not supported."), 404
     # Special handling for mstock POST - check session but provide better error instead of redirect
-    elif broker == "mstock" and request.method == "POST" and "user" not in session:
+    if broker == "mstock" and request.method == "POST" and "user" not in session:
         # Redirect to broker selection page with error message instead of login
         return redirect(url_for("auth.broker_login"))
     else:
@@ -195,81 +196,6 @@ def broker_callback(broker, para=None):
         auth_token, feed_token, user_id, error_message = auth_function(code)
         forward_url = "broker.html"
 
-    elif broker == "compositedge":
-        # For Compositedge, check if we need to handle a special case where session might be lost
-        if "user" not in session:
-            # Check if this is coming from a valid OAuth callback
-            # Log the issue but try to continue if we have valid data
-            logger.warning(
-                "Session 'user' key missing in Compositedge callback, attempting to recover"
-            )
-
-        try:
-            # Get the raw data from the request
-            if request.method == "POST":
-                # Handle form data
-                if request.headers.get("Content-Type") == "application/x-www-form-urlencoded":
-                    raw_data = request.get_data().decode("utf-8")
-
-                    # Extract session data from form
-                    if raw_data.startswith("session="):
-                        from urllib.parse import unquote
-
-                        session_data = unquote(raw_data[8:])  # Remove 'session=' and URL decode
-
-                    else:
-                        session_data = raw_data
-                else:
-                    session_data = request.get_data().decode("utf-8")
-
-            else:
-                session_data = request.args.get("session")
-
-            if not session_data:
-                return jsonify({"error": "No session data received"}), 400
-
-            # Parse the session data
-            try:
-                # Try to clean the data if it's malformed
-                if isinstance(session_data, str):
-                    # Remove any leading/trailing whitespace
-                    session_data = session_data.strip()
-
-                    session_json = json.loads(session_data)
-
-                    # Handle double-encoded JSON
-                    if isinstance(session_json, str):
-                        session_json = json.loads(session_json)
-
-                else:
-                    session_json = session_data
-
-            except json.JSONDecodeError:
-                # This is the broker's session/access-token container. Never
-                # reflect it into browser or proxy diagnostics.
-                return jsonify({"error": "Invalid session JSON"}), 400
-
-            # Extract access token
-            access_token = session_json.get("accessToken")
-            # print(f'Access token is {access_token}')
-
-            if not access_token:
-                return jsonify({"error": "No access token found"}), 400
-
-            # Fetch auth token, feed token and user ID
-            auth_token, feed_token, user_id, error_message = auth_function(access_token)
-
-            # print(f'Auth token is {auth_token}')
-            # print(f'Feed token is {feed_token}')
-            # print(f'User ID is {user_id}')
-            forward_url = "broker.html"
-
-        except Exception as exc:
-            # Broker SDK exceptions can quote the entire session payload. Keep
-            # the response and application log to non-secret classification.
-            logger.error("Could not process Compositedge callback (%s)", type(exc).__name__)
-            return jsonify({"error": "Could not process broker callback"}), 500
-
     elif broker == "fyers":
         code = request.args.get("auth_code")
         logger.debug("Fyers broker - auth_code present: %s", bool(code))
@@ -322,74 +248,6 @@ def broker_callback(broker, para=None):
 
         # Fetch auth token, feed token and user ID
         auth_token, feed_token, user_id, error_message = auth_function(code)
-        forward_url = "broker.html"
-
-    elif broker == "iiflcapital":
-        # IIFL Capital uses redirect login and callback params authCode + clientId
-        callback_args = request.values.to_dict(flat=True)
-        auth_code = (
-            callback_args.get("authCode")
-            or callback_args.get("authcode")
-            or callback_args.get("auth_code")
-            or callback_args.get("code")
-        )
-        client_id = (
-            callback_args.get("clientId")
-            or callback_args.get("clientid")
-            or callback_args.get("client_id")
-            or callback_args.get("clientCode")
-            or callback_args.get("clientcode")
-        )
-
-        # Some callback variants may not include clientId explicitly.
-        # Fall back to BROKER_API_KEY to avoid false failures.
-        if not client_id:
-            broker_api_key = (os.getenv("BROKER_API_KEY") or "").strip()
-            if ":::" in broker_api_key:
-                client_id = broker_api_key.split(":::", 1)[0].strip()
-            elif broker_api_key:
-                client_id = broker_api_key
-
-        if request.method == "GET":
-            # Initial hit from OpenAlgo broker page has no callback parameters.
-            if not callback_args:
-                referrer = (request.headers.get("Referer") or "").lower()
-                if "iiflcapital.com" in referrer:
-                    logger.warning(
-                        "IIFL Capital callback returned without auth params after broker login. "
-                        "This usually indicates redirect URL mismatch/whitelisting issue."
-                    )
-                    return handle_auth_failure(
-                        "IIFL Capital callback was received without auth parameters. "
-                        "Please verify the exact callback URL is whitelisted in IIFL "
-                        "and matches REDIRECT_URL (including protocol, host, port, and path).",
-                        forward_url="broker.html",
-                    )
-
-                from broker.iiflcapital.api.auth_api import get_login_url
-
-                login_url = get_login_url()
-                if not login_url:
-                    return handle_auth_failure(
-                        "IIFL Capital login URL could not be generated. "
-                        "Please verify BROKER_API_KEY and REDIRECT_URL.",
-                        forward_url="broker.html",
-                    )
-                return redirect(login_url)
-
-            # Callback reached OpenAlgo but required params were not provided.
-            if not auth_code or not client_id:
-                logger.warning(
-                    "IIFL Capital callback missing required params. "
-                    f"Received keys: {list(callback_args.keys())}"
-                )
-                return handle_auth_failure(
-                    "IIFL Capital callback did not include required auth parameters. "
-                    "Please verify callback URL registration and try again.",
-                    forward_url="broker.html",
-                )
-
-        auth_token, error_message = auth_function(auth_code, client_id)
         forward_url = "broker.html"
 
     elif broker == "jainamxts":
@@ -939,76 +797,6 @@ def broker_callback(broker, para=None):
 
                 forward_url = "broker.html"
 
-    elif broker == "rmoney":
-        try:
-            # Extract session data from XTS OAuth callback
-            session_data = None
-            if request.method == "POST":
-                raw_data = request.get_data().decode("utf-8")
-                if request.headers.get("Content-Type") == "application/x-www-form-urlencoded":
-                    if raw_data.startswith("session="):
-                        from urllib.parse import unquote
-
-                        session_data = unquote(raw_data[8:])
-                    else:
-                        session_data = raw_data
-                else:
-                    session_data = raw_data
-            else:
-                session_data = request.args.get("session")
-
-            if session_data:
-                # XTS OAuth returns the full login session with token directly
-                session_json = json.loads(session_data)
-                if isinstance(session_json, str):
-                    session_json = json.loads(session_json)
-
-                # The session already contains the final auth token and userID
-                auth_token = session_json.get("token")
-                user_id = session_json.get("userID")
-
-                if not auth_token:
-                    logger.error(f"RMoney callback - No token in session. Keys: {list(session_json.keys())}")
-                    return jsonify({"error": "No token found in session data"}), 400
-
-                logger.info(
-                    "RMoney OAuth authentication successful (user ID present: %s)",
-                    bool(user_id),
-                )
-
-                # Get feed token for market data
-                from broker.rmoney.api.auth_api import get_feed_token
-
-                feed_token, feed_user_id, feed_error = get_feed_token()
-                if feed_error:
-                    logger.warning(f"RMoney feed token error: {feed_error}")
-                    feed_token = None
-                if not user_id:
-                    user_id = feed_user_id
-
-                error_message = None
-                forward_url = "broker.html"
-            else:
-                # No session data - initial request, redirect to RMoney OAuth login
-                from broker.rmoney.baseurl import INTERACTIVE_URL as RMONEY_INTERACTIVE_URL
-
-                BROKER_API_KEY_LOCAL = os.getenv("BROKER_API_KEY")
-                # Built from HOST_SERVER, not the request Host header: this URL
-                # is handed to the broker as the OAuth return address, so a
-                # poisoned Host would send the callback (and its credentials)
-                # to an attacker-controlled origin.
-                callback_url = build_external_url(
-                    url_for("brlogin.broker_callback", broker="rmoney")
-                )
-                oauth_url = f"{RMONEY_INTERACTIVE_URL}/thirdparty?appKey={BROKER_API_KEY_LOCAL}&returnURL={callback_url}"
-                return redirect(oauth_url)
-
-        except json.JSONDecodeError as e:
-            return jsonify({"error": f"Invalid session data format: {str(e)}"}), 400
-        except Exception as e:
-            logger.exception(f"RMoney callback error: {e}")
-            return jsonify({"error": f"Error processing request: {str(e)}"}), 500
-
     elif broker == "arrow":
         # Arrow redirects back with `request-token` (hyphen, per its docs). The
         # generic branch below only checks `request_token`/`code`, so handle the
@@ -1068,24 +856,7 @@ def broker_callback(broker, para=None):
             auth_token = f"{auth_token}"
 
         # For brokers that have user_id and feed_token from authenticate_broker
-        if broker in ["angel", "compositedge", "pocketful", "definedge", "dhan", "motilal", "rmoney", "iiflcapital"]:
-            # For OAuth brokers, handle missing session user
-            if broker in ("compositedge", "rmoney", "iiflcapital") and "user" not in session:
-                # Get the admin user from the database
-                from database.user_db import find_user_by_username
-
-                admin_user = find_user_by_username()
-                if admin_user:
-                    # Use the admin user's username
-                    username = admin_user.username
-                    session["user"] = username
-                    logger.info(f"{broker} callback: Set session user to {username}")
-                else:
-                    logger.error(f"No admin user found in database for {broker} callback")
-                    return handle_auth_failure(
-                        "No user account found. Please login first.", forward_url="broker.html"
-                    )
-
+        if broker in ["angel", "pocketful", "definedge", "dhan", "motilal"]:
             # Pass the feed token and user_id to handle_auth_success
             return handle_auth_success(
                 auth_token, session["user"], broker, feed_token=feed_token, user_id=user_id

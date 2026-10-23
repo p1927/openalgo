@@ -131,3 +131,20 @@ class TestGetAgentVsShadowWealth:
         assert result["agent_actual"]["net_pnl"] == pytest.approx(100.0)
         assert result["shadow"]["trade_count"] == 1
         assert result["shadow"]["net_pnl"] == pytest.approx(300.0)
+
+
+class TestShadowFailureIsPartial:
+    def test_shadow_read_failure_answers_partial_with_actual_intact(self, user_id, agent_id, hub_tmp, monkeypatch):
+        import trade_integrations.autonomous_agents.shadow_pnl as shadow_pnl
+        from services.wealth_ledger_service import get_agent_vs_shadow_wealth
+
+        _add_closed_trade(user_id, "s", realized_pnl=200.0)
+
+        def boom(*_a, **_k):
+            raise RuntimeError("hub down")
+
+        monkeypatch.setattr(shadow_pnl, "shadow_strategy_performance", boom)
+        result = get_agent_vs_shadow_wealth(user_id, agent_id)
+        assert result["status"] == "partial"
+        assert result["shadow"]["status"] == "error"
+        assert result["agent_actual"]["trade_count"] == 1

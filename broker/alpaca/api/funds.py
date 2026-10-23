@@ -39,9 +39,11 @@ def get_margin_data(auth_token: str) -> dict[str, str]:
             continue
 
     return {
-        "availablecash": f"{buying_power:.2f}",
+        # availablecash is real cash; buying_power is a margin multiple (up to 4x) and is reported separately.
+        # m2mrealized is omitted, not faked as 0.00: /v2/account carries no booked day P&L (consumers use .get).
+        "availablecash": f"{cash:.2f}",
+        "buyingpower": f"{buying_power:.2f}",
         "collateral": f"{cash:.2f}",
         "m2munrealized": f"{total_unrealized:.2f}",
-        "m2mrealized": "0.00",
         "utiliseddebits": f"{utilised:.2f}",
     }

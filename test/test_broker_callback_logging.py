@@ -31,11 +31,6 @@ class _CaptureLogger:
         ("aliceblue", f"authCode={SENTINEL}&userId=alice", (None, None, "authentication refused")),
         ("fyers", f"auth_code={SENTINEL}", (None, "authentication refused")),
         ("icici", f"apisession={SENTINEL}", (None, "authentication refused")),
-        (
-            "iiflcapital",
-            f"authCode={SENTINEL}&clientId=alice",
-            (None, "authentication refused"),
-        ),
         ("dhan", f"tokenId={SENTINEL}", (None, "authentication refused")),
         ("zebu", f"code={SENTINEL}", (None, "authentication refused")),
         ("shoonya", f"code={SENTINEL}", (None, "authentication refused")),
@@ -133,50 +128,3 @@ def test_dhan_initiation_never_logs_the_single_use_consent_app_id(monkeypatch) -
 
     assert SENTINEL in response
     assert SENTINEL not in "\n".join(capture.messages)
-
-
-def test_compositedge_malformed_session_is_not_reflected_to_the_client() -> None:
-    """Browser or proxy diagnostics must not retain a broker token container."""
-    app = Flask(__name__)
-    app.secret_key = "test-only"
-    app.broker_auth_functions = {"compositedge_auth": lambda *_args: (None, "unused")}
-    callback = inspect.unwrap(brlogin.broker_callback)
-
-    with app.test_request_context(
-        "/compositedge/callback",
-        method="POST",
-        data=f"session={SENTINEL}",
-        content_type="application/x-www-form-urlencoded",
-    ):
-        session["user"] = "alice"
-        response, status = callback("compositedge")
-
-    assert status == 400
-    body = response.get_data(as_text=True)
-    assert SENTINEL not in body
-    assert "raw_data" not in body
-
-
-def test_compositedge_auth_exception_does_not_reflect_a_valid_session_token() -> None:
-    """Adapter exceptions can quote the request, so their text is not client-safe."""
-    app = Flask(__name__)
-    app.secret_key = "test-only"
-
-    def raising_auth(*_args):
-        raise RuntimeError(f"upstream echoed {SENTINEL}")
-
-    app.broker_auth_functions = {"compositedge_auth": raising_auth}
-    callback = inspect.unwrap(brlogin.broker_callback)
-
-    with app.test_request_context(
-        "/compositedge/callback",
-        method="POST",
-        json={"accessToken": SENTINEL},
-    ):
-        session["user"] = "alice"
-        response, status = callback("compositedge")
-
-    assert status == 500
-    body = response.get_data(as_text=True)
-    assert SENTINEL not in body
-    assert "upstream echoed" not in body
