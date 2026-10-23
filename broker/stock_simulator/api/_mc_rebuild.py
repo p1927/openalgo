@@ -24,7 +24,7 @@ def trigger_mc_rebuild_if_date_changed(
 ) -> str | None:
     """Kick off an async master-contract rebuild if the replay date actually
     changed (or ``force=True``, e.g. a week-mode toggle with the same date).
-    Returns ``"completed"``/``"started"``/``None`` (no rebuild needed).
+    Returns ``"completed"``/``"started"``/``"failed"``/``None`` (no rebuild needed).
 
     The symtoken table (built by ``master_contract_download``) is anchored to
     whichever day was last armed — without a rebuild, the option-chain
@@ -35,11 +35,29 @@ def trigger_mc_rebuild_if_date_changed(
 
     from utils.auth_utils import async_master_contract_download
 
-    rebuild_thread = Thread(target=async_master_contract_download, args=("stock_simulator",), daemon=True)
+    outcome: dict = {}
+
+    def _rebuild() -> None:
+        outcome["result"] = async_master_contract_download("stock_simulator")
+
+    rebuild_thread = Thread(target=_rebuild, daemon=True)
     rebuild_thread.start()
     # Bounded wait so the response the frontend acts on (e.g. immediately
     # re-fetching /search/api/expiries to populate the dropdown) doesn't race
     # the rebuild. Normally sub-second; if it somehow runs long we still
     # return rather than block the request indefinitely.
     rebuild_thread.join(timeout=8.0)
-    return "completed" if not rebuild_thread.is_alive() else "started"
+    if rebuild_thread.is_alive():
+        return "started"
+    # A finished thread is not a finished rebuild: the download records a failure in the broker's
+    # master-contract status row (and returns an error dict from its own early exits); a crash
+    # leaves no result at all. The option chain then 404s on the new day's strikes.
+    from database.master_contract_status_db import get_status
+
+    result = outcome.get("result")
+    failed = (
+        "result" not in outcome
+        or (isinstance(result, dict) and result.get("status") == "error")
+        or get_status("stock_simulator").get("status") == "error"
+    )
+    return "failed" if failed else "completed"

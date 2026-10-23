@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import re
 import threading
+import time
 from datetime import time as dt_time
 from typing import Any
 
@@ -444,6 +445,11 @@ def sync_strategy_jobs(strategy_id: int) -> list[str]:
     return installed
 
 
+#: Boot-time database read of :func:`sync_all_jobs`: attempts, and the pause between them.
+SYNC_READ_ATTEMPTS = 3
+SYNC_READ_RETRY_SECONDS = 1.0
+
+
 def sync_all_jobs() -> dict[str, int]:
     """Rebuild every job from the database. Call once at startup.
 
@@ -451,7 +457,11 @@ def sync_all_jobs() -> dict[str, int]:
     reached :func:`sync_strategy_jobs` cannot leave something firing against a
     strategy that is gone.
 
-    Returns ``{"strategies": n, "installed": n, "orphans_removed": n}``.
+    Returns ``{"strategies": n, "installed": n, "orphans_removed": n}``. Raises
+    ``RuntimeError`` when the database cannot be read after every attempt, before any
+    orphan is dropped: an empty read must not look like "every strategy is gone", and a
+    swallowed failure would leave every strategy without its start/stop (exit-time
+    square-off) jobs, silently.
     """
     scheduler = _require_scheduler()
     if scheduler is None:
@@ -459,19 +469,33 @@ def sync_all_jobs() -> dict[str, int]:
 
     installed: list[str] = []
     seen: set[int] = set()
-    try:
-        rows = store.db_session.query(store.SmStrategy).all()
-        for row in rows:
-            seen.add(row.id)
-            installed.extend(sync_strategy_jobs(row.id))
-    except Exception:
-        logger.exception("Could not rebuild the strategy module schedule")
-    finally:
-        # This runs at boot, on a thread with no Flask app context, so
-        # teardown_appcontext never fires and the session would stay bound to
-        # that thread for the life of the process. Only this module's session is
-        # released: a caller running inside a request keeps everything else.
-        store.db_session.remove()
+    # A boot-time read can lose the race for the SQLite write lock, so try a few times.
+    for attempt in range(1, SYNC_READ_ATTEMPTS + 1):
+        installed, seen = [], set()
+        try:
+            rows = store.db_session.query(store.SmStrategy).all()
+            for row in rows:
+                seen.add(row.id)
+                installed.extend(sync_strategy_jobs(row.id))
+            break
+        except Exception:
+            logger.exception(
+                "Could not rebuild the strategy module schedule (attempt %d/%d)",
+                attempt,
+                SYNC_READ_ATTEMPTS,
+            )
+            if attempt == SYNC_READ_ATTEMPTS:
+                raise RuntimeError(
+                    "strategy module schedule NOT rebuilt: no start/stop (exit-time "
+                    "square-off) jobs are installed until the next restart"
+                ) from None
+            time.sleep(SYNC_READ_RETRY_SECONDS)
+        finally:
+            # This runs at boot, on a thread with no Flask app context, so
+            # teardown_appcontext never fires and the session would stay bound to
+            # that thread for the life of the process. Only this module's session is
+            # released: a caller running inside a request keeps everything else.
+            store.db_session.remove()
 
     orphans = 0
     for job in scheduler.get_jobs():

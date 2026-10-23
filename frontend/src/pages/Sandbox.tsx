@@ -132,6 +132,8 @@ export default function Sandbox() {
         simFormDirty.current = false
         if (data.master_contract_refresh === 'started') {
           showToast.success('Replay updated — rebuilding symbol master contract', 'analyzer')
+        } else if (data.master_contract_refresh === 'failed') {
+          showToast.error('Replay updated, but the symbol master contract rebuild failed — the option chain may be empty', 'analyzer')
         } else {
           showToast.success('Simulator replay updated', 'analyzer')
         }

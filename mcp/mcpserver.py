@@ -798,9 +798,11 @@ def place_options_multi_order(
         underlying: Underlying symbol (e.g., 'NIFTY', 'BANKNIFTY', 'NIFTY28OCT25FUT')
         exchange: Exchange for underlying ('NSE_INDEX', 'BSE_INDEX', 'NFO')
         legs: List of leg dictionaries (1-20 legs). Each leg must contain:
-            Required:
+            Required (name the contract one of three ways):
             - offset: Strike offset ('ATM', 'ITM1'-'ITM50', 'OTM1'-'OTM50')
+            - strike: Absolute strike (e.g. 24500), instead of offset
             - symbol: Explicit NFO option symbol (e.g. NIFTY24JUL2524500CE) — use instead of offset when closing legs
+            Also required:
             - option_type: 'CE' for Call or 'PE' for Put
             - action: 'BUY' or 'SELL'
             - quantity: Absolute quantity — must be a multiple of the contract lot size.

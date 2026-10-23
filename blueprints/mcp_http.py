@@ -269,7 +269,9 @@ def init_http_transport() -> None:
 
     mcp_module.init_for_http(api_key, host)
     audit_registry()  # warns about scope/annotation drift
-    _initialized = True
+    # A placeholder key is not "initialized": leave the flag down so the next request looks the
+    # key up again, instead of keeping the placeholder bound until a restart.
+    _initialized = api_key != "<not-configured>"
     logger.info(
         f"[MCP HTTP] transport initialized; loopback={host}, "
         f"key={'configured' if api_key != '<not-configured>' else 'MISSING'}"

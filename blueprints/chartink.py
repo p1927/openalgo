@@ -269,6 +269,24 @@ def schedule_squareoff(strategy_id):
         logger.exception(f"Error scheduling squareoff for strategy {strategy_id}: {str(e)}")
 
 
+def restore_squareoff_jobs() -> int:
+    """Re-install the square-off job of every intraday strategy. Call once at boot.
+
+    The scheduler above is in-memory: a job added by ``schedule_squareoff`` at strategy creation
+    is gone after any restart, and nothing else re-adds it, so every existing intraday strategy
+    would then hold its positions past the square-off time. The database is the source of truth
+    (same shape as ``strategy_module.scheduler.sync_all_jobs``). Returns how many were installed.
+    """
+    installed = 0
+    for strategy in get_all_strategies():
+        if strategy.is_intraday and strategy.squareoff_time:
+            schedule_squareoff(strategy.id)
+            if scheduler.get_job(f"squareoff_{strategy.id}"):
+                installed += 1
+    logger.info(f"Restored {installed} Chartink square-off job(s)")
+    return installed
+
+
 def squareoff_positions(strategy_id):
     """Square off all positions for intraday strategy"""
     from services.scheduler_run_log_buffer import append_log
