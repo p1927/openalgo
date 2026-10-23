@@ -57,7 +57,7 @@ def get_positions(auth):  # noqa: ANN001
             if isinstance(row, dict) and "exchange" not in row:
                 row["exchange"] = "NASDAQ"
         return payload
-    return []
+    return {"status": "error", "message": "Alpaca positions response must be a list"}
 
 
 def get_holdings(auth):  # noqa: ANN001

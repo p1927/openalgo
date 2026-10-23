@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from utils.httpx_client import get_httpx_client
@@ -73,3 +74,17 @@ def alpaca_request(
     if isinstance(payload, list):
         return response.status_code, payload
     return response.status_code, payload if isinstance(payload, dict) else {"data": payload}
+
+
+def required_decimal(payload: dict[str, Any], field: str) -> Decimal:
+    """Parse a broker monetary field without disguising missing/invalid data as zero."""
+    value = payload.get(field)
+    if value is None or isinstance(value, bool):
+        raise RuntimeError(f"Alpaca {field} is missing or invalid")
+    try:
+        amount = Decimal(str(value))
+    except (InvalidOperation, ValueError) as exc:
+        raise RuntimeError(f"Alpaca {field} is invalid") from exc
+    if not amount.is_finite():
+        raise RuntimeError(f"Alpaca {field} is nonfinite")
+    return amount
