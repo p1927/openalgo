@@ -113,6 +113,39 @@ def env_file_path() -> str:
     return os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env"))
 
 
+# Stock-simulator replay knobs are owned by the root repo's .env / the simulator service, never
+# by openalgo's own .env (gitignored, per-instance, drifts: it kept NSE_REPLAY_SPEED=60, a value
+# D19 removed, and every load_sim_config() caller then raised). Every override=True load of
+# openalgo/.env goes through load_env_file_override() below so none of them can shadow these.
+_SIM_OWNED_ENV_KEYS = (
+    "NSE_REPLAY_DATE",
+    "NSE_REPLAY_END_DATE",
+    "NSE_REPLAY_TIME",
+    "NSE_REPLAY_SPEED",
+    "NSE_REPLAY_LOOP",
+    "SIM_EVAL_MODE",
+    "NSE_REPLAY_WEEK_MODE",
+    "NSE_REPLAY_WEEK_COUNT",
+)
+
+
+def load_env_file_override(path) -> None:
+    """Load ``path`` with override=True, except the sim-owned replay keys, which keep the value
+    the process env / root .env already resolved (and stay unset if nothing set them: a value only
+    this file holds is dropped with a warning naming the key). The single openalgo/.env loader
+    (D306): startup, utils.config and the runtime hot-reload all call it."""
+    preset = {key: os.environ.get(key) for key in _SIM_OWNED_ENV_KEYS}
+    load_dotenv(dotenv_path=path, override=True)
+    for key, value in preset.items():
+        if value is not None:
+            os.environ[key] = value
+        elif key in os.environ:
+            print(
+                f"WARNING: ignoring {key}={os.environ.pop(key)!r} from {path}: stock_simulator "
+                "replay knobs are owned by the root .env / the simulator service"
+            )
+
+
 def check_env_version_compatibility() -> bool:
     """
     Check if the .env file version matches the .sample.env version.
@@ -1178,7 +1211,7 @@ def load_and_check_env_variables() -> None:
         sys.exit(1)
 
     # Load environment variables from the .env file with override=True to ensure values are updated
-    load_dotenv(dotenv_path=env_path, override=True)
+    load_env_file_override(env_path)
 
     # Detect the publicly-known sample APP_KEY/API_KEY_PEPPER values and rotate
     # them to fresh random secrets on first run. Silent no-op for any user

@@ -13,9 +13,7 @@ import os
 import re
 from typing import Any
 
-from dotenv import load_dotenv
-
-from utils.env_check import env_file_path
+from utils.env_check import env_file_path, load_env_file_override
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -26,7 +24,7 @@ ENV_TOKEN_BROKERS = frozenset({"indmoney", "groww", "deltaexchange", "dhan_sandb
 
 def reload_env_from_file() -> None:
     """Hot-reload process env after .env was written to disk."""
-    load_dotenv(dotenv_path=env_file_path(), override=True)
+    load_env_file_override(env_file_path())
 
 
 def get_configured_broker() -> str:

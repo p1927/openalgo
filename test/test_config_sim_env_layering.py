@@ -23,6 +23,7 @@ from pathlib import Path
 import pytest
 
 from utils import config as openalgo_config
+from utils import env_check
 
 
 def _fake_load_dotenv(dotenv_path=None, override=False) -> bool:
@@ -40,6 +41,7 @@ def _fake_load_dotenv(dotenv_path=None, override=False) -> bool:
 @pytest.mark.unit
 def test_openalgo_env_cannot_shadow_stale_sim_replay_speed(tmp_path, monkeypatch) -> None:
     monkeypatch.delenv("NSE_REPLAY_SPEED", raising=False)
+    monkeypatch.setattr(env_check, "load_dotenv", _fake_load_dotenv)
     monkeypatch.setattr(openalgo_config, "load_dotenv", _fake_load_dotenv)
 
     root_env = tmp_path / "root.env"
@@ -62,6 +64,7 @@ def test_openalgo_env_cannot_shadow_stale_sim_replay_speed(tmp_path, monkeypatch
 def test_openalgo_env_still_wins_for_non_sim_keys(tmp_path, monkeypatch) -> None:
     """The exemption is scoped to the sim-owned keys -- ordinary keys keep override=True."""
     monkeypatch.delenv("HOST_SERVER", raising=False)
+    monkeypatch.setattr(env_check, "load_dotenv", _fake_load_dotenv)
     monkeypatch.setattr(openalgo_config, "load_dotenv", _fake_load_dotenv)
 
     root_env = tmp_path / "root.env"
@@ -79,6 +82,7 @@ def test_openalgo_env_still_wins_for_non_sim_keys(tmp_path, monkeypatch) -> None
 def test_openalgo_env_sim_key_is_ignored_when_root_env_does_not_set_it(tmp_path, monkeypatch) -> None:
     """A worktree has no root .env: a stale NSE_REPLAY_SPEED=60 in openalgo/.env must not apply."""
     monkeypatch.delenv("NSE_REPLAY_SPEED", raising=False)
+    monkeypatch.setattr(env_check, "load_dotenv", _fake_load_dotenv)
     monkeypatch.setattr(openalgo_config, "load_dotenv", _fake_load_dotenv)
 
     openalgo_env = tmp_path / "openalgo.env"
@@ -87,3 +91,17 @@ def test_openalgo_env_sim_key_is_ignored_when_root_env_does_not_set_it(tmp_path,
     openalgo_config._load_env_layers(tmp_path / "no-root.env", str(openalgo_env))
 
     assert "NSE_REPLAY_SPEED" not in os.environ
+
+
+@pytest.mark.unit
+def test_startup_and_hot_reload_loader_keeps_resolved_sim_speed(tmp_path, monkeypatch) -> None:
+    """env_check.load_and_check_env_variables and broker_env_sync.reload_env_from_file both go
+    through load_env_file_override: a process-resolved NSE_REPLAY_SPEED=2 survives a stale 60."""
+    monkeypatch.setenv("NSE_REPLAY_SPEED", "2")
+    monkeypatch.setattr(env_check, "load_dotenv", _fake_load_dotenv)
+    stale = tmp_path / "openalgo.env"
+    stale.write_text("NSE_REPLAY_SPEED=60\nOTHER_KEY=x\n")
+    env_check.load_env_file_override(str(stale))
+    assert os.environ["NSE_REPLAY_SPEED"] == "2"
+    assert os.environ["OTHER_KEY"] == "x"
+    monkeypatch.delenv("OTHER_KEY")
