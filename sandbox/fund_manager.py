@@ -575,11 +575,11 @@ class FundManager:
 
             # Options (NFO, BFO, MCX, CDS, BCD, NCDEX exchanges with CE/PE suffix)
             elif is_option(symbol, exchange):
-                # Options use different leverage based on BUY vs SELL
+                # Only a long option is leveraged here; a short blocks on strike notional
+                # (`short_option_margin`, option_sell_notional_leverage), so no sell key is read.
                 if action == "BUY":
                     return Decimal(get_config("option_buy_leverage", "1"))
-                else:  # SELL
-                    return Decimal(get_config("option_sell_leverage", "1"))
+                return Decimal("1")
 
             # Default to 1x leverage
             return Decimal("1")

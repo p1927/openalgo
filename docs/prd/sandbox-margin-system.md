@@ -347,7 +347,6 @@ Response:
 | `equity_cnc_leverage` | `1` | Equity CNC leverage multiplier |
 | `futures_leverage` | `10` | Futures leverage multiplier |
 | `option_buy_leverage` | `1` | Long-option leverage multiplier |
-| `option_sell_leverage` | `1` | Short-option leverage multiplier |
 
 ## Error Codes
 

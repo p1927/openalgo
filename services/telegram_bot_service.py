@@ -2011,32 +2011,33 @@ class TelegramBotService:
 
         funds = response.get("data", {})
 
-        # P&L values may arrive as strings from some brokers
-        try:
-            realized_pnl = float(funds.get("m2mrealized", 0))
-        except (ValueError, TypeError):
-            realized_pnl = 0.0
+        # P&L values may arrive as strings from some brokers; one a broker omits (or sends
+        # unparseable) is shown "n/a", never 0 (a missing figure is not a zero P&L).
+        def _pnl(key):
+            try:
+                v = float(funds[key])
+            except (KeyError, ValueError, TypeError):
+                return None
+            return v if v == v and abs(v) != float("inf") else None
 
-        try:
-            unrealized_pnl = float(funds.get("m2munrealized", 0))
-        except (ValueError, TypeError):
-            unrealized_pnl = 0.0
+        realized_pnl, unrealized_pnl = _pnl("m2mrealized"), _pnl("m2munrealized")
+        total_pnl = None if realized_pnl is None or unrealized_pnl is None else realized_pnl + unrealized_pnl
 
-        total_pnl = realized_pnl + unrealized_pnl
+        def _emoji(v):
+            return "[?]" if v is None else "[+]" if v > 0 else "[-]" if v < 0 else "[=]"
 
-        realized_emoji = "[+]" if realized_pnl > 0 else "[-]" if realized_pnl < 0 else "[=]"
-        unrealized_emoji = "[+]" if unrealized_pnl > 0 else "[-]" if unrealized_pnl < 0 else "[=]"
-        total_emoji = "[+]" if total_pnl > 0 else "[-]" if total_pnl < 0 else "[=]"
+        def _fmt(v):
+            return "n/a" if v is None else f"{cs}{v:,.2f}"
 
         return (
             "*PROFIT & LOSS*\n"
             "━━━━━━━━━━━━━━━\n\n"
-            f"{realized_emoji} *Realized P&L*\n"
-            f"└ {cs}{realized_pnl:,.2f}\n\n"
-            f"{unrealized_emoji} *Unrealized P&L*\n"
-            f"└ {cs}{unrealized_pnl:,.2f}\n\n"
-            f"{total_emoji} *Total P&L*\n"
-            f"└ {cs}{total_pnl:,.2f}"
+            f"{_emoji(realized_pnl)} *Realized P&L*\n"
+            f"└ {_fmt(realized_pnl)}\n\n"
+            f"{_emoji(unrealized_pnl)} *Unrealized P&L*\n"
+            f"└ {_fmt(unrealized_pnl)}\n\n"
+            f"{_emoji(total_pnl)} *Total P&L*\n"
+            f"└ {_fmt(total_pnl)}"
         )
 
     async def cmd_closeall(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
