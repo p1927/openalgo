@@ -7,7 +7,10 @@ directly is caught by ``mc_freshness`` at the next login/master-contract check i
 
 from __future__ import annotations
 
+import logging
 from threading import Thread
+
+logger = logging.getLogger(__name__)
 
 
 def replay_date_of(status: dict) -> str:
@@ -38,7 +41,10 @@ def trigger_mc_rebuild_if_date_changed(
     outcome: dict = {}
 
     def _rebuild() -> None:
-        outcome["result"] = async_master_contract_download("stock_simulator")
+        try:
+            outcome["result"] = async_master_contract_download("stock_simulator")
+        except Exception:
+            logger.exception("Simulator master-contract rebuild failed")
 
     rebuild_thread = Thread(target=_rebuild, daemon=True)
     rebuild_thread.start()
@@ -58,6 +64,6 @@ def trigger_mc_rebuild_if_date_changed(
     failed = (
         "result" not in outcome
         or (isinstance(result, dict) and result.get("status") == "error")
-        or get_status("stock_simulator").get("status") == "error"
+        or get_status("stock_simulator").get("status") != "success"
     )
     return "failed" if failed else "completed"
