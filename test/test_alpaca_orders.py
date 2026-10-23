@@ -120,6 +120,7 @@ def test_get_margin_data(monkeypatch) -> None:
         "cash": "10000",
         "buying_power": "20000",
         "equity": "15000",
+        "initial_margin": "5000",
     }
     positions = [{"unrealized_pl": "12.5"}]
 
@@ -164,7 +165,7 @@ def test_get_margin_data_raises_when_positions_fetch_failed(monkeypatch) -> None
     monkeypatch.setenv("BROKER_API_SECRET", "secret")
     from broker.alpaca.api.funds import get_margin_data
 
-    with patch("broker.alpaca.api.funds.alpaca_request", return_value=(200, {"cash": "1"})):
+    with patch("broker.alpaca.api.funds.alpaca_request", return_value=(200, {"cash": "1", "buying_power": "2", "initial_margin": "0"})):
         with patch(
             "broker.alpaca.api.funds.get_positions", return_value={"status": "error", "message": "x"}
         ):

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from broker.alpaca.api._http import alpaca_request
+from decimal import Decimal
+
+from broker.alpaca.api._http import alpaca_request, required_decimal
 from broker.alpaca.api.baseurl import trade_base
 from broker.alpaca.api.order_api import get_positions
 from utils.logging import get_logger
@@ -23,20 +25,23 @@ def get_margin_data(auth_token: str) -> dict[str, str]:
         # a "0.00" balance reads as a real empty account.
         raise RuntimeError(f"Alpaca account fetch failed ({status}): {payload}")
 
-    cash = float(payload.get("cash") or 0)
-    buying_power = float(payload.get("buying_power") or 0)
-    equity = float(payload.get("equity") or 0)
-    utilised = max(0.0, equity - cash)
+    cash = required_decimal(payload, "cash")
+    buying_power = required_decimal(payload, "buying_power")
+    # OpenAlgo's utiliseddebits is margin blocked for positions. Alpaca reports
+    # this directly as Reg T initial margin; equity-cash fails for short books.
+    # https://alpaca.markets/sdks/python/api_reference/trading/models.html#alpaca.trading.models.TradeAccount.initial_margin
+    utilised = required_decimal(payload, "initial_margin")
+    if utilised < 0:
+        raise RuntimeError("Alpaca initial_margin is negative")
 
-    total_unrealized = 0.0
+    total_unrealized = Decimal("0")
     positions = get_positions(auth_token)
     if not isinstance(positions, list):
         raise RuntimeError(f"Alpaca positions fetch failed: {positions}")
     for pos in positions:
-        try:
-            total_unrealized += float(pos.get("unrealized_pl") or 0)
-        except (TypeError, ValueError):
-            continue
+        if not isinstance(pos, dict):
+            raise RuntimeError("Alpaca position is invalid")
+        total_unrealized += required_decimal(pos, "unrealized_pl")
 
     return {
         # availablecash is real cash; buying_power is a margin multiple (up to 4x) and is reported separately.
