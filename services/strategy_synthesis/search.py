@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import itertools
 import math
+import time
 from dataclasses import dataclass
 
 import numpy as np
@@ -52,9 +53,21 @@ class _ScoringContext:
     target_max_loss: float | None = None
 
 
+_YIELD_EVERY = 256
+_scored = 0
+
+
 def _score(
     prices: np.ndarray, target: np.ndarray, legs: list[SynthesizedLeg], ctx: _ScoringContext
 ) -> ScoredCombo:
+    # The search is CPU-bound numpy on the request's own thread, and the app serves every route
+    # from one eventlet worker: 50 candidates / 3 legs ran 20 s and stalled all of them. A
+    # sleep(0) hands the hub back to other requests every few hundred scores (a no-op without
+    # eventlet), so the search is as slow as before but no longer blocks the server.
+    global _scored
+    _scored += 1
+    if _scored % _YIELD_EVERY == 0:
+        time.sleep(0)
     return score_combo(
         prices,
         target,

@@ -11,6 +11,7 @@ import logging
 import os
 import platform
 import queue
+import shutil
 import signal
 import subprocess
 import sys
@@ -179,6 +180,14 @@ def load_configs():
         except Exception as e:
             logger.exception(f"Failed to load configs: {e}")
             STRATEGY_CONFIGS = {}
+            # The next save_configs() writes {} over this file; keep the unreadable original
+            # beside it so every strategy's config is not silently lost.
+            try:
+                backup = CONFIG_FILE.with_name(f"{CONFIG_FILE.name}.corrupt-{int(datetime.now().timestamp())}")
+                shutil.copy2(CONFIG_FILE, backup)
+                logger.error(f"Unreadable strategy configs kept at {backup}")
+            except OSError:
+                logger.exception("Could not back up the unreadable strategy configs")
 
 
 def save_configs():

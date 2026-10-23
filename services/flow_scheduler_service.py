@@ -9,6 +9,7 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Optional
 
+import pytz
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -25,6 +26,11 @@ from utils.env_config import env_int
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+#: Workflow times ("09:20", the market-hours gate) are IST. A CronTrigger built without a zone
+#: takes the machine's local zone, not the scheduler's, so a dev box outside IST fired every
+#: daily/weekly workflow at the wrong hour.
+IST = pytz.timezone("Asia/Kolkata")
 
 
 #: Seconds past a boundary that an aligned interval job first fires at.
@@ -216,7 +222,7 @@ class FlowScheduler:
         elif schedule_type == "daily":
             try:
                 hour, minute = map(int, time_str.split(":"))
-                trigger = CronTrigger(hour=hour, minute=minute)
+                trigger = CronTrigger(hour=hour, minute=minute, timezone=IST)
                 logger.info(f"Creating daily trigger: {time_str}")
             except ValueError as e:
                 logger.error(f"Invalid time format: {time_str} - {e}")
@@ -227,7 +233,9 @@ class FlowScheduler:
                 hour, minute = map(int, time_str.split(":"))
                 day_names = {0: "mon", 1: "tue", 2: "wed", 3: "thu", 4: "fri", 5: "sat", 6: "sun"}
                 day_of_week = ",".join(day_names[d] for d in days if d in day_names)
-                trigger = CronTrigger(day_of_week=day_of_week, hour=hour, minute=minute)
+                trigger = CronTrigger(
+                    day_of_week=day_of_week, hour=hour, minute=minute, timezone=IST
+                )
                 logger.info(f"Creating weekly trigger: {day_of_week} at {time_str}")
             except (ValueError, KeyError) as e:
                 logger.error(f"Invalid weekly schedule config: {e}")

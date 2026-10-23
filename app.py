@@ -968,6 +968,15 @@ def setup_environment(app):
                 logger.error(f"Failed to initialize Strategy module: {e}")
 
             try:
+                # Chartink's square-off jobs live in an in-memory scheduler; rebuild them from
+                # the database or every intraday strategy loses its square-off on restart.
+                from blueprints.chartink import restore_squareoff_jobs
+
+                restore_squareoff_jobs()
+            except Exception as e:
+                logger.error(f"Failed to restore Chartink square-off jobs: {e}")
+
+            try:
                 # Server-side scalping SL / target / trailing-stop engine. Runs
                 # browser-independently so stops keep working after the user
                 # leaves /scalping or closes the tab. Idles when no SL is set.

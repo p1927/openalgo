@@ -1,4 +1,13 @@
-from marshmallow import EXCLUDE, Schema, ValidationError, fields, post_load, pre_load, validate
+from marshmallow import (
+    EXCLUDE,
+    Schema,
+    ValidationError,
+    fields,
+    post_load,
+    pre_load,
+    validate,
+    validates_schema,
+)
 
 from restx_api.idempotency_key import IdempotencyKeyMixin
 from utils.constants import CRYPTO_EXCHANGES, VALID_EXCHANGES
@@ -249,9 +258,20 @@ class OptionsOrderSchema(Schema):
 
 
 class OptionsMultiOrderLegSchema(Schema):
-    """Schema for a single leg in options multi-order (no symbol - resolved from offset)"""
+    """Schema for a single leg in options multi-order.
 
-    offset = fields.Str(required=True)  # ATM, ITM1-ITM50, OTM1-OTM50
+    A leg names its contract one of three ways (the service resolves them in the order
+    symbol, strike, offset; see services/options_multiorder_service.resolve_leg_symbol):
+    an explicit option ``symbol`` (how a close leg names the exact open contract), an
+    absolute ``strike``, or an ``offset`` off the live underlying.
+    """
+
+    offset = fields.Str(required=False)  # ATM, ITM1-ITM50, OTM1-OTM50
+    symbol = fields.Str(required=False, validate=validate.Length(min=1, max=50))
+    strike = fields.Float(
+        required=False, validate=validate.Range(min=0, min_inclusive=False, error="Strike must be positive.")
+    )
+    exchange = fields.Str(required=False, validate=validate.OneOf(VALID_EXCHANGES))
     option_type = fields.Str(
         required=True, validate=validate.OneOf(["CE", "PE", "ce", "pe"])
     )  # Call or Put
@@ -284,6 +304,11 @@ class OptionsMultiOrderLegSchema(Schema):
         missing=0,
         validate=validate.Range(min=0, error="Disclosed quantity must be a non-negative integer."),
     )
+
+    @validates_schema
+    def _leg_names_a_contract(self, data, **kwargs):
+        if not (data.get("offset") or data.get("symbol") or data.get("strike") is not None):
+            raise ValidationError("A leg needs one of offset, strike or symbol.", "offset")
 
 
 class OptionsMultiOrderSchema(Schema):

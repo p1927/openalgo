@@ -269,8 +269,9 @@ def start_key_watcher(
     """Start the watcher on a daemon thread. Returns it, or ``None`` if disabled.
 
     Called once from ``mcp/mcpserver.py``'s stdio entry point. The HTTP/SSE boot
-    path must not call this: ``blueprints/mcp_http.py`` already rotates the
-    client through ``init_for_http()`` on its own.
+    path must not call this: ``blueprints/mcp_http.py`` binds the client through
+    ``init_for_http()`` once, retrying on each request only while no key exists yet. A key
+    rotated after that first bind needs a server restart on the HTTP path.
     """
     if poll_seconds is None:
         raw = os.getenv(POLL_ENV_VAR, "").strip()
