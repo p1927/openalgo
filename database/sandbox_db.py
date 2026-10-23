@@ -568,9 +568,9 @@ def init_default_config():
             "description": "Leverage for buying options (full premium) - Range: 1-50x",
         },
         {
-            "config_key": "option_sell_leverage",
-            "config_value": "1",
-            "description": "Leverage for selling options (same as buying - full premium) - Range: 1-50x",
+            "config_key": "option_sell_notional_leverage",
+            "config_value": "16",
+            "description": "Short-option margin = strike x quantity / this, floored at the premium (paper approximation, not SPAN: 16 = 6.25% of strike notional, about 1.1 lakh for one NIFTY lot) - Range: 1-50x",
         },
         {
             "config_key": "order_rate_limit",

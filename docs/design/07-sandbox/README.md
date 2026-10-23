@@ -315,7 +315,7 @@ class SandboxConfig(Base):
 | `equity_cnc_leverage` | 1 | 1x for equity delivery |
 | `futures_leverage` | 10 | 10x for futures |
 | `option_buy_leverage` | 1 | Full premium for option buy |
-| `option_sell_leverage` | 1 | Full premium for option sell |
+| `option_sell_notional_leverage` | 16 | Short option: strike x qty / 16, floored at premium (see prd/sandbox-margin-system.md) |
 | `nse_bse_square_off_time` | 15:15 | NSE/BSE MIS square-off |
 | `cds_bcd_square_off_time` | 16:45 | Currency MIS square-off |
 | `mcx_square_off_time` | 23:30 | MCX MIS square-off |
@@ -367,7 +367,7 @@ def calculate_margin_required(self, symbol, exchange, price, quantity, product, 
     # Get leverage from config
     if is_option:
         leverage = Decimal(get_config('option_buy_leverage' if action == 'BUY'
-                                       else 'option_sell_leverage', '1'))
+                                       else 'option_sell_notional_leverage', '1'))
     elif is_future:
         leverage = Decimal(get_config('futures_leverage', '10'))
     elif product == 'MIS':

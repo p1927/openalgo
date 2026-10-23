@@ -37,6 +37,7 @@ from database.sandbox_db import (
 )
 from database.token_db import get_symbol_info
 from utils.logging import get_logger
+from sandbox.margin_rule import MarginRuleError, positive_price, short_option_margin
 from utils.symbol_utils import is_future, is_option
 
 logger = get_logger(__name__)
@@ -514,7 +515,7 @@ class FundManager:
         """Calculate margin required for a trade based on leverage rules"""
         try:
             quantity = abs(int(quantity))
-            price = Decimal(str(price))
+            price = positive_price(price)
 
             # Get symbol info to determine instrument type (from cache)
             symbol_obj = get_symbol_info(symbol, exchange)
@@ -534,6 +535,14 @@ class FundManager:
 
             # Calculate margin (always use leverage-based calculation)
             margin = trade_value / Decimal(str(leverage))
+            if action == "SELL" and is_option(symbol, exchange):
+                # A short option blocks on the strike notional, not the premium (sandbox/margin_rule.py)
+                margin = short_option_margin(
+                    getattr(symbol_obj, "strike", None),
+                    quantity,
+                    trade_value,
+                    get_config("option_sell_notional_leverage", "16"),
+                )
 
             logger.debug(
                 f"Margin for {symbol} {exchange} {product} {action}: ₹{margin} (Trade value: ₹{trade_value}, Leverage: {leverage}x)"
@@ -541,6 +550,9 @@ class FundManager:
 
             return margin, "Margin calculated successfully"
 
+        except MarginRuleError as e:
+            logger.error(f"Margin cannot be priced for {symbol} {exchange}: {e}")
+            return None, f"Margin cannot be priced: {e}"
         except Exception as e:
             logger.exception(f"Error calculating margin: {e}")
             return None, f"Error calculating margin: {str(e)}"

@@ -62,7 +62,7 @@ def sandbox_config():
                     "equity_cnc_leverage": configs.get("equity_cnc_leverage", {}),
                     "futures_leverage": configs.get("futures_leverage", {}),
                     "option_buy_leverage": configs.get("option_buy_leverage", {}),
-                    "option_sell_leverage": configs.get("option_sell_leverage", {}),
+                    "option_sell_notional_leverage": configs.get("option_sell_notional_leverage", {}),
                 },
             },
             "square_off": {
@@ -117,7 +117,10 @@ def api_get_configs():
             },
             "futures_leverage": {"value": "10", "description": "Leverage multiplier for futures"},
             "option_buy_leverage": {"value": "1", "description": "Leverage for buying options"},
-            "option_sell_leverage": {"value": "1", "description": "Leverage for selling options"},
+            "option_sell_notional_leverage": {
+                "value": "16",
+                "description": "Short-option margin = strike notional / this (paper approximation, not SPAN)",
+            },
             "nse_bse_square_off_time": {
                 "value": "15:15",
                 "description": "Square-off time for NSE/BSE MIS",
@@ -170,7 +173,7 @@ def api_get_configs():
                     "equity_cnc_leverage": get_config_value("equity_cnc_leverage"),
                     "futures_leverage": get_config_value("futures_leverage"),
                     "option_buy_leverage": get_config_value("option_buy_leverage"),
-                    "option_sell_leverage": get_config_value("option_sell_leverage"),
+                    "option_sell_notional_leverage": get_config_value("option_sell_notional_leverage"),
                 },
             },
             "square_off": {
@@ -328,7 +331,7 @@ def reset_config():
             "equity_cnc_leverage": "1",
             "futures_leverage": "10",
             "option_buy_leverage": "1",
-            "option_sell_leverage": "1",
+            "option_sell_notional_leverage": "16",
         }
 
         # Reset all configurations
@@ -815,7 +818,7 @@ def validate_config(config_key, config_value):
             "equity_cnc_leverage",
             "futures_leverage",
             "option_buy_leverage",
-            "option_sell_leverage",
+            "option_sell_notional_leverage",
             "order_check_interval",
             "mtm_update_interval",
         ]:

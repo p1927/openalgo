@@ -55,43 +55,28 @@ def calculate_margin(symbol, exchange, action, quantity, product, price):
     return margin
 ```
 
-## Known limitation: short options are not SPAN margined
+## Short options: paper-trading approximation, not SPAN
 
-**A short option in sandbox blocks the premium, not the real margin.** Every
-margin in this system is `traded value / leverage`, and for an option the traded
-value is `premium x quantity`. That is correct for buying an option, where the
-premium really is the whole cost. It is wrong for selling one, where a broker
-blocks SPAN plus exposure computed on the **underlying notional**, and the
-premium received is largely irrelevant to the number.
+One rule (`sandbox/margin_rule.py`, called by `FundManager.calculate_margin_required`) is used by the
+sandbox when it reserves funds AND by the simulator's `/margincalculator` estimate
+(`broker/stock_simulator/api/margin_api.py`), so a plan that passes the estimate cannot be refused by
+the sandbox on margin.
 
-Measured on a live instance, one lot of NIFTY (lot size 65):
-
-| Order | Sandbox blocks | A real broker blocks |
+| Product class | Margin | Config key (default) |
 | --- | --- | --- |
-| BUY 1 lot at premium 100 | 6,500 | about 6,500 (correct) |
-| SELL 1 lot at premium 100 | 6,500 | roughly 1.2 to 1.5 lakh |
-| SELL 1 lot at premium 2 | 130 | roughly 1.2 to 1.5 lakh |
+| Long option | premium x quantity / leverage | `option_buy_leverage` (1) |
+| Short option | max(premium, strike x quantity / leverage) | `option_sell_notional_leverage` (16) |
+| Futures, either side | price x quantity / leverage | `futures_leverage` (10) |
+| Equity | value / leverage | `equity_mis_leverage` (5), `equity_cnc_leverage` (1) |
 
-So a short-option strategy will pass margin checks in sandbox that would be
-rejected live, and the further out of the money the strike, the wider the gap:
-the sandbox number shrinks with the premium while the real requirement barely
-moves.
-
-**No configuration fixes this.** `option_sell_leverage` divides, so its lowest
-supported value of 1 already blocks the most it can, a full premium. Raising it
-blocks less. And because SPAN is roughly constant per lot while the premium is
-not, no single multiplier can track it: a value tuned for an at-the-money strike
-is wrong by an order of magnitude for a far out-of-the-money one.
-
-**What this means in practice.** Sandbox remains sound for order flow, fills,
-square-off, P&L attribution and strategy logic, including on short options. Do
-not use it to size positions or to validate that a short-option strategy fits a
-given capital. Check the real margin with `/api/v1/margincalculator` or your
-broker before going live.
-
-Modelling this properly needs a SPAN and exposure calculation per underlying,
-including offsets for hedged legs, which is why it is a documented limitation
-rather than an approximation. See issue #1795.
+Default 16 is 6.25% of the strike notional: one NIFTY lot (75) at strike 24000 blocks 1,12,500
+whatever the premium. Tune it on the sandbox Leverage page or in `sandbox_config`; a higher value
+blocks less. It is an approximation: no SPAN scan risk, no exposure margin, and no offset between
+hedged legs (a spread blocks as two naked shorts). Check the real number with your broker before
+going live. A price that is zero, NaN, infinite or missing, or a short option with no strike, fails
+loud (HTTP 400 on the estimate, "Margin cannot be priced" on an order) and never reserves zero.
+The earlier `option_sell_leverage` key (premium divided by leverage) is gone; existing installs get
+the new key seeded at startup and the old row is ignored.
 
 ## Margin Operations
 

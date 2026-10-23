@@ -336,9 +336,9 @@ def insert_default_config(conn):
             "Leverage multiplier for buying options (full premium) - Range: 1-50x",
         ),
         (
-            "option_sell_leverage",
-            "1",
-            "Leverage multiplier for selling options (same as buying - full premium) - Range: 1-50x",
+            "option_sell_notional_leverage",
+            "16",
+            "Short-option margin = strike x quantity / this, floored at the premium (paper approximation, not SPAN) - Range: 1-50x",
         ),
         ("order_rate_limit", "10", "Maximum orders per second - Range: 1-100 orders/sec"),
         ("api_rate_limit", "50", "Maximum API calls per second - Range: 1-1000 calls/sec"),
