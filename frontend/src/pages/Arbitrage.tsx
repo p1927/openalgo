@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { type ArbitragePair, arbitrageApi } from '@/api/arbitrage'
-import { type BasketOrderItem, tradingApi } from '@/api/trading'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -31,6 +30,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { useMarketDataContextOptional } from '@/contexts/MarketDataContext'
+import { type BasketRow, roundToTick, useBasketSubmit } from '@/lib/basketExecution'
 import { MarketDataManager, type SymbolData } from '@/lib/MarketDataManager'
 import { useAuthStore } from '@/stores/authStore'
 import { showToast } from '@/utils/toast'
@@ -88,9 +88,9 @@ function midPrice(q?: Quote): number | undefined {
   return q.ltp
 }
 
-function roundToTick(price: number, tick?: number | null): number {
-  if (!tick || tick <= 0) return Math.round(price * 100) / 100
-  return Math.round(price / tick) * tick
+/** Shared tick snap (lib/basketExecution); 0.01 when the pair carries no tick. */
+function snapPrice(price: number, tick?: number | null): number {
+  return roundToTick(price, tick && tick > 0 ? tick : 0.01) ?? 0
 }
 
 function fmt(n: number | undefined, digits = 2): string {
@@ -286,7 +286,8 @@ export default function Arbitrage() {
   const [product, setProduct] = useState<'NRML' | 'MIS'>('NRML')
   const [nearPrice, setNearPrice] = useState('')
   const [farPrice, setFarPrice] = useState('')
-  const [submitting, setSubmitting] = useState(false)
+  const basket = useBasketSubmit()
+  const submitting = basket.submitting
 
   const defaultLegPrice = useCallback(
     (q: Quote | undefined, action: 'BUY' | 'SELL', tick?: number | null): string => {
@@ -295,7 +296,7 @@ export default function Arbitrage() {
       const fallback = q.ltp
       const price = raw ?? fallback
       if (price == null) return ''
-      return String(roundToTick(price, tick))
+      return String(snapPrice(price, tick))
     },
     []
   )
@@ -366,50 +367,39 @@ export default function Arbitrage() {
       }
     }
 
-    const buildLeg = (
-      symbol: string,
-      exchange: string,
+    if (near.exchange !== far.exchange) {
+      showToast.error('Spread legs must trade on the same exchange')
+      return
+    }
+    const row = (
+      leg: typeof near,
       action: 'BUY' | 'SELL',
-      qty: number,
+      lotSize: number,
       price: number
-    ): BasketOrderItem => {
-      const leg: BasketOrderItem = {
-        symbol,
-        exchange,
-        action,
-        quantity: qty,
-        pricetype,
-        product,
-        trigger_price: 0,
-        disclosed_quantity: 0,
-      }
-      if (pricetype === 'LIMIT') leg.price = price
-      return leg
-    }
+    ): BasketRow => ({
+      legId: leg.symbol,
+      contractKey: `${leg.exchange}|${leg.symbol}`,
+      include: true,
+      symbol: leg.symbol,
+      action,
+      segment: 'FUTURE',
+      lots: lotsN,
+      lotSize,
+      price: pricetype === 'LIMIT' ? price : null,
+      tickSize: leg.tick_size && leg.tick_size > 0 ? leg.tick_size : 0.01,
+    })
 
-    const orders: BasketOrderItem[] = [
-      buildLeg(near.symbol, near.exchange, nearAction, lotsN * nearLot, nearPx),
-      buildLeg(far.symbol, far.exchange, farAction, lotsN * farLot, farPx),
-    ]
-
-    setSubmitting(true)
-    try {
-      const res = await tradingApi.placeBasketOrder(apiKey, 'calendar_arbitrage', orders)
-      if (res.status === 'success') {
-        const ok = (res.results || []).filter((r) => r.status === 'success').length
-        const modeNote = res.mode === 'analyze' ? ' (analyzer)' : ''
-        showToast.success(`Spread order placed: ${ok}/${orders.length} legs${modeNote}`, 'orders')
-        setTradeRow(null)
-      } else {
-        showToast.error(res.message || 'Basket order failed')
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to place spread order'
-      showToast.error(message)
-    } finally {
-      setSubmitting(false)
-    }
-  }, [tradeRow, tradeDir, apiKey, lots, pricetype, product, nearPrice, farPrice])
+    // The one basket path (D306): tick snap, touch guard, partial handling live there.
+    const outcome = await basket.submit(
+      apiKey,
+      'calendar_arbitrage',
+      [row(near, nearAction, nearLot, nearPx), row(far, farAction, farLot, farPx)],
+      near.exchange,
+      pricetype,
+      product
+    )
+    if (outcome && outcome.unfilled.length === 0) setTradeRow(null)
+  }, [tradeRow, tradeDir, apiKey, lots, pricetype, product, nearPrice, farPrice, basket])
 
   const connBadge = () => {
     if (conn.isFallbackMode) return <Badge variant="secondary">REST fallback (after-hours)</Badge>

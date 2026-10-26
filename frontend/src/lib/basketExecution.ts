@@ -105,9 +105,17 @@ export function buildBasketOrders(
   exchange: string,
   pricetype: PriceType,
   product: ProductType
-): { orders: BasketOrderItem[] } | { bad: BasketRow | null } {
+): { orders: BasketOrderItem[] } | { bad: BasketRow | null } | { badQuantity: BasketRow } {
   const included = rows.filter((r) => r.include)
   if (included.length === 0) return { bad: null }
+  // Quantity must be a positive whole number of contracts; 0 / NaN / fractional never reach the broker.
+  const badQuantity = included.find((r) => {
+    const q = r.lots * r.lotSize
+    return (
+      !Number.isInteger(r.lots) || !Number.isInteger(r.lotSize) || !Number.isInteger(q) || q <= 0
+    )
+  })
+  if (badQuantity) return { badQuantity }
   const normalized = included.map((row) => ({
     row,
     price: pricetype === 'LIMIT' ? roundToTick(row.price ?? 0, row.tickSize) : 0,
@@ -136,6 +144,24 @@ export interface BasketOutcome {
   unfilled: string[]
 }
 
+/**
+ * Match broker results to the orders we sent. The backend returns results
+ * keyed by symbol only (BUYs first, completion order, a failed leg may be
+ * dropped), so index/count matching is wrong. Each order consumes one
+ * `success` result with its symbol; any order left without one is unfilled.
+ */
+export function unfilledSymbols(orders: BasketOrderItem[], results: BasketOrderResult[]): string[] {
+  const ok = new Map<string, number>()
+  for (const r of results) if (r.status === 'success') ok.set(r.symbol, (ok.get(r.symbol) ?? 0) + 1)
+  const unfilled: string[] = []
+  for (const o of orders) {
+    const n = ok.get(o.symbol) ?? 0
+    if (n > 0) ok.set(o.symbol, n - 1)
+    else unfilled.push(o.symbol)
+  }
+  return unfilled
+}
+
 export function useBasketSubmit() {
   const [submitting, setSubmitting] = useState(false)
   const [results, setResults] = useState<BasketOrderResult[] | null>(null)
@@ -158,6 +184,13 @@ export function useBasketSubmit() {
   ): Promise<BasketOutcome | null> => {
     if (!apiKey || strategyName.trim().length === 0) return null
     const built = buildBasketOrders(rows, exchange, pricetype, product)
+    if ('badQuantity' in built) {
+      onBadPrice?.(built.badQuantity)
+      showToast.error(
+        `${built.badQuantity.symbol}: quantity must be a positive whole number of lots`
+      )
+      return null
+    }
     if ('bad' in built) {
       if (built.bad) {
         onBadPrice?.(built.bad)
@@ -175,18 +208,19 @@ export function useBasketSubmit() {
       // Top-level status is "success" even when individual legs were rejected:
       // the per-leg results are the truth, so a rejected leg must be loud.
       const list = resp.results ?? []
-      const failedSymbols = list.filter((r) => r.status !== 'success').map((r) => r.symbol)
+      const failedSymbols = unfilledSymbols(built.orders, list)
       const modeNote = resp.mode === 'analyze' ? ' (analyzer, no real orders)' : ''
       setResults(list)
       setUnfilled(failedSymbols)
+      const sent = built.orders.length
       if (list.length === 0) {
         showToast.error('Basket response carried no per-leg results; check the order book')
       } else if (failedSymbols.length > 0) {
         showToast.error(
-          `Basket partial: ${list.length - failedSymbols.length} ok, ${failedSymbols.length} rejected${modeNote}. Review the legs and close any filled leg.`
+          `Basket partial: ${sent - failedSymbols.length} ok, ${failedSymbols.length} rejected or unconfirmed (of ${sent})${modeNote}. Review the legs and close any filled leg.`
         )
       } else {
-        showToast.success(`Basket placed: ${list.length}/${list.length} orders${modeNote}`)
+        showToast.success(`Basket placed: ${sent}/${sent} orders${modeNote}`)
       }
       return { results: list, unfilled: failedSymbols }
     } catch (err) {
