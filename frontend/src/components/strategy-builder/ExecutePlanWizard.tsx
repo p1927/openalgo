@@ -1,7 +1,7 @@
 import { CheckCircle2, ChevronLeft, ChevronRight, Loader2, ShieldCheck, Wallet } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { apiClient } from '@/api/client'
-import { type BasketOrderItem, type BasketOrderResult, tradingApi } from '@/api/trading'
+import { type BasketOrderResult, tradingApi } from '@/api/trading'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -11,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { hasInvalidLimitPrice, rowFromLeg, useBasketSubmit } from '@/lib/basketExecution'
 import { isLegClosed, isLegExecutable, type StrategyLeg } from '@/lib/strategyMath'
 import { cn } from '@/lib/utils'
 import { showToast } from '@/utils/toast'
@@ -98,8 +99,12 @@ export function ExecutePlanWizard({
   const [fundsLoading, setFundsLoading] = useState(false)
   const [fundsChecked, setFundsChecked] = useState(false)
   const [confirmed, setConfirmed] = useState(false)
-  const [submitting, setSubmitting] = useState(false)
-  const [results, setResults] = useState<BasketOrderResult[] | null>(null)
+  const [stockSubmitting, setStockSubmitting] = useState(false)
+  const [stockResults, setStockResults] = useState<BasketOrderResult[] | null>(null)
+  const basket = useBasketSubmit()
+  const resetBasket = basket.reset
+  const submitting = stockSubmitting || basket.submitting
+  const results = stockResults ?? basket.results
 
   const current = stepOrder[idx] ?? 'preview'
 
@@ -116,6 +121,11 @@ export function ExecutePlanWizard({
   const activeLegs = useMemo(() => openLegs.filter(isLegExecutable), [openLegs])
   const unresolvedLegs = planKind === 'stock' ? 0 : openLegs.length - activeLegs.length
 
+  // Hub plans execute as LIMIT at the tick-snapped touch price (D548). A leg with no
+  // usable touch price blocks the order: it is never sent as MARKET instead.
+  const basketRows = useMemo(() => activeLegs.map(rowFromLeg), [activeLegs])
+  const missingTouchPrice = planKind !== 'stock' && hasInvalidLimitPrice(basketRows, 'LIMIT')
+
   const orderNotional = useMemo(() => {
     if (planKind !== 'stock' || !stockOrder) return null
     const px = stockOrder.entry ?? 0
@@ -130,8 +140,9 @@ export function ExecutePlanWizard({
     setAvailableCash(null)
     setFundsChecked(false)
     setConfirmed(false)
-    setResults(null)
-  }, [open, planName, planKind])
+    setStockResults(null)
+    resetBasket()
+  }, [open, planName, planKind, resetBasket])
 
   const fetchMargin = useCallback(async () => {
     if (!apiKey || activeLegs.length === 0) {
@@ -194,43 +205,9 @@ export function ExecutePlanWizard({
   }, [open, current, fetchFunds])
 
   const executeBasket = async () => {
-    if (!apiKey || unresolvedLegs > 0 || activeLegs.length === 0) return
-    setSubmitting(true)
-    try {
-      const orders: BasketOrderItem[] = activeLegs.map((l) => ({
-        symbol: l.symbol,
-        exchange,
-        action: l.side,
-        quantity: l.lots * l.lotSize,
-        pricetype: 'MARKET',
-        product: 'NRML',
-      }))
-      const res = await tradingApi.placeBasketOrder(apiKey, planName, orders)
-      if (res.status !== 'success') {
-        showToast.error(res.message || 'Basket order failed')
-        return
-      }
-      // Top-level status is "success" even when individual legs were rejected:
-      // the per-leg results are the truth, so a rejected leg must be loud.
-      const legResults = res.results ?? []
-      const failed = legResults.filter((r) => r.status !== 'success').length
-      const modeNote = res.mode === 'analyze' ? ' (analyzer, no real orders)' : ''
-      setResults(legResults)
-      if (legResults.length === 0) {
-        showToast.error('Basket response carried no per-leg results; check the order book')
-      } else if (failed > 0) {
-        showToast.error(
-          `Basket partial: ${legResults.length - failed} ok, ${failed} rejected${modeNote}. Review the legs and close any filled leg.`
-        )
-      } else {
-        showToast.success(`Basket order submitted${modeNote}`)
-      }
-      setIdx(stepOrder.length - 1)
-    } catch (err) {
-      showToast.error(err instanceof Error ? err.message : 'Basket order failed')
-    } finally {
-      setSubmitting(false)
-    }
+    if (!apiKey || unresolvedLegs > 0 || activeLegs.length === 0 || missingTouchPrice) return
+    const outcome = await basket.submit(apiKey, planName, basketRows, exchange, 'LIMIT', 'NRML')
+    if (outcome) setIdx(stepOrder.length - 1)
   }
 
   const executeStockOrder = async () => {
@@ -240,7 +217,7 @@ export function ExecutePlanWizard({
       return
     }
     const payload = executePayload ?? {}
-    setSubmitting(true)
+    setStockSubmitting(true)
     try {
       const res = await tradingApi.placeOrder({
         apikey: apiKey,
@@ -254,7 +231,7 @@ export function ExecutePlanWizard({
       })
       if (res.status !== 'success') {
         showToast.error(res.message || 'Order failed')
-        setResults([
+        setStockResults([
           {
             symbol: stockOrder.symbol,
             status: 'error',
@@ -264,7 +241,7 @@ export function ExecutePlanWizard({
         setIdx(stepOrder.length - 1)
         return
       }
-      setResults([
+      setStockResults([
         {
           symbol: stockOrder.symbol,
           status: 'success',
@@ -276,7 +253,7 @@ export function ExecutePlanWizard({
     } catch (err) {
       showToast.error(err instanceof Error ? err.message : 'Order failed')
     } finally {
-      setSubmitting(false)
+      setStockSubmitting(false)
     }
   }
 
@@ -284,7 +261,7 @@ export function ExecutePlanWizard({
     (current === 'preview') ||
     (current === 'margin' && marginChecked && !marginLoading) ||
     (current === 'funds' && fundsChecked && !fundsLoading) ||
-    (current === 'confirm' && confirmed && unresolvedLegs === 0 && (planKind === 'stock' || activeLegs.length > 0)) ||
+    (current === 'confirm' && confirmed && unresolvedLegs === 0 && !missingTouchPrice && (planKind === 'stock' || activeLegs.length > 0)) ||
     current === 'execute'
 
   const goNext = () => {
@@ -363,6 +340,12 @@ export function ExecutePlanWizard({
                 <div className="rounded-lg border border-rose-500/40 bg-rose-500/5 p-3 text-xs text-rose-600">
                   {unresolvedLegs} leg(s) have no resolved contract yet, so this plan cannot be
                   executed. Wait for contract resolution or fix the legs in the builder.
+                </div>
+              )}
+              {missingTouchPrice && (
+                <div className="rounded-lg border border-rose-500/40 bg-rose-500/5 p-3 text-xs text-rose-600">
+                  A leg has no valid touch price, so this plan cannot be executed as LIMIT.
+                  Refresh the quotes or fix the legs in the builder.
                 </div>
               )}
               {charges && (
@@ -449,13 +432,23 @@ export function ExecutePlanWizard({
                 {planKind === 'stock' && stockOrder
                   ? ` — ${stockOrder.action} ${stockOrder.quantity} ${stockOrder.symbol} on ${stockOrder.exchange}`
                   : ` with ${activeLegs.length} legs on ${exchange}`}
-                . I understand this places real orders.
+                . I understand this places real orders (LIMIT at the touch price).
               </span>
             </label>
           )}
 
           {current === 'execute' && results && (
             <div className="space-y-2">
+              {planKind !== 'stock' && basket.unfilled.length > 0 && (
+                <div
+                  role="alert"
+                  className="rounded-lg border border-rose-500/40 bg-rose-500/5 p-3 text-xs text-rose-600"
+                >
+                  Partial basket: {basket.unfilled.join(', ')} not placed. Any other leg may be
+                  working or filled, so a spread can be left with a naked leg. Review the order
+                  book and close it if needed.
+                </div>
+              )}
               {results.map((r, i) => (
                 <div
                   key={i}

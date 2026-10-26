@@ -1,6 +1,5 @@
 import { CheckCircle2, Send, XCircle } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { type BasketOrderItem, type BasketOrderResult, tradingApi } from '@/api/trading'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -13,43 +12,20 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  type BasketRow as RowState,
+  contractKey,
+  hasInvalidLimitPrice,
+  type PriceType,
+  type ProductType,
+  roundToTick,
+  rowFromLeg,
+  useBasketSubmit,
+} from '@/lib/basketExecution'
 import { isLegExecutable, type StrategyLeg } from '@/lib/strategyMath'
 import { cn } from '@/lib/utils'
-import { showToast } from '@/utils/toast'
-
-/**
- * Basket execution dialog for the Strategy Builder.
- *
- * Minimal controls by design — per-leg rows show only Include / side /
- * symbol / qty / price. Product (NRML|MIS) and Pricetype (LIMIT|MKT) are
- * single global controls that stamp every leg. Strategy name is
- * read-only and framed by the parent. Exchange is whatever the parent
- * resolves — NFO, BFO, or any crypto code pass through unchanged.
- *
- * Symbol format and order constants follow docs/prompt/symbols.md and
- * docs/prompt/order-constants.md.
- */
-
-type PriceType = 'LIMIT' | 'MARKET'
-type ProductType = 'NRML' | 'MIS'
 
 const PRODUCT_TYPES: ProductType[] = ['NRML', 'MIS']
-
-interface RowState {
-  legId: string
-  contractKey: string
-  include: boolean
-  symbol: string
-  action: 'BUY' | 'SELL'
-  segment: 'OPTION' | 'FUTURE'
-  optionType?: 'CE' | 'PE'
-  /** Lots the user buys/sells. Contract quantity = lots × lotSize. */
-  lots: number
-  /** Broker lot size (from the symbol / option-chain service). */
-  lotSize: number
-  price: number | null
-  tickSize: number
-}
 
 export interface ExecuteBasketDialogProps {
   open: boolean
@@ -60,70 +36,6 @@ export interface ExecuteBasketDialogProps {
   /** Read-only strategy name — auto-framed by the parent. */
   strategyName: string
   apiKey: string
-}
-
-function toScaledInteger(value: number): { coefficient: bigint; exponent: number } {
-  const [significand, exponentText] = value.toString().toLowerCase().split('e')
-  const decimalPoint = significand.indexOf('.')
-  const fractionDigits = decimalPoint === -1 ? 0 : significand.length - decimalPoint - 1
-  return {
-    coefficient: BigInt(significand.replace('.', '')),
-    exponent: (exponentText ? Number(exponentText) : 0) - fractionDigits,
-  }
-}
-
-function scaledIntegerToNumber(coefficient: bigint, exponent: number): number {
-  return Number(`${coefficient}e${exponent}`)
-}
-
-/** Snap `value` to the nearest multiple of `tick` with exact decimal half-up rounding. */
-function roundToTick(value: number, tick: number): number | null {
-  if (!Number.isFinite(value) || value <= 0) return null
-  if (!Number.isFinite(tick) || tick <= 0) return null
-  const valueParts = toScaledInteger(value)
-  const tickParts = toScaledInteger(tick)
-  let numerator = valueParts.coefficient
-  let denominator = tickParts.coefficient
-  if (valueParts.exponent > tickParts.exponent) {
-    numerator *= 10n ** BigInt(valueParts.exponent - tickParts.exponent)
-  } else if (tickParts.exponent > valueParts.exponent) {
-    denominator *= 10n ** BigInt(tickParts.exponent - valueParts.exponent)
-  }
-
-  let multiples = numerator / denominator
-  if ((numerator % denominator) * 2n >= denominator) multiples += 1n
-  const rounded = scaledIntegerToNumber(multiples * tickParts.coefficient, tickParts.exponent)
-  return Number.isFinite(rounded) && rounded > 0 ? rounded : null
-}
-
-function contractKey(leg: StrategyLeg): string {
-  return [
-    leg.id,
-    leg.exchange ?? '',
-    leg.symbol,
-    leg.segment,
-    leg.expiry,
-    leg.strike ?? '',
-    leg.optionType ?? '',
-    leg.side,
-  ].join('|')
-}
-
-function rowFromLeg(leg: StrategyLeg): RowState {
-  if (!isLegExecutable(leg)) throw new Error('Rows require executable legs')
-  return {
-    legId: leg.id,
-    contractKey: contractKey(leg),
-    include: true,
-    symbol: leg.symbol,
-    action: leg.side,
-    segment: leg.segment,
-    optionType: leg.optionType,
-    lots: leg.lots,
-    lotSize: leg.lotSize,
-    price: roundToTick(leg.price, leg.tickSize),
-    tickSize: leg.tickSize,
-  }
 }
 
 export function ExecuteBasketDialog({
@@ -138,8 +50,7 @@ export function ExecuteBasketDialog({
   const [rows, setRows] = useState<RowState[]>([])
   const [product, setProduct] = useState<ProductType>('NRML')
   const [pricetype, setPricetype] = useState<PriceType>('LIMIT')
-  const [submitting, setSubmitting] = useState(false)
-  const [results, setResults] = useState<BasketOrderResult[] | null>(null)
+  const { submitting, results, submit, reset } = useBasketSubmit()
   const wasOpenRef = useRef(false)
 
   // Reset only for a fresh open. While open, market updates reconcile by the
@@ -151,7 +62,7 @@ export function ExecuteBasketDialog({
     }
     const isFreshOpen = !wasOpenRef.current
     if (isFreshOpen) {
-      setResults(null)
+      reset()
       setProduct('NRML')
       setPricetype('LIMIT')
     }
@@ -171,77 +82,26 @@ export function ExecuteBasketDialog({
       })
     })
     wasOpenRef.current = true
-  }, [open, executableLegs])
+  }, [open, executableLegs, reset])
 
   const updateRow = (legId: string, patch: Partial<RowState>) =>
     setRows((prev) => prev.map((r) => (r.legId === legId ? { ...r, ...patch } : r)))
 
   const includedRows = rows.filter((r) => r.include)
-  const hasInvalidLimitPrice =
-    pricetype === 'LIMIT' &&
-    includedRows.some((r) => r.price === null || !Number.isFinite(r.price) || r.price <= 0)
   const canSubmit =
     !submitting &&
     includedRows.length > 0 &&
     strategyName.trim().length > 0 &&
     !!apiKey &&
-    !hasInvalidLimitPrice
+    !hasInvalidLimitPrice(rows, pricetype)
 
   const handleExecute = async () => {
     if (!canSubmit) return
-
-    // Build payload per docs/prompt/services_documentation.md (BasketOrder).
-    // Contract quantity = lots × lotSize — the broker API expects contracts.
-    // Final tick-snap here in case the user hit Execute before blurring
-    // a manually-edited price input.
-    const normalizedRows = includedRows.map((row) => ({
-      row,
-      price: pricetype === 'LIMIT' ? roundToTick(row.price ?? 0, row.tickSize) : 0,
-    }))
-    if (pricetype === 'LIMIT') {
-      const bad = normalizedRows.find(
-        ({ price }) => price === null || !Number.isFinite(price) || price <= 0
-      )
-      if (bad) {
-        updateRow(bad.row.legId, { price: null })
-        showToast.error(`${bad.row.symbol}: LIMIT needs a valid price`)
-        return
-      }
-    }
-    const orders: BasketOrderItem[] = normalizedRows.map(({ row, price }) => ({
-      symbol: row.symbol,
-      exchange,
-      action: row.action,
-      quantity: row.lots * row.lotSize,
-      pricetype,
-      product,
-      price: price ?? 0,
-      trigger_price: 0,
-    }))
-
-    setSubmitting(true)
-    try {
-      const resp = await tradingApi.placeBasketOrder(apiKey, strategyName.trim(), orders)
-      if (resp.status !== 'success') {
-        showToast.error(resp.message || 'Basket order failed')
-        setSubmitting(false)
-        return
-      }
-      const resultList = resp.results ?? []
-      setResults(resultList)
-      const successCount = resultList.filter((r) => r.status === 'success').length
-      const failCount = resultList.length - successCount
-      if (failCount === 0) {
-        showToast.success(`Basket placed: ${successCount}/${resultList.length} orders`)
-        setTimeout(() => onOpenChange(false), 800)
-      } else {
-        showToast.error(`Basket partial: ${successCount} ok, ${failCount} failed`)
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Network error'
-      showToast.error(`Basket order error: ${msg}`)
-    } finally {
-      setSubmitting(false)
+    const outcome = await submit(apiKey, strategyName, rows, exchange, pricetype, product, (bad) =>
+      updateRow(bad.legId, { price: null })
+    )
+    if (outcome && outcome.results.length > 0 && outcome.unfilled.length === 0) {
+      setTimeout(() => onOpenChange(false), 800)
     }
   }
 
