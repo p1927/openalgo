@@ -28,6 +28,13 @@ export interface BasketRow {
   tickSize: number
 }
 
+/**
+ * Ceiling on one leg's contract quantity. The exchange freeze limit is per symbol and lives in the backend
+ * (qty_freeze_db); no frontend constant exists, so this is a documented sanity cap, well above any real index
+ * freeze limit (NIFTY ~1800 contracts) and far below a fat-finger or overflow value.
+ */
+export const MAX_LEG_QUANTITY = 100_000
+
 function toScaledInteger(value: number): { coefficient: bigint; exponent: number } {
   const [significand, exponentText] = value.toString().toLowerCase().split('e')
   const decimalPoint = significand.indexOf('.')
@@ -109,10 +116,17 @@ export function buildBasketOrders(
   const included = rows.filter((r) => r.include)
   if (included.length === 0) return { bad: null }
   // Quantity must be a positive whole number of contracts; 0 / NaN / fractional never reach the broker.
+  // lots and lotSize are each positive (a negative pair must not multiply into a positive quantity) and the
+  // product is within MAX_LEG_QUANTITY, so an absurd product never reaches the broker.
   const badQuantity = included.find((r) => {
     const q = r.lots * r.lotSize
     return (
-      !Number.isInteger(r.lots) || !Number.isInteger(r.lotSize) || !Number.isInteger(q) || q <= 0
+      !Number.isInteger(r.lots) ||
+      !Number.isInteger(r.lotSize) ||
+      r.lots <= 0 ||
+      r.lotSize <= 0 ||
+      !Number.isSafeInteger(q) ||
+      q > MAX_LEG_QUANTITY
     )
   })
   if (badQuantity) return { badQuantity }

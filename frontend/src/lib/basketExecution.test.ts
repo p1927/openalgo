@@ -92,12 +92,24 @@ describe('D4 quantity validation', () => {
     ['Infinity lots', { lots: Number.POSITIVE_INFINITY }],
     ['zero lot size', { lotSize: 0 }],
     ['fractional lot size', { lotSize: 0.5 }],
+    ['negative lots and lot size (positive product)', { lots: -2, lotSize: -50 }],
+    ['negative lot size', { lotSize: -50 }],
+    ['negative zero lots', { lots: -0 }],
+    ['absurd product 2^40 x 2^40', { lots: 2 ** 40, lotSize: 2 ** 40 }],
+    ['unsafe-integer product', { lots: 2 ** 30, lotSize: 2 ** 30 }],
+    ['one past the cap', { lots: 100_001, lotSize: 1 }],
+    ['Infinity lot size', { lotSize: Number.POSITIVE_INFINITY }],
+    ['NaN lot size', { lotSize: Number.NaN }],
   ])('%s places nothing', async (_n, patch) => {
     const rows = [rowFromLeg(leg()), { ...rowFromLeg(leg({ id: 'b', symbol: 'B' })), ...patch }]
     const built = buildBasketOrders(rows, 'NFO', 'LIMIT', 'NRML')
     expect('badQuantity' in built).toBe(true)
     expect(await run(rows)).toBeNull()
     expect(place).not.toHaveBeenCalled()
+  })
+  it('the cap itself is allowed', () => {
+    const rows = [{ ...rowFromLeg(leg()), lots: 1000, lotSize: 100 }]
+    expect('orders' in buildBasketOrders(rows, 'NFO', 'LIMIT', 'NRML')).toBe(true)
   })
   it('an excluded bad-quantity row is ignored', () => {
     const rows = [rowFromLeg(leg()), { ...rowFromLeg(leg({ id: 'b' })), lots: 0, include: false }]
