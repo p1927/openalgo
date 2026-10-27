@@ -240,6 +240,7 @@ def extend_master_contract_for_expiry(
     # Build the symtoken rows with the bulk build's own row builder and underlying metadata
     # (exchange-mandated lot size / tick size), so a lazily inserted row is identical to a bulk one.
     try:
+        from trade_integrations.stock_simulator.lot_sizes import LotSizeUnavailable, lot_size
         from trade_integrations.stock_simulator.master_contract import (
             UNDERLYING_META,
             format_expiry_column,
@@ -256,6 +257,12 @@ def extend_master_contract_for_expiry(
     expiry_d = _date.fromisoformat(expiry_iso)
     expiry_col = format_expiry_column(expiry_d)
 
+    try:
+        lot = lot_size(slug, expiry=expiry_d)
+    except LotSizeUnavailable:
+        logger.exception("lazy MC extend: no confirmed lot size for %s %s; opting out", slug, expiry_iso)
+        return 0
+
     rows: list[dict[str, Any]] = [
         option_row(
             base_symbol=slug,
@@ -264,7 +271,7 @@ def extend_master_contract_for_expiry(
             expiry=expiry_d,
             strike=strike,
             opt_type=opt_type,
-            lotsize=meta["lotsize"],
+            lotsize=lot,  # dated circular table: the lot follows the expiry
             tick_size=meta["tick_size"],
         )
         for strike, opt_type in legs
